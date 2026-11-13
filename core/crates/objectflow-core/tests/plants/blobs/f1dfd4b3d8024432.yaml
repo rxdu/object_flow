@@ -1,0 +1,18 @@
+examples_for: probe
+setups:
+  a_thing:
+    description: A thing and its mover.
+    steps:
+      - request: { type: Thing, transition: add, as: thing, inputs: { label: Crate } }
+      - request: { type: Mover, transition: add, as: mover, inputs: { thing: thing } }
+examples:
+  the_sets_left_out:
+    description: The derived sets left out are empty.
+    given: a_thing
+    request: { object: mover, transition: move, inputs: { to_whom: Ana } }
+    expect: { verdict: applied, state: ON, cascaded: [Thing.scrap, Custody.record] }
+  the_sets_given:
+    description: The derived sets given are the move's own.
+    given: a_thing
+    request: { object: mover, transition: move, inputs: { to_whom: Ana, tags: [fragile], came_with: [thing] } }
+    expect: { verdict: applied, state: ON, cascaded: [Custody.record] }

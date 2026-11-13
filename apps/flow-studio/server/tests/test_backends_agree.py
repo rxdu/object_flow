@@ -300,3 +300,110 @@ def test_derived_inputs_are_served_and_taken_alike(tee):
     recorded = tee.post("/v1/get", {"actor": op, "id": custody})
     assert recorded["attributes"]["to_whom"] == "Ana", recorded
     assert tee.found[before:] == [], tee.found[before:]
+
+
+CARRIES = """module: carries
+categories: [live, closed]
+types:
+  Thing:
+    description: A thing whose hands change.
+    tracking: record
+    attributes:
+      label: { type: string, optional: true }
+    observations:
+      custody:
+        kind: Custody
+        description: Who holds the thing.
+        attributes:
+          to_whom: { type: string, description: Who takes it. }
+          tags: { type: "string[]", optional: true }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      add: { kind: initial, to: ON }
+      arrive:
+        kind: initial
+        to: ON
+        required_inputs: [label]
+        effect:
+          - create: { type: Custody, transition: record, inputs: { subject: this }, rest: inputs }
+      scrap: { kind: external, from: [ON], to: OFF }
+  Mover:
+    description: Moves a thing.
+    tracking: record
+    attributes:
+      thing: { reference: Thing }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [thing] }
+      scrap: { kind: external, from: [ON], to: OFF }
+      move:
+        kind: internal
+        from: ON
+        effect:
+          - create: { type: Custody, transition: record, inputs: { subject: thing }, rest: inputs }
+      make:
+        kind: internal
+        from: ON
+        effect:
+          - create: { type: Thing, transition: arrive, rest: inputs }
+"""
+
+
+def test_derived_sets_and_chains_are_served_and_taken_alike(tee):
+    """A derived set the record need not be given, and a derivation through a
+    create whose target takes the rest of its own (ADR-0275), are answered
+    alike by both backends: the declaration serves the set defaulting to the
+    empty set and the chained inputs marked with the step's own target; a
+    set left out is recorded empty and one given as given; and a request
+    through the chain records the custody, its receiver refused left out."""
+    tee.module = "carries (derived sets and chains)"
+    before = len(tee.found)
+    op = {"id": "operator"}
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "carries.yaml",
+                                                   "text": CARRIES}]})
+    assert loaded["loaded"], loaded
+    mover_type = tee.post("/v1/declaration", {"type": "Mover"})["transitions"]
+    assert mover_type["move"]["inputs"]["tags"] == {
+        "type": "string[]", "default": "{}",
+        "derived_from": "Custody.record"}, mover_type["move"]
+    assert mover_type["make"]["inputs"] == {
+        "label": {"type": "string", "derived_from": "Thing.arrive"},
+        "to_whom": {"type": "string", "description": "Who takes it.",
+                    "derived_from": "Thing.arrive"},
+        "tags": {"type": "string[]", "default": "{}",
+                 "derived_from": "Thing.arrive"}}, mover_type["make"]
+    thing = tee.post("/v1/request", {"actor": op, "type": "Thing",
+                                     "transition": "add"})["object_id"]
+    mover = tee.post("/v1/request", {"actor": op, "type": "Mover",
+                                     "transition": "add",
+                                     "inputs": {"thing": thing}})["object_id"]
+    tee.post("/v1/availability", {"actor": op, "id": mover})
+    for inputs, want in (({"to_whom": "Ana"}, []),
+                         ({"to_whom": "Bo", "tags": ["fragile"]}, ["fragile"])):
+        moved = tee.post("/v1/request", {"actor": op, "object_id": mover,
+                                         "transition": "move",
+                                         "inputs": inputs})
+        assert moved["kind"] == "satisfied", moved
+        [custody] = moved["created"]
+        recorded = tee.post("/v1/get", {"actor": op, "id": custody})
+        assert recorded["attributes"]["tags"] == want, recorded
+    left_out = tee.post("/v1/request", {"actor": op, "object_id": mover,
+                                        "transition": "make",
+                                        "inputs": {"label": "Box"}})
+    assert left_out["kind"] == "invalid_input", left_out
+    assert left_out["reasons"] == {"to_whom": "missing"}, left_out
+    made = tee.post("/v1/request", {"actor": op, "object_id": mover,
+                                    "transition": "make",
+                                    "inputs": {"label": "Box", "to_whom": "Cy"}})
+    assert made["kind"] == "satisfied" and len(made["created"]) == 2, made
+    custody = [c for c in made["created"]
+               if tee.post("/v1/get", {"actor": op, "id": c})["type"] == "Custody"]
+    assert len(custody) == 1, made
+    recorded = tee.post("/v1/get", {"actor": op, "id": custody[0]})
+    assert recorded["attributes"]["to_whom"] == "Cy", recorded
+    assert recorded["attributes"]["tags"] == [], recorded
+    assert tee.found[before:] == [], tee.found[before:]

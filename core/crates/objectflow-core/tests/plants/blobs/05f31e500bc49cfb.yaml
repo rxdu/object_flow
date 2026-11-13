@@ -1,0 +1,18 @@
+examples_for: probe
+setups:
+  a_thing:
+    description: A thing and its mover.
+    steps:
+      - request: { type: Thing, transition: add, as: thing, inputs: { label: Crate } }
+      - request: { type: Mover, transition: add, as: mover, inputs: { thing: thing } }
+examples:
+  a_make_records_custody:
+    description: Making a thing records its custody, the record's inputs the make's own.
+    given: a_thing
+    request: { object: mover, transition: make, inputs: { label: Box, to_whom: Ana } }
+    expect: { verdict: applied, state: ON, cascaded: [Thing.scrap, Thing.arrive, Custody.record] }
+  the_receiver_is_required:
+    description: Who takes it is required through the thing, as the record requires it.
+    given: a_thing
+    request: { object: mover, transition: make, inputs: { label: Box } }
+    expect: { verdict: invalid_input }

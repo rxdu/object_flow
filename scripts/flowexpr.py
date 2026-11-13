@@ -287,6 +287,8 @@ class Parser:
                     self.take(",")
             self.take("}")
             return ("set", items)
+        if self.at("["):
+            self.fail("an operand (a set is written {a, b}, the empty set {})")
         self.fail("an operand")
 
     def call(self, fn):

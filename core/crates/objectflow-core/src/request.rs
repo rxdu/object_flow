@@ -9081,6 +9081,115 @@ types:
         );
     }
 
+    /// A derived set the record need not be given is the empty set when a
+    /// request leaves it out, and the request's when given; and a create of
+    /// a transition that derives the record's inputs takes them too (issue
+    /// #90, ADR-0275): the mover's `move` records the thing's custody with
+    /// no tags, then with one, and its `make` makes a thing whose arrival
+    /// records it, the receiver the make's own input, refused left out.
+    #[test]
+    fn a_derived_set_left_out_is_empty_and_a_derivation_carries_through() {
+        const MOVES: &str = r#"
+module: moves
+categories: [live, closed]
+types:
+  Thing:
+    attributes:
+      label: { type: string, optional: true }
+    observations:
+      custody:
+        kind: Custody
+        attributes:
+          to_whom: { type: string }
+          tags: { type: "string[]", optional: true }
+    states: { ON: { category: live } }
+    transitions:
+      add: { kind: initial, to: ON }
+      arrive:
+        kind: initial
+        to: ON
+        required_inputs: [label]
+        effect:
+          - create: { type: Custody, transition: record, inputs: { subject: this }, rest: inputs }
+  Mover:
+    attributes:
+      thing: { reference: Thing }
+    states: { ON: { category: live } }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [thing] }
+      move:
+        kind: internal
+        from: ON
+        effect:
+          - create: { type: Custody, transition: record, inputs: { subject: thing }, rest: inputs }
+      make:
+        kind: internal
+        from: ON
+        effect:
+          - create: { type: Thing, transition: arrive, rest: inputs }
+"#;
+        let lib = Library::load(&[("moves.yaml".into(), MOVES.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let thing = created(&req(&mut s, "add", OPERATOR, ("Thing", true), json!({})));
+        let mover = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Mover", true),
+            json!({"thing": thing}),
+        ));
+        let tags = |s: &mut Store, mover: &str, inputs: Json| -> Value {
+            created(&req(s, "move", OPERATOR, (mover, false), inputs));
+            let w = s.snapshot().unwrap();
+            let custody = w.of_type("Custody").unwrap();
+            let last = custody.iter().max_by_key(|c| c.id.clone()).unwrap();
+            w.whole(&last.id).unwrap().unwrap().attr("tags")
+        };
+        assert_eq!(
+            tags(&mut s, &mover, json!({"to_whom": "Ana"})),
+            Value::Set(Vec::new())
+        );
+        assert_eq!(
+            tags(
+                &mut s,
+                &mover,
+                json!({"to_whom": "Bo", "tags": ["fragile"]})
+            ),
+            Value::Set(vec![Value::Text("fragile".into())])
+        );
+        match req(
+            &mut s,
+            "make",
+            OPERATOR,
+            (&mover, false),
+            json!({"label": "Box"}),
+        ) {
+            Verdict::InvalidInput { inputs, reasons } => {
+                assert_eq!(inputs, ["to_whom"]);
+                assert_eq!(reasons, [InputReason::Missing]);
+            }
+            other => panic!("{other:?}"),
+        }
+        req(
+            &mut s,
+            "make",
+            OPERATOR,
+            (&mover, false),
+            json!({"label": "Box", "to_whom": "Cy"}),
+        );
+        let w = s.snapshot().unwrap();
+        let made: Vec<_> = w
+            .of_type("Custody")
+            .unwrap()
+            .iter()
+            .map(|c| w.whole(&c.id).unwrap().unwrap())
+            .filter(|c| c.attr("to_whom") == Value::Text("Cy".into()))
+            .collect();
+        assert_eq!(made.len(), 1);
+        assert_eq!(made[0].attr("tags"), Value::Set(Vec::new()));
+        assert_ne!(made[0].attr("subject"), Value::Object(thing.clone()));
+    }
+
     /// A member named like a kind of actor hides no kind from the invariant
     /// `taken_by` generates, which writes each kind qualified (issue #85,
     /// ADR-0269): beside a reference named `service`, a service's closing

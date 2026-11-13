@@ -30758,7 +30758,7 @@
     9,
     "notice",
     "unwritten",
-    "Thing.version is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+    "Thing.version is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always empty"
    ]
   ],
   "analysed": {
@@ -34530,6 +34530,413 @@
    ]
   ],
   "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_sets_and_chains_plants: a kind's optional sets derived, empty by default",
+  "files": [
+   [
+    "probe.yaml",
+    "3922174d0e5dfb4a"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_sets_and_chains_plants: a target's set defaulting to the empty set",
+  "files": [
+   [
+    "probe.yaml",
+    "25ed51ab3f619a66"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_sets_and_chains_plants: a target's set defaulting to a value of its own",
+  "files": [
+   [
+    "probe.yaml",
+    "517a598ea58ca169"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    47,
+    "fatal",
+    "names",
+    "Mover.move's create of Thing.stock takes the rest of its inputs, and derives the set 'marks', which Thing.stock gives a default of its own: name it in the step's inputs (ADR-0275)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_sets_and_chains_plants: a target's set attribute defaulting to a value of its own",
+  "files": [
+   [
+    "probe.yaml",
+    "ab9e51e6d229b1d6"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    47,
+    "fatal",
+    "names",
+    "Mover.move's create of Thing.stock takes the rest of its inputs, and derives the set 'shelf', which Thing.stock gives a default of its own: name it in the step's inputs (ADR-0275)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_sets_and_chains_plants: through a create whose target takes the rest of its own",
+  "files": [
+   [
+    "probe.yaml",
+    "09589688a1ef7b71"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_sets_and_chains_plants: a call passing the sets its literals give",
+  "files": [
+   [
+    "probe.yaml",
+    "50c9690a1827e162"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_sets_and_chains_plants: a set written as a list",
+  "files": [
+   [
+    "probe.yaml",
+    "d8408a053d38a360"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    45,
+    "fatal",
+    "syntax",
+    "an operand (a set is written {a, b}, the empty set {}), found '[', at 1 of '[]': not an expression of declaration-syntax.md §8"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_sets_and_chains_plants: creates taking the rest of each other's in a cycle",
+  "files": [
+   [
+    "probe.yaml",
+    "09cb26b3bb13009b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    30,
+    "fatal",
+    "names",
+    "Thing.arrive creates a Mover without the input 'label', which Mover.make requires"
+   ],
+   [
+    "probe.yaml",
+    30,
+    "fatal",
+    "names",
+    "Thing.arrive's create of Mover.make takes the rest of its inputs, and derives 'label', which the transition takes itself: name it in the step's inputs (ADR-0271)"
+   ],
+   [
+    "probe.yaml",
+    52,
+    "fatal",
+    "names",
+    "a transition causes itself, by a call, a create or a cascade: Thing.arrive → Mover.make → Thing.arrive; no transition may cause itself, on its own object or another (the model's check 12)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_sets_and_chains_plants: a type's optional set nothing writes",
+  "files": [
+   [
+    "probe.yaml",
+    "ee9c1a1ce1e3a70b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.yaml",
+    11,
+    "notice",
+    "unwritten",
+    "Thing.marks is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always empty"
+   ]
+  ],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_sets_and_chains_plants: the derived sets run",
+  "files": [
+   [
+    "probe.yaml",
+    "3922174d0e5dfb4a"
+   ],
+   [
+    "probe.examples.yaml",
+    "185c3b4226d36d76"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example requests 2 transitions of probe as the request under test, which only a setup, a step or an expected cascade takes: Mover.add, Thing.add"
+   ],
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of probe, by its request, a step, a setup or a cascade it expects: Mover.scrap, Thing.scrap"
+   ]
+  ],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_sets_and_chains_plants: the derived sets run",
+  "files": [
+   [
+    "probe.yaml",
+    "3922174d0e5dfb4a"
+   ],
+   [
+    "probe.examples.yaml",
+    "f1dfd4b3d8024432"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of probe as the request under test, which only a setup, a step or an expected cascade takes: Mover.add, Thing.add, Thing.scrap"
+   ],
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example takes 1 transition of probe, by its request, a step, a setup or a cascade it expects: Mover.scrap"
+   ],
+   [
+    "probe.examples.yaml",
+    9,
+    "fatal",
+    "example",
+    "the_sets_left_out: expected the request to cause ['Thing.scrap', 'Custody.record'], and it causes ['Custody.record']"
+   ]
+  ],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_sets_and_chains_plants: a request through the chain run",
+  "files": [
+   [
+    "probe.yaml",
+    "09589688a1ef7b71"
+   ],
+   [
+    "probe.examples.yaml",
+    "5a76517eb113e4d9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of probe as the request under test, which only a setup, a step or an expected cascade takes: Mover.add, Thing.add, Thing.arrive"
+   ],
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example takes 3 transitions of probe, by its request, a step, a setup or a cascade it expects: Mover.move, Mover.scrap, Thing.scrap"
+   ]
+  ],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "rest_sets_and_chains_plants: a request through the chain run",
+  "files": [
+   [
+    "probe.yaml",
+    "09589688a1ef7b71"
+   ],
+   [
+    "probe.examples.yaml",
+    "05f31e500bc49cfb"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example requests 4 transitions of probe as the request under test, which only a setup, a step or an expected cascade takes: Mover.add, Thing.add, Thing.arrive, Thing.scrap"
+   ],
+   [
+    "probe.examples.yaml",
+    8,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of probe, by its request, a step, a setup or a cascade it expects: Mover.move, Mover.scrap"
+   ],
+   [
+    "probe.examples.yaml",
+    9,
+    "fatal",
+    "example",
+    "a_make_records_custody: expected the request to cause ['Thing.scrap', 'Thing.arrive', 'Custody.record'], and it causes ['Thing.arrive', 'Custody.record']"
+   ]
+  ],
+  "analysed": {
+   "Mover": [
+    0,
+    0
+   ],
+   "Thing": [
+    0,
+    0
+   ]
+  },
   "forms": {},
   "could_violate": {}
  },
@@ -48977,7 +49384,7 @@
     18,
     "notice",
     "unwritten",
-    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always empty"
    ],
    [
     "ledger.yaml",
@@ -49118,7 +49525,7 @@
     18,
     "notice",
     "unwritten",
-    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always empty"
    ],
    [
     "ledger.yaml",
@@ -49259,7 +49666,7 @@
     18,
     "notice",
     "unwritten",
-    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always empty"
    ],
    [
     "ledger.yaml",
@@ -49407,7 +49814,7 @@
     18,
     "notice",
     "unwritten",
-    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always empty"
    ],
    [
     "ledger.yaml",
@@ -49572,7 +49979,7 @@
     18,
     "notice",
     "unwritten",
-    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always empty"
    ],
    [
     "ledger.yaml",
@@ -49646,7 +50053,7 @@
     18,
     "notice",
     "unwritten",
-    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always empty"
    ],
    [
     "ledger.yaml",
@@ -49720,7 +50127,7 @@
     18,
     "notice",
     "unwritten",
-    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always empty"
    ],
    [
     "ledger.yaml",
@@ -49794,7 +50201,7 @@
     18,
     "notice",
     "unwritten",
-    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always empty"
    ],
    [
     "ledger.yaml",
@@ -49868,7 +50275,7 @@
     18,
     "notice",
     "unwritten",
-    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always empty"
    ]
   ],
   "analysed": {
@@ -50019,7 +50426,7 @@
     18,
     "notice",
     "unwritten",
-    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always empty"
    ]
   ],
   "analysed": {
@@ -50103,7 +50510,7 @@
     18,
     "notice",
     "unwritten",
-    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+    "Account.tags is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always empty"
    ]
   ],
   "analysed": {

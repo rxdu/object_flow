@@ -3,6 +3,7 @@
 - **Status:** **Decided** by the author 2026-11-12 ("proceed with all 3"), as proposed the same day for issue #88, its direction decided before it ("proceed with your recommendations"), on the recommendation and its four points put that day. To be built for 0.24.0; built the same day, the marker served as `derived_from` (`library-api.md` §6).
 - **Date:** 2026-11-12
 - **Refines:** ADR-0270 (an effect records an observation); the `create` step of `flow-format.md` §4.8
+- **Refined by:** ADR-0275 — a derived set the target need not be given defaults to the empty set, and a derivation carries through a target that takes the rest of its own.
 - **Relates to:** ADR-0254 decision 9 (a value's later slices); ADR-0176 (`taken_by`, sugar the loader expands); ADR-0052 (an optional input left out skips its write); ADR-0078 and the model's check 60 (a personal input held needs an erasure); `docs/research/deriving-an-acts-inputs-from-the-record-it-makes.md`; issue #88
 
 ## Context

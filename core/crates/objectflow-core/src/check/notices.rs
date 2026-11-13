@@ -296,7 +296,7 @@ pub fn vetoes(doc: &Value, library: &Obj) -> Found {
 }
 
 /// An optional attribute of an owned type that nothing writes, so it is
-/// always absent: no transition of the type, a subtype or its machine takes
+/// always absent, or empty where it is a set: no transition of the type, a subtype or its machine takes
 /// it as an input or sets it in an effect, and no migration backfills it
 /// or renames an attribute into it; one with a default, a counter, an
 /// identifier, an external identifier or a relationship's end, which its
@@ -371,11 +371,24 @@ pub fn unwritten(view: &Value, doc: &Value) -> Found {
             {
                 continue;
             }
+            // a set is never absent, only empty (ADR-0122 decision 27)
+            let always = if spec
+                .get("type")
+                .filter(|t| super::doc::truthy(Some(t)))
+                .or_else(|| spec.get("reference"))
+                .map(py_str)
+                .unwrap_or_default()
+                .ends_with("[]")
+            {
+                "empty"
+            } else {
+                "absent"
+            };
             out.push(finding(
                 segs!["types", tn, "attributes", a],
                 "unwritten",
                 format!(
-                    "{tn}.{a} is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+                    "{tn}.{a} is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always {always}"
                 ),
             ));
         }

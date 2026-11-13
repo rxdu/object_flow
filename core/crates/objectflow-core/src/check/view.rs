@@ -5,7 +5,7 @@
 
 use serde_json::{Map, Value, json};
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::doc::{Found, Obj, Path, as_obj, flag, list, obj, py_str, text};
 use super::steps::{required_input_names, step_kind, taken, walk};
@@ -479,15 +479,6 @@ pub fn taken_by_errors(doc: &Value) -> Found {
     out
 }
 
-/// The bases a type extends, nearest first; the walk stops at an unknown
-/// name or where it would come back to a type it has passed.
-/// Each observation kind the types given declare, as the checks see one
-/// (`declaration-syntax.md` §6.8; `check-flows.py`'s `observation_kinds`): a
-/// type born final, recorded by its generated creation, `record`, by a
-/// caller or an effect's `create` (ADR-0270), taking the subject and each
-/// field, and optionally the observation it corrects; a kind with a personal
-/// field has a generated erasure, `forget`, too (ADR-0147). Its occurred and
-/// recorded times are read, and never given as inputs.
 /// Whether a transition holds a create taking the rest of its inputs from
 /// its own.
 fn has_rest(x: &Value) -> bool {
@@ -520,37 +511,96 @@ fn json_path(v: &Value) -> Path {
         .unwrap_or_default()
 }
 
-/// A type with each `rest: inputs` of its creates expanded, as
-/// `check-flows.py`'s `with_rest` (ADR-0271): each input of the created
-/// transition the step does not name becomes an input of the transition
-/// making it, declared as the target declares it, required where the target
-/// requires it and gives no default, marked with its target; and the step
-/// passes it as `inputs.<name>`. An observation kind's `subject` and
-/// `corrects` are never derived. A name the transition takes itself, or two
-/// creates deriving one name unlike, is left underived and recorded on the
-/// transition, which `rest_errors` reports.
-fn with_rest(tn: &str, t: Value, kinds: &Obj) -> Value {
-    let transitions = obj(&t, "transitions").clone();
-    if !transitions.values().any(has_rest) {
-        return t;
-    }
-    let recorded = observation_kinds(kinds);
-    let mut out = Map::new();
-    for (xn, x) in &transitions {
-        if !has_rest(x) {
-            out.insert(xn.clone(), x.clone());
-            continue;
+/// Whether a default is the empty set as written, `{}`, spaces aside.
+fn empty_set(v: &Value) -> bool {
+    py_str(v)
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        == "{}"
+}
+
+/// Each type of `kinds` with each `rest: inputs` of its creates expanded, as
+/// `check-flows.py`'s `with_rests` (ADR-0271, ADR-0275): each input of the
+/// created transition the step does not name becomes an input of the
+/// transition making it, declared as the target declares it, required where
+/// the target requires it and gives no default, marked with its target; and
+/// the step passes it as `inputs.<name>`. One the target does not require
+/// is optional, and a set defaults to the empty set, `{}`, where the target
+/// gives it no default of its own. An observation kind's `subject` and
+/// `corrects` are never derived. A target taking the rest of its own inputs
+/// is expanded first, so a derivation carries through it; one reached again
+/// while it is expanded, a cycle the model's check 12 refuses, is read as
+/// written. A name the transition takes itself, two creates deriving one
+/// name unlike, or a set the target defaults to a value of its own, is left
+/// underived and recorded on the transition, which `rest_errors` reports.
+fn with_rests(kinds: Obj, everything: &Obj) -> Obj {
+    let mut rests = Rests {
+        everything,
+        recorded: observation_kinds(everything),
+        done: BTreeMap::new(),
+        doing: BTreeSet::new(),
+    };
+    kinds
+        .into_iter()
+        .map(|(tn, t)| {
+            let transitions = obj(&t, "transitions").clone();
+            if !transitions.values().any(has_rest) {
+                return (tn, t);
+            }
+            let mut out = Map::new();
+            for (xn, x) in &transitions {
+                let expanded = rests.transition(&tn, xn).unwrap_or_else(|| x.clone());
+                out.insert(xn.clone(), expanded);
+            }
+            let mut t = as_obj(&t).clone();
+            t.insert("transitions".into(), Value::Object(out));
+            (tn, Value::Object(t))
+        })
+        .collect()
+}
+
+/// `with_rests`'s expansion, each transition expanded once, its targets
+/// first.
+struct Rests<'a> {
+    everything: &'a Obj,
+    recorded: Obj,
+    done: BTreeMap<(String, String), Value>,
+    doing: BTreeSet<(String, String)>,
+}
+
+impl Rests<'_> {
+    /// `tn`'s transition `xn` with its rests expanded; as written where it
+    /// holds none, or is being expanded.
+    fn transition(&mut self, tn: &str, xn: &str) -> Option<Value> {
+        let x = self
+            .everything
+            .get(tn)
+            .and_then(|t| obj(t, "transitions").get(xn))
+            .cloned()?;
+        let key = (tn.to_string(), xn.to_string());
+        if !x.is_object() || !has_rest(&x) || self.doing.contains(&key) {
+            return Some(x);
         }
+        if let Some(done) = self.done.get(&key) {
+            return Some(done.clone());
+        }
+        self.doing.insert(key.clone());
+        let expanded = self.expanded(tn, xn, &x);
+        self.doing.remove(&key);
+        self.done.insert(key, expanded.clone());
+        Some(expanded)
+    }
+
+    fn expanded(&mut self, tn: &str, xn: &str, x: &Value) -> Value {
         let own = taken(x);
         let mut derived: Map<String, Value> = Map::new();
         let mut clashes: Vec<Value> = Vec::new();
-        let steps = expand_rest(
+        let steps = self.expand_rest(
             tn,
             xn,
             list(x, "effect"),
             &[],
-            kinds,
-            &recorded,
             &own,
             &mut derived,
             &mut clashes,
@@ -565,144 +615,154 @@ fn with_rest(tn: &str, t: Value, kinds: &Obj) -> Value {
         if !clashes.is_empty() {
             x.insert(RESTED.into(), Value::Array(clashes));
         }
-        out.insert(xn.clone(), Value::Object(x));
+        Value::Object(x)
     }
-    let mut t = as_obj(&t).clone();
-    t.insert("transitions".into(), Value::Object(out));
-    Value::Object(t)
-}
 
-#[allow(clippy::too_many_arguments)]
-fn expand_rest(
-    tn: &str,
-    xn: &str,
-    steps: &[Value],
-    path: &[Seg],
-    kinds: &Obj,
-    recorded: &Obj,
-    own: &BTreeSet<String>,
-    derived: &mut Map<String, Value>,
-    clashes: &mut Vec<Value>,
-) -> Vec<Value> {
-    let mut result = Vec::new();
-    for (i, st) in steps.iter().enumerate() {
-        let mut here = path.to_vec();
-        here.push(Seg::Index(i));
-        let kind = step_kind(st).unwrap_or("");
-        if kind == "foreach" {
-            let mut inner = here.clone();
-            inner.push(Seg::Key("foreach".into()));
-            inner.push(Seg::Key("steps".into()));
-            let f = st.get("foreach").cloned().unwrap_or(Value::Null);
-            let body = expand_rest(
-                tn,
-                xn,
-                list(&f, "steps"),
-                &inner,
-                kinds,
-                recorded,
-                own,
-                derived,
-                clashes,
+    #[allow(clippy::too_many_arguments)]
+    fn expand_rest(
+        &mut self,
+        tn: &str,
+        xn: &str,
+        steps: &[Value],
+        path: &[Seg],
+        own: &BTreeSet<String>,
+        derived: &mut Map<String, Value>,
+        clashes: &mut Vec<Value>,
+    ) -> Vec<Value> {
+        let mut result = Vec::new();
+        for (i, st) in steps.iter().enumerate() {
+            let mut here = path.to_vec();
+            here.push(Seg::Index(i));
+            let kind = step_kind(st).unwrap_or("");
+            if kind == "foreach" {
+                let mut inner = here.clone();
+                inner.push(Seg::Key("foreach".into()));
+                inner.push(Seg::Key("steps".into()));
+                let f = st.get("foreach").cloned().unwrap_or(Value::Null);
+                let body =
+                    self.expand_rest(tn, xn, list(&f, "steps"), &inner, own, derived, clashes);
+                let mut f = as_obj(&f).clone();
+                f.insert("steps".into(), Value::Array(body));
+                let mut st = as_obj(st).clone();
+                st.insert("foreach".into(), Value::Object(f));
+                result.push(Value::Object(st));
+                continue;
+            }
+            let c = st.get("create").cloned().unwrap_or(Value::Null);
+            if kind != "create" || py_str(c.get("rest").unwrap_or(&Value::Null)) != "inputs" {
+                result.push(st.clone());
+                continue;
+            }
+            let mut c = as_obj(&c).clone();
+            c.remove("rest");
+            let (k, tx) = (
+                py_str(c.get("type").unwrap_or(&Value::Null)),
+                py_str(c.get("transition").unwrap_or(&Value::Null)),
             );
-            let mut f = as_obj(&f).clone();
-            f.insert("steps".into(), Value::Array(body));
-            let mut st = as_obj(st).clone();
-            st.insert("foreach".into(), Value::Object(f));
-            result.push(Value::Object(st));
-            continue;
-        }
-        let c = st.get("create").cloned().unwrap_or(Value::Null);
-        if kind != "create" || py_str(c.get("rest").unwrap_or(&Value::Null)) != "inputs" {
-            result.push(st.clone());
-            continue;
-        }
-        let mut c = as_obj(&c).clone();
-        c.remove("rest");
-        let (k, tx) = (
-            py_str(c.get("type").unwrap_or(&Value::Null)),
-            py_str(c.get("transition").unwrap_or(&Value::Null)),
-        );
-        let target = kinds
-            .get(&k)
-            .or_else(|| recorded.get(&k))
-            .unwrap_or(&Value::Null);
-        let mut given = obj(&Value::Object(c.clone()), "inputs").clone();
-        if let Some(y) = obj(target, "transitions")
-            .get(&tx)
-            .filter(|y| y.is_object())
-        {
-            let required = required_input_names(y);
-            let left: BTreeSet<String> = if recorded.contains_key(&k) {
-                ["subject", "corrects"]
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect()
+            let target = self
+                .everything
+                .get(&k)
+                .or_else(|| self.recorded.get(&k))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let y = if self.everything.contains_key(&k) {
+                self.transition(&k, &tx)
             } else {
-                BTreeSet::new()
+                obj(&target, "transitions").get(&tx).cloned()
             };
-            let names: BTreeSet<String> = taken(y)
-                .into_iter()
-                .filter(|j| !given.contains_key(j) && !left.contains(j))
-                .collect();
-            for j in names {
-                let declared = obj(y, "inputs").get(&j).filter(|s| !s.is_null()).cloned();
-                let defaulted = declared
-                    .as_ref()
-                    .is_some_and(|s| s.get("default").is_some());
-                let source = declared.unwrap_or_else(|| {
-                    obj(target, "attributes")
-                        .get(&j)
-                        .cloned()
-                        .unwrap_or(Value::Null)
-                });
-                let mut spec: Map<String, Value> = Map::new();
-                for key in INPUT_KEYS {
-                    if key == "optional" || key == "default" {
-                        continue;
+            let mut given = obj(&Value::Object(c.clone()), "inputs").clone();
+            if let Some(y) = y.filter(|y| y.is_object()) {
+                let required = required_input_names(&y);
+                let left: BTreeSet<String> = if self.recorded.contains_key(&k) {
+                    ["subject", "corrects"]
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect()
+                } else {
+                    BTreeSet::new()
+                };
+                let names: BTreeSet<String> = taken(&y)
+                    .into_iter()
+                    .filter(|j| !given.contains_key(j) && !left.contains(j))
+                    .collect();
+                for j in names {
+                    let declared = obj(&y, "inputs").get(&j).filter(|s| !s.is_null()).cloned();
+                    let defaulted = declared
+                        .as_ref()
+                        .is_some_and(|s| s.get("default").is_some());
+                    let source = declared.unwrap_or_else(|| {
+                        obj(&target, "attributes")
+                            .get(&j)
+                            .cloned()
+                            .unwrap_or(Value::Null)
+                    });
+                    let mut spec: Map<String, Value> = Map::new();
+                    for key in INPUT_KEYS {
+                        if key == "optional" || key == "default" {
+                            continue;
+                        }
+                        if let Some(v) = source.get(key) {
+                            spec.insert(key.into(), v.clone());
+                        }
                     }
-                    if let Some(v) = source.get(key) {
-                        spec.insert(key.into(), v.clone());
-                    }
-                }
-                if !required.contains(&j) || defaulted {
-                    spec.insert("optional".into(), json!(true));
-                }
-                let mark = format!("{k}.{tx}");
-                if own.contains(&j) {
-                    clashes.push(json!([path_json(&here), format!(
-                        "{tn}.{xn}'s create of {mark} takes the rest of its inputs, and derives '{j}', which the transition takes itself: name it in the step's inputs (ADR-0271)"
-                    )]));
-                    continue;
-                }
-                if let Some(was) = derived.get(&j) {
-                    let mut plain = as_obj(was).clone();
-                    let first = plain
-                        .remove(DERIVED)
-                        .and_then(|d| d.get(0).map(py_str))
-                        .unwrap_or_default();
-                    if plain != spec {
+                    let mark = format!("{k}.{tx}");
+                    if own.contains(&j) {
                         clashes.push(json!([path_json(&here), format!(
-                            "two creates derive '{j}' unlike, {first} and {mark}: name it in the step's inputs (ADR-0271)"
+                            "{tn}.{xn}'s create of {mark} takes the rest of its inputs, and derives '{j}', which the transition takes itself: name it in the step's inputs (ADR-0271)"
                         )]));
                         continue;
                     }
-                } else {
-                    let mut effect = vec![Seg::Key("effect".into())];
-                    effect.extend(here.iter().cloned());
-                    let mut marked = spec.clone();
-                    marked.insert(DERIVED.into(), json!([mark, path_json(&effect)]));
-                    derived.insert(j.clone(), Value::Object(marked));
+                    if !required.contains(&j) || defaulted {
+                        let of = source
+                            .get("type")
+                            .filter(|t| super::doc::truthy(Some(t)))
+                            .or_else(|| source.get("reference"))
+                            .map(py_str)
+                            .unwrap_or_default();
+                        if of.ends_with("[]") {
+                            if source
+                                .get("default")
+                                .is_some_and(|d| !d.is_null() && !empty_set(d))
+                            {
+                                clashes.push(json!([path_json(&here), format!(
+                                    "{tn}.{xn}'s create of {mark} takes the rest of its inputs, and derives the set '{j}', which {mark} gives a default of its own: name it in the step's inputs (ADR-0275)"
+                                )]));
+                                continue;
+                            }
+                            spec.insert("default".into(), json!("{}"));
+                        } else {
+                            spec.insert("optional".into(), json!(true));
+                        }
+                    }
+                    if let Some(was) = derived.get(&j) {
+                        let mut plain = as_obj(was).clone();
+                        let first = plain
+                            .remove(DERIVED)
+                            .and_then(|d| d.get(0).map(py_str))
+                            .unwrap_or_default();
+                        if plain != spec {
+                            clashes.push(json!([path_json(&here), format!(
+                                "two creates derive '{j}' unlike, {first} and {mark}: name it in the step's inputs (ADR-0271)"
+                            )]));
+                            continue;
+                        }
+                    } else {
+                        let mut effect = vec![Seg::Key("effect".into())];
+                        effect.extend(here.iter().cloned());
+                        let mut marked = spec.clone();
+                        marked.insert(DERIVED.into(), json!([mark, path_json(&effect)]));
+                        derived.insert(j.clone(), Value::Object(marked));
+                    }
+                    given.insert(j.clone(), json!(format!("inputs.{j}")));
                 }
-                given.insert(j.clone(), json!(format!("inputs.{j}")));
             }
+            c.insert("inputs".into(), Value::Object(given));
+            let mut st = as_obj(st).clone();
+            st.insert("create".into(), Value::Object(c));
+            result.push(Value::Object(st));
         }
-        c.insert("inputs".into(), Value::Object(given));
-        let mut st = as_obj(st).clone();
-        st.insert("create".into(), Value::Object(c));
-        result.push(Value::Object(st));
+        result
     }
-    result
 }
 
 /// A `rest: inputs` that derives a name its transition takes itself, or one
@@ -731,6 +791,13 @@ pub fn rest_errors(doc: &Value) -> Found {
     out
 }
 
+/// Each observation kind the types given declare, as the checks see one
+/// (`declaration-syntax.md` §6.8; `check-flows.py`'s `observation_kinds`): a
+/// type born final, recorded by its generated creation, `record`, by a
+/// caller or an effect's `create` (ADR-0270), taking the subject and each
+/// field, and optionally the observation it corrects; a kind with a personal
+/// field has a generated erasure, `forget`, too (ADR-0147). Its occurred and
+/// recorded times are read, and never given as inputs.
 pub(crate) fn observation_kinds(kinds: &Obj) -> Obj {
     let mut out = Obj::new();
     for (tn, t) in kinds {
@@ -784,6 +851,8 @@ pub(crate) fn observation_kinds(kinds: &Obj) -> Obj {
     out
 }
 
+/// The bases a type extends, nearest first; the walk stops at an unknown
+/// name or where it would come back to a type it has passed.
 pub fn bases(tn: &str, kinds: &Obj) -> Vec<String> {
     let mut chain = Vec::new();
     let mut seen = vec![tn.to_string()];
@@ -896,13 +965,7 @@ impl View {
         for (k, v) in &kinds {
             everything.insert(k.clone(), v.clone());
         }
-        let kinds: Obj = kinds
-            .into_iter()
-            .map(|(tn, t)| {
-                let expanded = with_rest(&tn, t, &everything);
-                (tn, expanded)
-            })
-            .collect();
+        let kinds = with_rests(kinds, &everything);
         let mut v = as_obj(doc).clone();
         v.insert("types".into(), Value::Object(kinds));
         View {

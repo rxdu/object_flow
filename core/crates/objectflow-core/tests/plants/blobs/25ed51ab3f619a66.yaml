@@ -1,0 +1,48 @@
+module: probe
+categories: [live, closed]
+enumerations:
+  Reason: [SALE, REPAIR]
+types:
+  Thing:
+    description: A thing whose hands change.
+    tracking: record
+    attributes:
+      label: { type: string }
+    observations:
+      custody:
+        kind: Custody
+        description: Who holds the thing.
+        attributes:
+          to_whom: { type: string, description: Who takes it. }
+          reason: { type: Reason, optional: true }
+          tags: { type: 'string[]', optional: true }
+          came_with: { reference: 'Thing[]', optional: true }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [label] }
+      stock:
+        kind: initial
+        to: ON
+        required_inputs: [label]
+        inputs:
+          marks: { type: 'string[]', default: '{}' }
+      scrap: { kind: external, from: [ON], to: OFF }
+  Mover:
+    description: Moves things.
+    tracking: record
+    attributes:
+      thing: { reference: Thing }
+    states:
+      ON: { description: On., category: live }
+      OFF: { description: Off., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [thing] }
+      move:
+        kind: internal
+        from: ON
+        effect:
+          - create: { type: Custody, transition: record, inputs: { subject: thing, to_whom: '"x"' }, rest: inputs }
+          - create: { type: Thing, transition: stock, rest: inputs }
+      scrap: { kind: external, from: [ON], to: OFF }

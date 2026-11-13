@@ -474,7 +474,7 @@ def view(doc, library=None):
     kinds = {tn: inherit(tn, t, everything) for tn, t in kinds.items()}
     everything = dict(library or {})
     everything.update(kinds)
-    kinds = {tn: with_rest(tn, t, everything) for tn, t in kinds.items()}
+    kinds = with_rests(kinds, everything)
     v = dict(doc, types=kinds)
 
     def back(path):
@@ -1286,22 +1286,39 @@ def observation_kinds(kinds):
     return out
 
 
-def with_rest(tn, t, kinds):
-    """A type with each `rest: inputs` of its creates expanded (ADR-0271): each input of the created transition the step
-    does not name becomes an input of the transition making it, declared as the target declares it, required where the
-    target requires it and gives no default, marked with its target; and the step passes it as `inputs.<name>`. An
-    observation kind's `subject` and `corrects` are never derived. A name the transition takes itself, or two creates
-    deriving one name unlike, is left underived and recorded on the transition, which rest_errors reports."""
-    transitions = t.get("transitions") or {}
-    if not any(st[kind].get("rest") == "inputs" for x in transitions.values() if isinstance(x, dict)
-               for st, kind, _p, _d in walk(x.get("effect")) if kind == "create"):
-        return t
-    recorded = observation_kinds(kinds)
-    out = {}
-    for xn, x in transitions.items():
-        if not isinstance(x, dict) or not any(k == "create" and st[k].get("rest") == "inputs" for st, k, _p, _d in walk(x.get("effect"))):
-            out[xn] = x
-            continue
+EMPTY_SET = re.compile(r"\{\s*\}")
+
+
+def rests(x):
+    """Whether a transition holds a create taking the rest of its inputs from its own (ADR-0271)."""
+    return isinstance(x, dict) and any(k == "create" and st[k].get("rest") == "inputs" for st, k, _p, _d in walk(x.get("effect")))
+
+
+def with_rests(kinds, everything):
+    """Each type of kinds with each `rest: inputs` of its creates expanded (ADR-0271, ADR-0275): each input of the
+    created transition the step does not name becomes an input of the transition making it, declared as the target
+    declares it, required where the target requires it and gives no default, marked with its target; and the step
+    passes it as `inputs.<name>`. One the target does not require is optional, and a set the empty set by default, `{}`,
+    where the target gives it none of its own. An observation kind's `subject` and `corrects` are never derived. A target
+    taking the rest of its own inputs is expanded first, so a derivation carries through it; one reached again while it
+    is expanded, a cycle the model's check 12 refuses, is read as written. A name the transition takes itself, two
+    creates deriving one name unlike, or a set the target defaults to a value of its own, is left underived and recorded
+    on the transition, which rest_errors reports."""
+    recorded = observation_kinds(everything)
+    done, doing = {}, set()
+
+    def transition(tn, xn):
+        """tn's transition xn with its rests expanded; as written where it holds none, or is being expanded."""
+        x = ((everything.get(tn) or {}).get("transitions") or {}).get(xn)
+        if not rests(x) or (tn, xn) in doing:
+            return x
+        if (tn, xn) not in done:
+            doing.add((tn, xn))
+            done[(tn, xn)] = expanded(tn, xn, x)
+            doing.discard((tn, xn))
+        return done[(tn, xn)]
+
+    def expanded(tn, xn, x):
         own = taken(x)
         derived, clashes = {}, []
 
@@ -1319,24 +1336,32 @@ def with_rest(tn, t, kinds):
                 c = dict(st["create"])
                 c.pop("rest")
                 k, tx = c.get("type"), c.get("transition")
-                target = kinds.get(k) or recorded.get(k) or {}
-                y = (target.get("transitions") or {}).get(tx)
+                target = everything.get(k) or recorded.get(k) or {}
+                y = transition(k, tx) if k in everything else (target.get("transitions") or {}).get(tx)
                 given = dict(c.get("inputs") or {})
                 if isinstance(y, dict):
                     required = required_input_names(y)
                     left = {"subject", "corrects"} if k in recorded else set()
                     for j in sorted(taken(y) - set(given) - left):
-                        spec = (y.get("inputs") or {}).get(j)
-                        if spec is None:
-                            spec = (target.get("attributes") or {}).get(j) or {}
-                        spec = {key: v for key, v in spec.items() if key in INPUT_KEYS and key not in ("optional", "default")}
-                        if j not in required or "default" in ((y.get("inputs") or {}).get(j) or {}):
-                            spec["optional"] = True
+                        declared = (y.get("inputs") or {}).get(j)
+                        source = declared if declared is not None else (target.get("attributes") or {}).get(j) or {}
+                        spec = {key: v for key, v in source.items() if key in INPUT_KEYS and key not in ("optional", "default")}
                         mark = f"{k}.{tx}"
                         if j in own:
                             clashes.append((path + (i,), f"{tn}.{xn}'s create of {mark} takes the rest of its inputs, and derives "
                                                           f"'{j}', which the transition takes itself: name it in the step's inputs (ADR-0271)"))
                             continue
+                        if j not in required or "default" in (declared or {}):
+                            if str(source.get("type") or source.get("reference") or "").endswith("[]"):
+                                given_default = source.get("default")
+                                if given_default is not None and not EMPTY_SET.fullmatch(str(given_default).strip()):
+                                    clashes.append((path + (i,), f"{tn}.{xn}'s create of {mark} takes the rest of its inputs, and "
+                                                                  f"derives the set '{j}', which {mark} gives a default of its own: "
+                                                                  "name it in the step's inputs (ADR-0275)"))
+                                    continue
+                                spec["default"] = "{}"
+                            else:
+                                spec["optional"] = True
                         if j in derived and {kk: v for kk, v in derived[j].items() if kk != DERIVED} != spec:
                             clashes.append((path + (i,), f"two creates derive '{j}' unlike, {derived[j][DERIVED][0]} and {mark}: "
                                                           f"name it in the step's inputs (ADR-0271)"))
@@ -1348,8 +1373,11 @@ def with_rest(tn, t, kinds):
             return result
 
         steps = expand(x.get("effect"), ())
-        out[xn] = dict(x, effect=steps, inputs=dict(x.get("inputs") or {}, **derived), **({RESTED: clashes} if clashes else {}))
-    return dict(t, transitions=out)
+        return dict(x, effect=steps, inputs=dict(x.get("inputs") or {}, **derived), **({RESTED: clashes} if clashes else {}))
+
+    return {tn: dict(t, transitions={xn: transition(tn, xn) for xn in (t.get("transitions") or {})})
+            if any(rests(x) for x in (t.get("transitions") or {}).values()) else t
+            for tn, t in kinds.items()}
 
 
 def rest_errors(doc):
@@ -5420,7 +5448,8 @@ def metric_errors(tn, t, mn, m):
 
 
 def unwritten(v, doc):
-    """An optional attribute of an owned type that nothing writes, so it is always absent: no transition of the type, a
+    """An optional attribute of an owned type that nothing writes, so it is always absent, or empty where it is a set,
+    which is never absent (ADR-0122 decision 27): no transition of the type, a
     subtype or its machine takes it as an input or sets it in an effect, and no migration backfills it or renames an
     attribute into it; one with a default, a counter, an identifier, an external identifier or a relationship's end,
     which its far end writes, is written (D557)."""
@@ -5456,9 +5485,10 @@ def unwritten(v, doc):
                 continue
             if any(k in spec for k in ("default", "identifier", "external", "opposite")) or spec.get("type") == "counter":
                 continue
+            always = "empty" if str(spec.get("type") or spec.get("reference") or "").endswith("[]") else "absent"
             out.append((("types", tn, "attributes", a), "unwritten",
                         f"{tn}.{a} is optional and nothing writes it: no transition takes it as an input or sets it, "
-                        "and no migration backfills it, so it is always absent"))
+                        f"and no migration backfills it, so it is always {always}"))
     return out
 
 
@@ -12912,6 +12942,129 @@ def rest_inputs_plants():
           f"{'as expected' if hit else 'NOT: ' + str(found)}")
     return ok
 
+def rest_sets_and_chains_plants():
+    """A create's `rest: inputs` deriving sets and through another's (issue #90, ADR-0275): clean where a kind's optional
+    set fields, of values and of references, derive sets that are empty by default, where a target's set defaulting to
+    the empty set derives alike, and where a create's target takes the rest of its own; refused where a target gives a
+    set a default of its own, and where creates take the rest of each other's inputs in a cycle, which the model's check
+    12 refuses. The empty set is `{}`, and `[]` is refused naming it; a type's optional set nothing writes is noticed
+    as always empty. Run by the reference runner, a derived set may be left out or given, and a request through a chain
+    takes the record's inputs, one it requires refused where left out."""
+    things = (
+        "module: probe\ncategories: [live, closed]\nenumerations:\n  Reason: [SALE, REPAIR]\ntypes:\n"
+        "  Thing:\n    description: A thing whose hands change.\n    tracking: record\n"
+        "    attributes:\n      label: { type: string }\n"
+        "    observations:\n      custody:\n        kind: Custody\n        description: Who holds the thing.\n"
+        "        attributes:\n          to_whom: { type: string, description: Who takes it. }\n"
+        "          reason: { type: Reason, optional: true }\n"
+        "          tags: { type: 'string[]', optional: true }\n"
+        "          came_with: { reference: 'Thing[]', optional: true }\n"
+        "    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n"
+        "    transitions:\n      add: { kind: initial, to: ON, required_inputs: [label] }\n"
+        "      scrap: { kind: external, from: [ON], to: OFF }\n")
+    mover = (
+        "  Mover:\n    description: Moves things.\n    tracking: record\n    attributes:\n      thing: { reference: Thing }\n"
+        "    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n"
+        "    transitions:\n      add: { kind: initial, to: ON, required_inputs: [thing] }\n"
+        "      move:\n        kind: internal\n        from: ON\n        effect:\n"
+        "          - create: { type: Custody, transition: record, inputs: { subject: thing }, rest: inputs }\n"
+        "      scrap: { kind: external, from: [ON], to: OFF }\n")
+    module = things + mover
+    # a thing made with its custody recorded, its arrival taking the record's inputs; a mover making one by it
+    arrive = ("      arrive:\n        kind: initial\n        to: ON\n        required_inputs: [label]\n        effect:\n"
+              "          - create: { type: Custody, transition: record, inputs: { subject: this }, rest: inputs }\n")
+    make = ("      make:\n        kind: internal\n        from: ON\n        effect:\n"
+            "          - create: { type: Thing, transition: arrive, rest: inputs }\n")
+    chain = things.replace("      scrap: { kind: external", arrive + "      scrap: { kind: external", 1) + \
+        mover.replace("      scrap: { kind: external", make + "      scrap: { kind: external", 1)
+    # a target's own set input, defaulting to the empty set or to a value of its own
+    stock = ("      stock:\n        kind: initial\n        to: ON\n        required_inputs: [label]\n"
+             "        inputs:\n          marks: { type: 'string[]', default: '{}' }\n")
+    by_stock = mover.replace("transition: record, inputs: { subject: thing }, rest: inputs }",
+                             "transition: record, inputs: { subject: thing, to_whom: '\"x\"' }, rest: inputs }\n"
+                             "          - create: { type: Thing, transition: stock, rest: inputs }")
+    stocked = things.replace("      scrap: { kind: external", stock + "      scrap: { kind: external", 1) + by_stock
+    # a call passing a set its literal gives, to a transition deriving the record's
+    hand = ("      hand:\n        kind: internal\n        from: ON\n        effect:\n"
+            "          - create: { type: Custody, transition: record, inputs: { subject: this }, rest: inputs }\n")
+    call = (things.replace("      scrap: { kind: external", hand + "      scrap: { kind: external", 1) +
+            mover.replace("          - create: { type: Custody, transition: record, inputs: { subject: thing }, rest: inputs }\n",
+                          "          - call: { target: thing, transition: hand, inputs: { to_whom: '\"x\"', tags: '{}', "
+                          "came_with: '{thing}' } }\n"))
+    cycle = (things.replace("      scrap: { kind: external", arrive.replace("type: Custody, transition: record, inputs: { subject: this }",
+                                                                          "type: Mover, transition: make, inputs: { thing: this }")
+                            + "      scrap: { kind: external", 1) +
+             mover.replace("      scrap: { kind: external", make.replace("kind: internal\n        from: ON",
+                                                                            "kind: initial\n        to: ON\n        required_inputs: [thing]")
+                           + "      scrap: { kind: external", 1))
+    cases = [
+        ("a kind's optional sets derived, empty by default", [("probe.yaml", module)], []),
+        ("a target's set defaulting to the empty set", [("probe.yaml", stocked)], []),
+        ("a target's set defaulting to a value of its own",
+         [("probe.yaml", stocked.replace("default: '{}' }", "default: '{\"new\"}' }"))],
+         ["Mover.move's create of Thing.stock takes the rest of its inputs, and derives the set 'marks', which Thing.stock gives "
+          "a default of its own: name it in the step's inputs (ADR-0275)"]),
+        ("a target's set attribute defaulting to a value of its own",
+         [("probe.yaml", stocked.replace("        inputs:\n          marks: { type: 'string[]', default: '{}' }\n",
+                                         "        optional_inputs: [shelf]\n")
+                                .replace("      label: { type: string }\n",
+                                         "      label: { type: string }\n      shelf: { type: 'string[]', optional: true, default: '{\"top\"}' }\n"))],
+         ["Mover.move's create of Thing.stock takes the rest of its inputs, and derives the set 'shelf', which Thing.stock gives "
+          "a default of its own: name it in the step's inputs (ADR-0275)"]),
+        ("through a create whose target takes the rest of its own", [("probe.yaml", chain)], []),
+        ("a call passing the sets its literals give", [("probe.yaml", call)], []),
+        ("a set written as a list", [("probe.yaml", call.replace("tags: '{}'", "tags: '[]'"))],
+         ["an operand (a set is written {a, b}, the empty set {}), found '[', at 1 of '[]': not an expression of "
+          "declaration-syntax.md §8"]),
+    ]
+    ok = True
+    for name, files, want in cases:
+        found, _notes = check(files)
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a create's rest of sets and through another's, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    name = "creates taking the rest of each other's in a cycle"
+    found, _notes = check([("probe.yaml", cycle)])
+    hit = any("a transition causes itself" in x[4] and "(the model's check 12)" in x[4] for x in found)
+    ok &= hit
+    print(f"  a create's rest of sets and through another's, {name}: {'as expected' if hit else 'NOT: ' + str(found)}")
+    name = "a type's optional set nothing writes"
+    found, notes = check([("probe.yaml", module.replace("      label: { type: string }\n",
+                                                        "      label: { type: string }\n      marks: { type: 'string[]', optional: true }\n"))])
+    hit = found == [] and [x[4] for x in notes if x[3] == "unwritten"] == [
+        "Thing.marks is optional and nothing writes it: no transition takes it as an input or sets it, and no migration "
+        "backfills it, so it is always empty"]
+    ok &= hit
+    print(f"  a create's rest of sets and through another's, {name}: {'as expected' if hit else 'NOT: ' + str(found or notes)}")
+    # run by the reference runner: the derived sets left out or given; a request through the chain
+    setups = ("examples_for: probe\nsetups:\n  a_thing:\n    description: A thing and its mover.\n    steps:\n"
+              "      - request: { type: Thing, transition: add, as: thing, inputs: { label: Crate } }\n"
+              "      - request: { type: Mover, transition: add, as: mover, inputs: { thing: thing } }\nexamples:\n")
+    sets = setups + (
+        "  the_sets_left_out:\n    description: The derived sets left out are empty.\n    given: a_thing\n"
+        "    request: { object: mover, transition: move, inputs: { to_whom: Ana } }\n"
+        "    expect: { verdict: applied, state: ON, cascaded: [Custody.record] }\n"
+        "  the_sets_given:\n    description: The derived sets given are the move's own.\n    given: a_thing\n"
+        "    request: { object: mover, transition: move, inputs: { to_whom: Ana, tags: [fragile], came_with: [thing] } }\n"
+        "    expect: { verdict: applied, state: ON, cascaded: [Custody.record] }\n")
+    through = setups + (
+        "  a_make_records_custody:\n    description: Making a thing records its custody, the record's inputs the make's own.\n"
+        "    given: a_thing\n    request: { object: mover, transition: make, inputs: { label: Box, to_whom: Ana } }\n"
+        "    expect: { verdict: applied, state: ON, cascaded: [Thing.arrive, Custody.record] }\n"
+        "  the_receiver_is_required:\n    description: Who takes it is required through the thing, as the record requires it.\n"
+        "    given: a_thing\n    request: { object: mover, transition: make, inputs: { label: Box } }\n"
+        "    expect: { verdict: invalid_input }\n")
+    for name, files in (("the derived sets run", [("probe.yaml", module), ("probe.examples.yaml", sets)]),
+                        ("a request through the chain run", [("probe.yaml", chain), ("probe.examples.yaml", through)])):
+        found, _notes = check(files)
+        wrong, _notes = check([files[0], (files[1][0], files[1][1].replace("cascaded: [", "cascaded: [Thing.scrap, ", 1))])
+        hit = found == [] and [x[3] for x in wrong] == ["example"]
+        ok &= hit
+        print(f"  a create's rest of sets and through another's, {name} by the reference runner: "
+              f"{'as expected' if hit else 'NOT: ' + str(found or wrong)}")
+    return ok
+
 def history_plants():
     """A type's history before a freeze at step 3 (issue #89, ADR-0272): clean on an owned whole and its parts that
     declare the same, an identifier minted on it unique or unique in scope; refused on a mirror, naming no instant,
@@ -13377,6 +13530,7 @@ def main():
     ok &= effect_recording_plants()
     ok &= not_blank_step5_plants()
     ok &= rest_inputs_plants()
+    ok &= rest_sets_and_chains_plants()
     ok &= history_plants()
     ok &= history_pair_plants()
     ok &= type_loop_plants()

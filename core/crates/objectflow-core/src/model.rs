@@ -1771,43 +1771,110 @@ const INPUT_KEYS: [&str; 8] = [
     "description",
 ];
 
-/// A type with each `rest: inputs` of its creates expanded (ADR-0271): each
-/// input of the created transition the step does not name becomes an input
-/// of the transition making it, declared as the target declares it,
-/// optional where the target does not require it or gives it a default,
-/// and the step passes it as `inputs.<name>`. An observation kind's
-/// `subject` and `corrects` are never derived. A name the transition takes
-/// itself, or one two creates derive unlike, is left underived, which step
-/// 3 refuses (`names`). The declaration served gives each derived input
-/// beside the act's own, with `derived_from` naming its target.
-fn with_rest(t: &mut Type, types: &BTreeMap<String, Type>) {
+/// Every type with each `rest: inputs` of its creates expanded (ADR-0271,
+/// ADR-0275): each input of the created transition the step does not name
+/// becomes an input of the transition making it, declared as the target
+/// declares it, optional where the target does not require it or gives it a
+/// default, a set then defaulting to the empty set, and the step passes it
+/// as `inputs.<name>`. An observation kind's `subject` and `corrects` are
+/// never derived. Each transition is expanded after those it creates by, so
+/// a derivation carries through a target's own; one reached again while it
+/// is expanded, a cycle step 3 refuses (the model's check 12), is read as it
+/// stands. A name the transition takes itself, one two creates derive
+/// unlike, or a set the target defaults to a value of its own, is left
+/// underived, which step 3 refuses (`names`). The declaration served gives
+/// each derived input beside the act's own, with `derived_from` naming its
+/// target.
+fn with_rests(types: &mut BTreeMap<String, Type>) {
+    let rested: Vec<(String, String)> = types
+        .iter()
+        .flat_map(|(tn, t)| {
+            t.transitions
+                .iter()
+                .filter(|(_, x)| rests(&x.effect))
+                .map(move |(xn, _)| (tn.clone(), xn.clone()))
+        })
+        .collect();
+    let mut doing = BTreeSet::new();
+    for (tn, xn) in rested {
+        expand_transition(types, &tn, &xn, &mut doing);
+    }
+}
+
+/// `with_rests` for `tn`'s transition `xn`, each transition it creates by
+/// with `rest: inputs` expanded first.
+fn expand_transition(
+    types: &mut BTreeMap<String, Type>,
+    tn: &str,
+    xn: &str,
+    doing: &mut BTreeSet<(String, String)>,
+) {
+    let key = (tn.to_string(), xn.to_string());
+    let Some(x) = types.get(tn).and_then(|t| t.transition(xn)) else {
+        return;
+    };
+    if !rests(&x.effect) || doing.contains(&key) {
+        return;
+    }
+    let mut targets = Vec::new();
+    rest_targets(&x.effect, &mut targets);
+    doing.insert(key.clone());
+    for (k, tx) in targets {
+        expand_transition(types, &k, &tx, doing);
+    }
+    doing.remove(&key);
+    let Some(x) = types.get(tn).and_then(|t| t.transition(xn)) else {
+        return;
+    };
+    let own: BTreeSet<String> = x
+        .required_inputs
+        .iter()
+        .chain(&x.optional_inputs)
+        .chain(x.inputs.iter().map(|(n, _)| n))
+        .cloned()
+        .collect();
+    let mut effect = x.effect.clone();
+    let mut derived = Vec::new();
+    expand_rest(&mut effect, &own, types, &mut derived);
+    let Some(t) = types.get_mut(tn) else {
+        return;
+    };
     let mut served = Vec::new();
-    for (xn, x) in &mut t.transitions {
-        let own: BTreeSet<String> = x
-            .required_inputs
-            .iter()
-            .chain(&x.optional_inputs)
-            .chain(x.inputs.iter().map(|(n, _)| n))
-            .cloned()
-            .collect();
-        let mut derived = Vec::new();
-        expand_rest(&mut x.effect, &own, types, &mut derived);
+    if let Some((_, x)) = t.transitions.iter_mut().find(|(n, _)| n == xn) {
+        x.effect = effect;
         for (j, input, spec) in derived {
             x.inputs.push((j.clone(), input));
-            served.push((xn.clone(), j, spec));
+            served.push((j, spec));
         }
     }
-    for (xn, j, spec) in served {
-        if let Some(x) = t
-            .source
-            .get_mut("transitions")
-            .and_then(|xs| xs.get_mut(&xn))
-            .and_then(serde_json::Value::as_object_mut)
-        {
-            let inputs = x.entry("inputs").or_insert_with(|| serde_json::json!({}));
-            if let Some(m) = inputs.as_object_mut() {
+    if let Some(x) = t
+        .source
+        .get_mut("transitions")
+        .and_then(|xs| xs.get_mut(xn))
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        let inputs = x.entry("inputs").or_insert_with(|| serde_json::json!({}));
+        if let Some(m) = inputs.as_object_mut() {
+            for (j, spec) in served {
                 m.insert(j, spec);
             }
+        }
+    }
+}
+
+/// The type and transition of each create, a loop's included, taking
+/// `rest: inputs`.
+fn rest_targets(steps: &[Step], out: &mut Vec<(String, String)>) {
+    for st in steps {
+        match st {
+            Step::Create {
+                type_,
+                transition,
+                rest: true,
+                ..
+            } => out.push((type_.clone(), transition.clone())),
+            Step::Foreach { steps, .. } => rest_targets(steps, out),
+            _ => {}
         }
     }
 }
@@ -1821,7 +1888,7 @@ fn rests(steps: &[Step]) -> bool {
     })
 }
 
-/// `with_rest` over a list of steps, a loop's included (ADR-0271 decision
+/// `with_rests` over a list of steps, a loop's included (ADR-0271 decision
 /// 5): each derived input with its model and its served declaration.
 fn expand_rest(
     steps: &mut [Step],
@@ -1895,15 +1962,18 @@ fn expand_rest(
 
 /// The input of `k`'s transition `y` named `j`, as an input of the act
 /// deriving it: the target's declared input, or the attribute it writes,
-/// required only where the target requires it and gives no default; with
-/// its served declaration, the target's keys `INPUT_KEYS` holds.
+/// required only where the target requires it and gives no default, and a
+/// set the target need not be given defaulting to the empty set, `{}`; with
+/// its served declaration, the target's keys `INPUT_KEYS` holds. None where
+/// the target gives such a set a default of its own, which step 3 refuses
+/// (ADR-0275).
 fn derived_input(
     k: &Type,
     y: &Transition,
     transition: &str,
     j: &str,
 ) -> Option<(Input, serde_json::Value)> {
-    let (input, written) = match y.inputs.iter().find(|(n, _)| n == j) {
+    let (mut input, written, given) = match y.inputs.iter().find(|(n, _)| n == j) {
         Some((_, i)) => (
             Input {
                 optional: i.optional || i.default.is_some(),
@@ -1915,6 +1985,7 @@ fn derived_input(
                 .and_then(|xs| xs.get(transition))
                 .and_then(|x| x.get("inputs"))
                 .and_then(|i| i.get(j)),
+            i.default.clone(),
         ),
         None => {
             let a = k.attribute(j)?;
@@ -1929,9 +2000,20 @@ fn derived_input(
                     media_types: a.media_types.clone(),
                 },
                 k.source.get("attributes").and_then(|a| a.get(j)),
+                a.default.clone(),
             )
         }
     };
+    // a set is never optional: one the target need not be given is the empty
+    // set left out, unless the target gives it a value of its own
+    let empty = input.many && input.optional;
+    if empty {
+        if given.is_some_and(|d| !matches!(&d, Expr::Set(items) if items.is_empty())) {
+            return None;
+        }
+        input.optional = false;
+        input.default = Some(Expr::Set(Vec::new()));
+    }
     let mut spec = serde_json::Map::new();
     if let Some(w) = written.and_then(serde_json::Value::as_object) {
         for (key, v) in w {
@@ -1942,6 +2024,9 @@ fn derived_input(
     }
     if input.optional {
         spec.insert("optional".into(), serde_json::json!(true));
+    }
+    if empty {
+        spec.insert("default".into(), serde_json::json!("{}"));
     }
     Some((input, serde_json::Value::Object(spec)))
 }
@@ -2955,10 +3040,7 @@ impl Library {
             .values()
             .any(|t| t.transitions.iter().any(|(_, x)| rests(&x.effect)))
         {
-            let inherited = lib.types.clone();
-            for t in lib.types.values_mut() {
-                with_rest(t, &inherited);
-            }
+            with_rests(&mut lib.types);
         }
         // no attribute is the column a single reference is kept in, which
         // the store could not create, refused as the checker refuses it
@@ -3348,6 +3430,142 @@ types:
             t.source["transitions"]["spawn"]["inputs"]["label"],
             serde_json::json!({"type": "string"})
         );
+    }
+
+    /// A create's `rest: inputs` derives a set the target need not be given
+    /// as a set defaulting to the empty set, and derives through a target
+    /// that takes the rest of its own (issue #90, ADR-0275): a kind's
+    /// optional sets, of values and of references, are required of no
+    /// request and default to `{}`; a target's set defaulting to the empty
+    /// set derives alike, and one defaulting to a value of its own is left
+    /// underived; a create of a transition that derives the record's inputs
+    /// takes them too, each marked with the step's own target; and creates
+    /// taking the rest of each other's in a cycle load, read as they stand.
+    #[test]
+    fn rest_inputs_derives_sets_and_through_another() {
+        let text = r#"
+module: moves
+categories: [live, closed]
+types:
+  Thing:
+    attributes:
+      label: { type: string }
+    observations:
+      custody:
+        kind: Custody
+        attributes:
+          to_whom: { type: string }
+          tags: { type: "string[]", optional: true }
+          came_with: { reference: "Thing[]", optional: true }
+    states: { ON: { category: live } }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [label] }
+      arrive:
+        kind: initial
+        to: ON
+        required_inputs: [label]
+        effect:
+          - create: { type: Custody, transition: record, inputs: { subject: this }, rest: inputs }
+      stock:
+        kind: initial
+        to: ON
+        required_inputs: [label]
+        inputs:
+          marks: { type: "string[]", default: '{"new"}' }
+          shelf: { type: "string[]", default: "{ }" }
+  Mover:
+    attributes:
+      thing: { reference: Thing }
+    states: { ON: { category: live } }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [thing] }
+      move:
+        kind: internal
+        from: ON
+        effect:
+          - create: { type: Custody, transition: record, inputs: { subject: thing }, rest: inputs }
+      make:
+        kind: internal
+        from: ON
+        effect:
+          - create: { type: Thing, transition: arrive, rest: inputs }
+      keep:
+        kind: internal
+        from: ON
+        effect:
+          - create: { type: Thing, transition: stock, rest: inputs }
+"#;
+        let lib = Library::load(&[("moves.yaml".into(), text.into())]).unwrap();
+        let t = lib.type_("Mover").unwrap();
+        let x = |n: &str| t.transition(n).unwrap();
+        let names =
+            |n: &str| -> Vec<String> { x(n).inputs.iter().map(|(k, _)| k.clone()).collect() };
+        let input = |n: &str, k: &str| x(n).inputs.iter().find(|(j, _)| j == k).unwrap().1.clone();
+        let empty = |i: &Input| {
+            i.many && !i.optional && matches!(&i.default, Some(Expr::Set(v)) if v.is_empty())
+        };
+        // a kind's optional sets: the empty set by default, never optional
+        assert_eq!(names("move"), ["came_with", "tags", "to_whom"]);
+        assert!(empty(&input("move", "tags")) && empty(&input("move", "came_with")));
+        assert!(!input("move", "to_whom").optional);
+        let served = &t.source["transitions"]["move"]["inputs"];
+        assert_eq!(
+            served["tags"],
+            serde_json::json!({"type": "string[]", "default": "{}", "derived_from": "Custody.record"})
+        );
+        assert_eq!(
+            served["came_with"],
+            serde_json::json!({"reference": "Thing[]", "default": "{}", "derived_from": "Custody.record"})
+        );
+        // through a target deriving the record's own, marked with that target
+        assert_eq!(names("make"), ["came_with", "label", "tags", "to_whom"]);
+        assert!(empty(&input("make", "tags")) && !input("make", "to_whom").optional);
+        let served = &t.source["transitions"]["make"]["inputs"];
+        assert_eq!(
+            served["to_whom"],
+            serde_json::json!({"type": "string", "derived_from": "Thing.arrive"})
+        );
+        assert_eq!(
+            served["tags"],
+            serde_json::json!({"type": "string[]", "default": "{}", "derived_from": "Thing.arrive"})
+        );
+        assert!(
+            matches!(&x("make").effect[0], Step::Create { rest: false, inputs, .. } if inputs.len() == 4)
+        );
+        // a target's set defaulting to the empty set derives alike; one with a
+        // value of its own is left underived
+        assert_eq!(names("keep"), ["label", "shelf"]);
+        assert!(empty(&input("keep", "shelf")));
+        // a cycle of creates taking each other's rest loads, read as it stands
+        let cycle = r#"
+module: loops
+categories: [live]
+types:
+  Thing:
+    states: { ON: { category: live } }
+    transitions:
+      arrive:
+        kind: initial
+        to: ON
+        inputs: { label: { type: string } }
+        effect:
+          - create: { type: Mover, transition: make, rest: inputs }
+  Mover:
+    states: { ON: { category: live } }
+    transitions:
+      make:
+        kind: initial
+        to: ON
+        inputs: { note: { type: string } }
+        effect:
+          - create: { type: Thing, transition: arrive, rest: inputs }
+"#;
+        let lib = Library::load(&[("loops.yaml".into(), cycle.into())]).unwrap();
+        let arrive = lib.type_("Thing").unwrap().transition("arrive").unwrap();
+        assert!(matches!(
+            &arrive.effect[0],
+            Step::Create { rest: false, .. }
+        ));
     }
 
     /// A store holds one type, enumeration or machine of a name (ADR-0163):

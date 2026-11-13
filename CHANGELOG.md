@@ -2,6 +2,15 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Fixed
+
+- A `create` with `rest: inputs` derives a set its target need not be given as a set input defaulting to the empty set, `{}`: an observation kind's optional set field derived an optional set input, which step 3 refuses, since a set input is never optional (issue #90, ADR-0275). A request leaving it out records the set empty, as the target would. A set the target gives a default of its own is named by the step instead.
+- A `create` with `rest: inputs` of a transition that takes the rest of its own inputs derives those too, each marked `derived_from` that transition: it derived only what the target declares, and step 3 then refused the create for the inputs the target derives (issue #90, ADR-0275).
+- A set written as a list, `[a, b]`, is refused with a message naming the collection literal, `{a, b}`, and the empty set, `{}`, which `declaration-syntax.md` §8 now states.
+- Step 3's notice `unwritten` says an optional set nothing writes is always empty, where it said always absent.
+
 ## 0.24.0, 2026-11-12
 
 A release before 1.0.0, as 0.23.0 was (ADR-0214), with issues #86 to #89: an owned type's finished history before a freeze imported beside its live objects (ADR-0272); a `create` taking the rest of its target's inputs from the act's (ADR-0271); an `all` with no body refused (ADR-0273); step 5 leaving out a `not_blank` invariant no other reads (ADR-0274); and holes the import's reviews found, closed: a legacy entry about an owned object, a request taking a key the import holds, and a retired type still importable.

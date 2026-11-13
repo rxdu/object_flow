@@ -733,6 +733,10 @@ impl Parser {
                 self.expect("}")?;
                 Ok(Expr::Set(items))
             }
+            // a set is written as a collection literal, never as a list
+            Kind::Op if t.text == "[" => {
+                self.fail("an operand (a set is written {a, b}, the empty set {})")
+            }
             _ => self.fail("an operand"),
         }
     }
