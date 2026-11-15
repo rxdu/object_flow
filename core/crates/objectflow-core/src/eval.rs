@@ -1719,6 +1719,17 @@ impl<'a> Evaluator<'a> {
                 Value::Timestamp(t) => Value::Date(t.div_euclid(86_400)),
                 other => return not_run(format!("the date of {}", other.kind())),
             }),
+            // a date moved by whole calendar months, its day kept or the
+            // target month's last; past the calendar it has no value and
+            // refuses, as a date moved by days does, where a call's absent
+            // result would read as unknown (ADR-0276, ADR-0205 decision 2)
+            ("add_months", [d, n]) => match (self.value(d, env)?, self.value(n, env)?) {
+                (Value::Absent, _) | (_, Value::Absent) => Ok(Value::Absent),
+                (Value::Date(day), Value::Int(months)) => crate::value::add_months(day, months)
+                    .map(Value::Date)
+                    .ok_or_else(|| self.out_of_range()),
+                (a, b) => not_run(format!("add_months of {} and {}", a.kind(), b.kind())),
+            },
             ("entered_at" | "time_in", [Expr::Name(arg)]) => match self.this {
                 Some(id) => self.flow_function(id, name, arg),
                 None => Ok(Value::Absent),

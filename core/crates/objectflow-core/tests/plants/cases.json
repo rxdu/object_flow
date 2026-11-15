@@ -36195,21 +36195,21 @@
     11,
     "fatal",
     "names",
-    "invariant days_in_order does not type: max is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+    "invariant days_in_order does not type: max is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
    ],
    [
     "bookings.yaml",
     11,
     "fatal",
     "names",
-    "invariant proposed_in_order does not type: max is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+    "invariant proposed_in_order does not type: max is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
    ],
    [
     "bookings.yaml",
     11,
     "fatal",
     "names",
-    "the invariant DayRange.in_order calls max; a value's invariant reads its own fields, calling length or trim alone (ADR-0255)"
+    "the invariant DayRange.in_order calls max; a value's invariant reads its own fields, calling length, trim or add_months alone (ADR-0255, ADR-0276)"
    ],
    [
     "bookings.yaml",
@@ -36492,6 +36492,300 @@
     "notice",
     "unknown",
     "said can be unknown when close is requested, through inputs.reason (the input reason is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "add_months_plants: a guard moving an input by months",
+  "files": [
+   [
+    "plans.yaml",
+    "78a03016e3d654a3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plans.yaml",
+    19,
+    "notice",
+    "unwritten",
+    "Plan.at is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plans.yaml",
+    20,
+    "notice",
+    "unwritten",
+    "Plan.term is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Plan": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "add_months_plants: an invariant of a type, of a kind and of a value calling it",
+  "files": [
+   [
+    "plans.yaml",
+    "3ad8b3a5fc07e2cc"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plans.yaml",
+    21,
+    "notice",
+    "unwritten",
+    "Plan.at is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plans.yaml",
+    22,
+    "notice",
+    "unwritten",
+    "Plan.term is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Plan": [
+    0,
+    1
+   ]
+  },
+  "forms": {
+   "Plan.term_whole_months": "local",
+   "Plan.whole_months": "local"
+  },
+  "could_violate": {
+   "Plan.term_whole_months": [
+    "Plan.open"
+   ],
+   "Plan.whole_months": [
+    "Plan.open"
+   ]
+  }
+ },
+ {
+  "label": "add_months_plants: a timestamp moved",
+  "files": [
+   [
+    "plans.yaml",
+    "67e2dc7b85917323"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plans.yaml",
+    19,
+    "notice",
+    "unwritten",
+    "Plan.at is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plans.yaml",
+    20,
+    "notice",
+    "unwritten",
+    "Plan.term is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plans.yaml",
+    25,
+    "fatal",
+    "names",
+    "condition said does not type: add_months moves a date, and is given a timestamp (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "add_months_plants: a fraction of a month",
+  "files": [
+   [
+    "plans.yaml",
+    "30af096636c1dc68"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plans.yaml",
+    19,
+    "notice",
+    "unwritten",
+    "Plan.at is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plans.yaml",
+    20,
+    "notice",
+    "unwritten",
+    "Plan.term is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plans.yaml",
+    25,
+    "fatal",
+    "names",
+    "condition said does not type: add_months moves a date by a whole number of months, an int, and is given a number (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "add_months_plants: a text for the months",
+  "files": [
+   [
+    "plans.yaml",
+    "8588266b891e63a0"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plans.yaml",
+    19,
+    "notice",
+    "unwritten",
+    "Plan.at is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plans.yaml",
+    20,
+    "notice",
+    "unwritten",
+    "Plan.term is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plans.yaml",
+    25,
+    "fatal",
+    "names",
+    "condition said does not type: add_months moves a date by a whole number of months, an int, and is given a string (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "add_months_plants: one argument",
+  "files": [
+   [
+    "plans.yaml",
+    "680ddc57abcd8b7c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plans.yaml",
+    19,
+    "notice",
+    "unwritten",
+    "Plan.at is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plans.yaml",
+    20,
+    "notice",
+    "unwritten",
+    "Plan.term is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plans.yaml",
+    25,
+    "fatal",
+    "names",
+    "condition said does not type: add_months takes two arguments, and is given 1 (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "add_months_plants: an indexed derivation calling it",
+  "files": [
+   [
+    "plans.yaml",
+    "bfa0701d3750a5bd"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plans.yaml",
+    19,
+    "notice",
+    "unwritten",
+    "Plan.at is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plans.yaml",
+    20,
+    "notice",
+    "unwritten",
+    "Plan.term is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plans.yaml",
+    25,
+    "fatal",
+    "names",
+    "derived attribute 'renewal' is indexed and calls add_months, which its generated column's SQL does not compute alike"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "add_months_plants: a call of no function",
+  "files": [
+   [
+    "plans.yaml",
+    "8ffbb86068d057ec"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plans.yaml",
+    19,
+    "notice",
+    "unwritten",
+    "Plan.at is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plans.yaml",
+    20,
+    "notice",
+    "unwritten",
+    "Plan.term is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "plans.yaml",
+    25,
+    "fatal",
+    "names",
+    "condition said does not type: abs is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
    ]
   ],
   "analysed": {},
@@ -46815,7 +47109,7 @@
     24,
     "fatal",
     "names",
-    "derived attribute probe does not type: abs is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+    "derived attribute probe does not type: abs is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
    ]
   ],
   "analysed": {},
@@ -46882,7 +47176,7 @@
     24,
     "fatal",
     "names",
-    "derived attribute probe does not type: max is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+    "derived attribute probe does not type: max is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
    ]
   ],
   "analysed": {},

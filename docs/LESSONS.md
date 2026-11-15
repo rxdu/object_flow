@@ -1063,7 +1063,7 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 
 ### A wider variant on a type a deep recursion returns overflows the test thread first
 - **Pattern:** On 2026-11-04 `Ty::Record(String, Obj)` was added to the checker's `Ty`, which `Typing::of` returns through every frame of its recursion over an expression. The enum grew from about 32 bytes to 56, and the checker oracle's test thread, with Rust's default 2 MiB stack, overflowed on a plant the service's threads checked without trouble. With `RUST_MIN_STACK` raised the same run passed, so it was depth, not a loop.
-- **Correction:** Box a large payload on a type a deep recursion holds in each frame, `Record(Box<(String, Obj)>)`, so the type stays as small as its other variants. A stack overflow that a larger `RUST_MIN_STACK` cures is a frame grown, to be found in the types the recursion returns and holds.
+- **Correction:** Box a large payload on a type a deep recursion holds in each frame, `Record(Box<(String, Obj)>)`, so the type stays as small as its other variants. A stack overflow that a larger `RUST_MIN_STACK` cures is a frame grown, to be found in the types the recursion returns and holds, and in the locals of its match's arms. On 2026-11-14, building #96, `add_months`'s typing written inline in `of()`, two typed arguments and two messages, overflowed the oracle again; moved to an `#[inline(never)]` method, `months_moved`, it passed. Type a new function in a method of its own, and run `tests/checker_oracle.rs` after any change to `of()`.
 - **Context:** The core's checker (`check/names.rs`), and any recursive Rust code tested on cargo's default test threads.
 
 ### A mutant runner that reads "failed" counts "0 failed" as caught

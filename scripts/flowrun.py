@@ -430,6 +430,19 @@ def is_date(v):
     return isinstance(v, datetime.date) and not isinstance(v, datetime.datetime)
 
 
+def add_months(d, n):
+    """A date moved by whole calendar months: its day of the month kept where the target month has it, and that
+    month's last day where it does not, so 2026-01-31 plus a month is 2026-02-28; None where it leaves the calendar, as a
+    date moved by days has no value there (ADR-0276, ADR-0190)."""
+    year, month = divmod(d.year * 12 + d.month - 1 + n, 12)
+    if not 1 <= year <= 9999:
+        return None
+    first = datetime.date(year, month + 1, 1)
+    # December's length is 31, the day after 9999's being past what `datetime.date` makes
+    length = 31 if month == 11 else (datetime.date(year, month + 2, 1) - first).days
+    return first + datetime.timedelta(days=min(d.day, length) - 1)
+
+
 def instant(v):
     """A date placed at the start of its day, UTC, where a window or a bucket compares it with an instant (ADR-0145);
     any other value as it is."""
@@ -1478,6 +1491,17 @@ class Evaluator:
         if fn == ("name", "date") and len(args) == 1:
             v = self.value(args[0], env)            # the UTC calendar day of an instant (ADR-0145)
             return v if v is ABSENT or is_date(v) else (EPOCH + datetime.timedelta(seconds=math.floor(v))).date()
+        if fn == ("name", "add_months") and len(args) == 2:
+            d, n = self.value(args[0], env), self.value(args[1], env)
+            if d is ABSENT or n is ABSENT:
+                return ABSENT
+            if not is_date(d) or isinstance(n, bool) or not (isinstance(n, int) or isinstance(n, Fraction) and n.denominator == 1):
+                raise NotRunnable("add_months of a value that is not a date and a whole number of months")
+            moved = add_months(d, int(n))
+            if moved is None:
+                # past the calendar it has no value and refuses, as a date moved by days does (ADR-0276, ADR-0205)
+                raise OutOfRange(self.this)
+            return moved
         if fn == ("name", "length") and len(args) == 1:
             v = self.value(args[0], env)
             return ABSENT if v is ABSENT else len(v)
@@ -2164,7 +2188,8 @@ class Evaluator:
                     return ("int",)
                 if fn[1] in ROW_AGGREGATES:
                     return self.aggregate_kind(fn[1], args[-1], env)
-                return {"entered_at": ("timestamp",), "time_in": ("duration",), "date": ("date",)}.get(fn[1], ("other",))
+                return {"entered_at": ("timestamp",), "time_in": ("duration",), "date": ("date",),
+                        "add_months": ("date",)}.get(fn[1], ("other",))
             base = self.kind(fn[1], env)
             if fn[2] in ("entered_at", "time_in"):
                 return ("timestamp",) if fn[2] == "entered_at" else ("duration",)

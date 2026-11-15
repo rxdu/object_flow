@@ -1,0 +1,28 @@
+module: plans
+categories: [live, closed]
+values:
+  Term:
+    description: A term of whole months.
+    attributes:
+      first: { type: date }
+      months: { type: int }
+      last: { type: date }
+types:
+  Plan:
+    description: A plan running whole months from its start.
+    tracking: record
+    attributes:
+      starts_on: { type: date, indexed: true }
+      months: { type: int }
+      ends_on: { type: date }
+      title: { type: string }
+      at: { type: timestamp, optional: true }
+      term: { type: Term, optional: true }
+    states:
+      ACTIVE: { description: Running., category: live }
+      ENDED: { description: Over., category: closed, final: true }
+    conditions:
+      said: { description: It ends its months after it starts., expression: 'inputs.ends_on == add_months(starts_on, title)', remedy: self_serviceable }
+    transitions:
+      open: { kind: initial, to: ACTIVE, required_inputs: [starts_on, months, ends_on, title], guards: { said: deny } }
+      end: { kind: external, from: ACTIVE, to: ENDED }

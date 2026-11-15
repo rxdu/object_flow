@@ -1,0 +1,42 @@
+module: plans
+categories: [live, closed]
+values:
+  Term:
+    description: A term of whole months.
+    attributes:
+      first: { type: date }
+      months: { type: int }
+      last: { type: date }
+    invariants:
+      whole_months: { description: Whole months., expression: 'last == add_months(first, months)' }
+types:
+  Plan:
+    description: A plan running whole months from its start.
+    tracking: record
+    attributes:
+      starts_on: { type: date, indexed: true }
+      months: { type: int }
+      ends_on: { type: date }
+      title: { type: string }
+      at: { type: timestamp, optional: true }
+      term: { type: Term, optional: true }
+    observations:
+      renewals:
+        description: Renewals of the plan.
+        kind: Renewal
+        attributes:
+          from_day: { type: date }
+          count: { type: int }
+          to_day: { type: date }
+        invariants:
+          whole_months: { description: Whole months., expression: 'to_day == add_months(from_day, count)' }
+    states:
+      ACTIVE: { description: Running., category: live }
+      ENDED: { description: Over., category: closed, final: true }
+    invariants:
+      whole_months: { description: It runs its months., expression: 'ends_on == add_months(starts_on, months)' }
+    conditions:
+      said: { description: It ends its months after it starts., expression: 'inputs.ends_on == add_months(inputs.starts_on, inputs.months)', remedy: self_serviceable }
+    transitions:
+      open: { kind: initial, to: ACTIVE, required_inputs: [starts_on, months, ends_on, title], guards: { said: deny } }
+      end: { kind: external, from: ACTIVE, to: ENDED }

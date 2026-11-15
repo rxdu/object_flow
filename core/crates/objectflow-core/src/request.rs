@@ -5807,7 +5807,9 @@ impl Walk<'_> {
                 let Expr::Name(n) = f.as_ref() else {
                     return Err(());
                 };
-                if !["length", "trim", "entered_at", "intervals"].contains(&n.as_str()) {
+                if !["length", "trim", "add_months", "entered_at", "intervals"]
+                    .contains(&n.as_str())
+                {
                     return Err(());
                 }
                 for a in args {
@@ -6080,7 +6082,7 @@ fn reads_only_this(lib: &Library, t: &Type, e: &Expr, seen: &mut BTreeSet<String
             _ => false,
         },
         Expr::Call(f, args) => {
-            matches!(f.as_ref(), Expr::Name(n) if ["length", "trim", "entered_at", "intervals"].contains(&n.as_str()))
+            matches!(f.as_ref(), Expr::Name(n) if ["length", "trim", "add_months", "entered_at", "intervals"].contains(&n.as_str()))
                 && args.iter().all(|a| reads_only_this(lib, t, a, seen))
         }
         Expr::Agg { .. } | Expr::Metric { .. } => false,
@@ -8831,6 +8833,157 @@ types:
         ));
         let v = req(&mut s, "close", OPERATOR, (&card, false), json!({}));
         assert!(said(&v), "absent: {v:?}");
+    }
+
+    /// A plan's end a whole number of calendar months after its start, held
+    /// by a guard and by an invariant every writer meets (#96, ADR-0276): the
+    /// day kept or the month's last, an end of another length refused, a
+    /// date moved past the calendar refused as `value_in_range` where it
+    /// would read as unknown, and a count left out refused by the guard
+    /// reading it, unknown.
+    #[test]
+    fn a_date_moved_by_months_holds_a_plans_length() {
+        const PLANS: &str = r#"
+module: plans
+categories: [live, closed]
+types:
+  Plan:
+    attributes:
+      starts_on: { type: date }
+      months: { type: int }
+      ends_on: { type: date }
+    states:
+      ACTIVE: { category: live }
+      ENDED: { category: closed, final: true }
+    invariants:
+      whole_months: { expression: 'ends_on == add_months(starts_on, months)' }
+    conditions:
+      ends_its_months_on: { expression: 'inputs.ends_on == add_months(inputs.starts_on, inputs.months)', remedy: self_serviceable }
+      lands: { expression: 'add_months(ends_on, inputs.more) > starts_on', remedy: self_serviceable }
+    transitions:
+      open: { kind: initial, to: ACTIVE, required_inputs: [starts_on, months, ends_on], guards: { ends_its_months_on: deny } }
+      take: { kind: initial, to: ACTIVE, required_inputs: [starts_on, months, ends_on] }
+      extend:
+        kind: internal
+        from: [ACTIVE]
+        inputs: { more: { type: int, optional: true } }
+        guards: { lands: deny }
+        effect:
+          - assign: { location: months, expr: months + inputs.more }
+          - assign: { location: ends_on, expr: 'add_months(starts_on, months)' }
+      end: { kind: external, from: [ACTIVE], to: ENDED }
+"#;
+        let lib = Library::load(&[("plans.yaml".into(), PLANS.into())]).unwrap();
+        // the invariant reads its own object alone, as one calling `length`
+        // does, so a write re-checks no other plan
+        assert_eq!(invariant_reach(&lib, &lib.types["Plan"]), Reach::Itself);
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let plan = |starts: &str, months: i64, ends: &str| json!({"starts_on": starts, "months": months, "ends_on": ends});
+        let out_of_range = |v: &Verdict| matches!(v, Verdict::Unsatisfied { clause, .. } if clause == "value_in_range");
+        let guarded = |v: &Verdict| matches!(v, Verdict::Unsatisfied { clause, .. } if clause == "ends_its_months_on");
+        // the guard: the day kept, or the target month's last
+        for (starts, months, ends) in [
+            ("2026-01-31", 1, "2026-02-28"),
+            ("2026-04-30", 1, "2026-05-30"),
+            ("2027-02-28", 1, "2027-03-28"),
+            ("2028-01-31", 1, "2028-02-29"),
+            ("2028-02-29", 12, "2029-02-28"),
+            ("2026-03-31", -1, "2026-02-28"),
+        ] {
+            let v = req(
+                &mut s,
+                "open",
+                OPERATOR,
+                ("Plan", true),
+                plan(starts, months, ends),
+            );
+            assert!(
+                matches!(v, Verdict::Satisfied { .. }),
+                "{starts} + {months}: {v:?}"
+            );
+        }
+        for (starts, months, ends) in [
+            ("2026-01-31", 1, "2026-03-02"),
+            ("2026-01-31", 1, "2026-03-03"),
+            ("2026-04-30", 1, "2026-05-31"),
+        ] {
+            let v = req(
+                &mut s,
+                "open",
+                OPERATOR,
+                ("Plan", true),
+                plan(starts, months, ends),
+            );
+            assert!(guarded(&v), "{starts} + {months} as {ends}: {v:?}");
+        }
+        // past the calendar, from the guard, with no value, never unknown
+        for (starts, months) in [
+            ("9999-12-01", 1),
+            ("0001-01-31", -1),
+            ("2026-01-01", i64::MAX),
+        ] {
+            let v = req(
+                &mut s,
+                "open",
+                OPERATOR,
+                ("Plan", true),
+                plan(starts, months, "2026-01-01"),
+            );
+            assert!(out_of_range(&v), "{starts} + {months}: {v:?}");
+        }
+        // the invariant: a writer giving an end of another length is refused
+        let v = req(
+            &mut s,
+            "take",
+            OPERATOR,
+            ("Plan", true),
+            plan("2026-01-31", 1, "2026-03-02"),
+        );
+        assert!(matches!(v, Verdict::InvariantViolated { .. }), "{v:?}");
+        let v = req(
+            &mut s,
+            "take",
+            OPERATOR,
+            ("Plan", true),
+            plan("2026-01-31", 1, "2026-02-28"),
+        );
+        let taken = created(&v);
+        // an effect computing the end from the start, its months as the step
+        // before wrote them, where moving the end itself would give
+        // 2026-03-28 for 2026-01-31 plus two months
+        let v = req(
+            &mut s,
+            "extend",
+            OPERATOR,
+            (&taken, false),
+            json!({"more": 1}),
+        );
+        assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+        let snapshot = s.snapshot().unwrap();
+        let held = snapshot.whole(&taken).unwrap().unwrap();
+        assert_eq!(
+            held.attr("ends_on"),
+            Value::Date(crate::value::parse_date("2026-03-31").unwrap())
+        );
+        assert_eq!(held.attr("months"), Value::Int(2));
+        // a count left out: the guard reading it is unknown, and refuses
+        let v = req(&mut s, "extend", OPERATOR, (&taken, false), json!({}));
+        assert!(
+            matches!(&v, Verdict::Unsatisfied { clause, .. } if clause == "lands"),
+            "{v:?}"
+        );
+        // an effect moving a date past the calendar writes nothing
+        let v = req(
+            &mut s,
+            "extend",
+            OPERATOR,
+            (&taken, false),
+            json!({"more": 96_000}),
+        );
+        assert!(out_of_range(&v), "{v:?}");
+        let snapshot = s.snapshot().unwrap();
+        let held = snapshot.whole(&taken).unwrap().unwrap();
+        assert_eq!(held.attr("months"), Value::Int(2));
     }
 
     /// A database of its own on the server `base` names, dropped with this,

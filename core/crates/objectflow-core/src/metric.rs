@@ -1513,6 +1513,8 @@ impl<'w> Reader<'w> {
                 },
                 Expr::Name(f) if f == "entered_at" => Kind::Timestamp,
                 Expr::Name(f) if f == "time_in" => Kind::Duration,
+                // a date moved by calendar months (ADR-0276)
+                Expr::Name(f) if f == "add_months" => Kind::Date,
                 Expr::Name(_) => Kind::Other,
                 Expr::Path(base, m) => {
                     let base = self.kind(base, env, this)?;

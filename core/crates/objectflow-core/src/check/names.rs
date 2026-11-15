@@ -3527,6 +3527,40 @@ impl Typing<'_> {
         None
     }
 
+    /// `add_months`'s type: a date and a whole number of months, a date
+    /// moved by them (ADR-0276). A function of its own, so the typing's
+    /// recursion, which every frame of [`Self::of`] holds, grows no larger.
+    #[inline(never)]
+    fn months_moved(
+        &mut self,
+        args: &[Expr],
+        tn: &str,
+        x: Option<&Value>,
+        env: &TyEnv,
+        seen: &BTreeSet<(String, String)>,
+    ) -> Option<Ty> {
+        let [d, n] = args else {
+            return Some(Ty::Date);
+        };
+        if let Some(date) = self.of(d, tn, x, env, seen)
+            && !matches!(date, Ty::Date)
+        {
+            self.fail(format!(
+                "add_months moves a date, and is given {}",
+                date.text()
+            ));
+        }
+        if let Some(months) = self.of(n, tn, x, env, seen)
+            && !matches!(months, Ty::Int | Ty::Number(0))
+        {
+            self.fail(format!(
+                "add_months moves a date by a whole number of months, an int, and is given {}",
+                months.text()
+            ));
+        }
+        Some(Ty::Date)
+    }
+
     /// A flow function names what its object's type has: `time_in` a
     /// state, `entered_at` a state or a tracked member, wherever an
     /// expression is typed, as the model's check 58 has it for a
@@ -3851,12 +3885,21 @@ impl Typing<'_> {
                         if !FUNCTIONS.contains(&name.as_str())
                             && !METRIC_ONLY_FUNCTIONS.contains(&name.as_str()) =>
                     {
-                        self.fail(format!("{name} is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year"));
+                        self.fail(format!("{name} is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year"));
                         return None;
                     }
-                    Expr::Name(name) if FUNCTIONS.contains(&name.as_str()) && args.len() != 1 => {
-                        let n = args.len();
-                        self.fail(format!("{name} takes one argument, and is given {n}"));
+                    Expr::Name(name)
+                        if FUNCTIONS.contains(&name.as_str()) && args.len() != arity(name) =>
+                    {
+                        let (n, takes) = (
+                            args.len(),
+                            if arity(name) == 2 {
+                                "two arguments"
+                            } else {
+                                "one argument"
+                            },
+                        );
+                        self.fail(format!("{name} takes {takes}, and is given {n}"));
                         return None;
                     }
                     Expr::Path(_, name) if !MEMBER_FUNCTIONS.contains(&name.as_str()) => {
@@ -3954,6 +3997,7 @@ impl Typing<'_> {
                         }
                         Some(Ty::Str)
                     }
+                    "add_months" => self.months_moved(args, tn, x, env, seen),
                     "entered_at" => Some(Ty::Timestamp),
                     "time_in" => Some(Ty::Duration),
                     "date" => Some(Ty::Date),
@@ -6107,6 +6151,7 @@ pub fn children(e: &Expr) -> Vec<&Expr> {
 static FLOW_DATA_READ: LazyLock<Regex> =
     LazyLock::new(|| re(r"\b(?:time_in|entered_at)\(|\bthis\.(?:intervals|transitions)\b"));
 static TRIM_CALL: LazyLock<Regex> = LazyLock::new(|| re(r"\btrim\("));
+static ADD_MONTHS_CALL: LazyLock<Regex> = LazyLock::new(|| re(r"\badd_months\("));
 
 /// An indexed derived attribute reads only this object's stored, indexed
 /// values (the model's check 46).
@@ -6149,6 +6194,14 @@ fn indexed_errors(tn: &str, t: &Value, library: &Obj) -> Found {
         // §3.4, ADR-0249)
         if TRIM_CALL.is_match(&text) {
             why.push("calls trim, which its generated column's SQL does not compute alike".into());
+        }
+        // its generated column's SQL would move a date past a shorter
+        // month's end on SQLite, and make a timestamp on PostgreSQL
+        // (ADR-0276)
+        if ADD_MONTHS_CALL.is_match(&text) {
+            why.push(
+                "calls add_months, which its generated column's SQL does not compute alike".into(),
+            );
         }
         for w in why {
             out.push(finding(
@@ -7508,7 +7561,19 @@ fn evaluator_errors(doc: &Value, tn: &str, t: &Value) -> Found {
 
 /// The functions an expression may call, and the member functions
 /// (`declaration-syntax.md` §8.3).
-const FUNCTIONS: [&str; 5] = ["length", "trim", "date", "entered_at", "time_in"];
+const FUNCTIONS: [&str; 6] = [
+    "length",
+    "trim",
+    "date",
+    "add_months",
+    "entered_at",
+    "time_in",
+];
+/// The number of arguments a function takes: `add_months` a date and a
+/// count of months (ADR-0276), each other one.
+fn arity(function: &str) -> usize {
+    if function == "add_months" { 2 } else { 1 }
+}
 /// The functions a metric alone calls, which check 56 refuses elsewhere.
 const METRIC_ONLY_FUNCTIONS: [&str; 8] = [
     "avg",

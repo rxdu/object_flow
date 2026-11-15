@@ -3507,11 +3507,12 @@ class Typing:
             # did not run it (the values audit's K-7, K-8)
             if f[0] == "name" and f[1] not in FUNCTIONS and f[1] not in METRIC_ONLY_FUNCTIONS:
                 name = f[1]
-                self.fail(f"{name} is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")
+                self.fail(f"{name} is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")
                 return None
-            if f[0] == "name" and f[1] in FUNCTIONS and len(e[2]) != 1:
+            if f[0] == "name" and f[1] in FUNCTIONS and len(e[2]) != ARITY.get(f[1], 1):
                 name, n = f[1], len(e[2])
-                self.fail(f"{name} takes one argument, and is given {n}")
+                takes = "two arguments" if ARITY.get(name, 1) == 2 else "one argument"
+                self.fail(f"{name} takes {takes}, and is given {n}")
                 return None
             if f[0] == "path" and f[2] not in MEMBER_FUNCTIONS:
                 name = f[2]
@@ -3565,6 +3566,14 @@ class Typing:
                 if arg is not None and arg[0] != "string":
                     self.fail(f"trim takes a string, and is given {type_text(arg)}")
                 return ("string",)
+            if f == ("name", "add_months"):
+                # a date and a whole number of months, a date moved by them (ADR-0276)
+                d, n = (self.of(a, tn, x, env, seen) for a in e[2])
+                if d is not None and d[0] != "date":
+                    self.fail(f"add_months moves a date, and is given {type_text(d)}")
+                if n is not None and n[0] != "int" and n != ("number", 0):
+                    self.fail(f"add_months moves a date by a whole number of months, an int, and is given {type_text(n)}")
+                return ("date",)
             return {"entered_at": ("timestamp",), "time_in": ("duration",), "date": ("date",)}.get(f[1] if f[0] == "name" else None)
         if k == "changed":
             # the event it reads is one no type here names, so a value of a type it can tell is not one, where an int
@@ -4489,6 +4498,10 @@ def indexed_errors(tn, t, library):
         # its generated column's SQL trims spaces alone (storage-schema.md §3.4, ADR-0249)
         if re.search(r"\btrim\(", text):
             why.append("calls trim, which its generated column's SQL does not compute alike")
+        # its generated column's SQL would move a date past a shorter month's end on SQLite, and make a timestamp on
+        # PostgreSQL (ADR-0276)
+        if re.search(r"\badd_months\(", text):
+            why.append("calls add_months, which its generated column's SQL does not compute alike")
         out += [(("types", tn, "derived_attributes", d, "indexed"), "names", f"derived attribute '{d}' is indexed and {w}") for w in why]
     return out
 
@@ -4621,8 +4634,8 @@ def declared_value_errors(doc):
     values, out = doc.get("values") or {}, []
     enums = set(doc.get("enumerations") or {})
     for vn, v in values.items():
-        # a value's invariant reads its own fields, calling length or trim alone, since each attribute holding it
-        # reads it through itself (ADR-0255)
+        # a value's invariant reads its own fields, calling length, trim or add_months alone, since each attribute
+        # holding it reads it through itself (ADR-0255, ADR-0276)
         fields = set(v.get("attributes") or {})
         for i, inv in (v.get("invariants") or {}).items():
             text = str((inv or {}).get("expression", ""))
@@ -4631,10 +4644,10 @@ def declared_value_errors(doc):
                 out.append((at, "names", f"the invariant {vn}.{i} reads {r}, which is no field of {vn}; a value's "
                                          "invariant reads its own fields (ADR-0255)"))
             bare = re.sub(r'"(?:[^"\\]|\\.)*"', '""', text)
-            called = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", bare)) - {"length", "trim"} - flowexpr.KEYWORDS
+            called = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", bare)) - {"length", "trim", "add_months"} - flowexpr.KEYWORDS
             for c in sorted(called):
                 out.append((at, "names", f"the invariant {vn}.{i} calls {c}; a value's invariant reads its own fields, "
-                                         "calling length or trim alone (ADR-0255)"))
+                                         "calling length, trim or add_months alone (ADR-0255, ADR-0276)"))
         for f, spec in (v.get("attributes") or {}).items():
             typ = str((spec or {}).get("type", ""))
             head = re.match(r"[A-Za-z_][A-Za-z0-9_]*", typ)
@@ -5352,7 +5365,9 @@ NO_MEMBERS = {"number", "int", "decimal", "money", "duration", "timestamp", "dat
 # the members of a file, its media type and its size in bytes (ADR-0239 decision 4)
 FILE_MEMBERS = {"media_type": ("string",), "size": ("int",)}
 # the functions an expression may call, and the member functions (declaration-syntax.md §8.3)
-FUNCTIONS = {"length", "trim", "date", "entered_at", "time_in"}
+FUNCTIONS = {"length", "trim", "date", "add_months", "entered_at", "time_in"}
+# the number of arguments a function takes: add_months a date and a count of months (ADR-0276), each other one
+ARITY = {"add_months": 2}
 # the functions a metric alone calls, which check 56 refuses elsewhere
 METRIC_ONLY_FUNCTIONS = {"avg", "median", "percentile", "day", "week", "month", "quarter", "year"}
 MEMBER_FUNCTIONS = {"intervals", "entered_at", "time_in", "held"}
@@ -10326,8 +10341,8 @@ def expression_type_plants(people):
          [wrong("derived attribute probe", "entered_at(label) names neither a state of Account nor a member it tracks")]),
         ("time_in of a state and entered_at of a tracked member", ledger("time_in(OPEN) > 1 h and entered_at(tier) < now"), []),
         # a call of what the language has, where any other typed as nothing and the core did not run it (values K-7, K-8)
-        ("a function the language has not", ledger("abs(count) > 0"), [wrong("derived attribute probe", "abs is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")]),
-        ("an aggregate called on values", ledger("max(count, count) > 0"), [wrong("derived attribute probe", "max is no function the language has: it has length, date, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")]),
+        ("a function the language has not", ledger("abs(count) > 0"), [wrong("derived attribute probe", "abs is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")]),
+        ("an aggregate called on values", ledger("max(count, count) > 0"), [wrong("derived attribute probe", "max is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")]),
         ("a function given two arguments", ledger("length(label, label) > 0"),
          [wrong("derived attribute probe", "length takes one argument, and is given 2")]),
         # a member function on what has it, and a flow function naming a state or a member (values K-8)
@@ -12105,9 +12120,9 @@ def value_plants():
             "enforce it, and a rule about time is a guard (the model's check 32)" for a in ("days", "proposed")]
          + [f"invariant {a}_in_order does not type: it compares a timestamp with a date (the model's check 24)" for a in ("days", "proposed")]),
         ("an invariant calling a metric", [("bookings.yaml", held("first <= last and length(note) < 9 and max(first, last) == last"))], None,
-         ["the invariant DayRange.in_order calls max; a value's invariant reads its own fields, calling length or trim alone (ADR-0255)"]
-         + [f"invariant {a}_in_order does not type: max is no function the language has: it has length, date, entered_at and "
-            "time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+         ["the invariant DayRange.in_order calls max; a value's invariant reads its own fields, calling length, trim or add_months alone (ADR-0255, ADR-0276)"]
+         + [f"invariant {a}_in_order does not type: max is no function the language has: it has length, trim, date, add_months, "
+            "entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
             for a in ("days", "proposed")]),
         ("an invariant that does not type", [("bookings.yaml", held("first + 1 > last"))], None,
          ["invariant days_in_order does not type: it adds a date and a number (the model's check 24)",
@@ -13284,6 +13299,64 @@ def trim_plants():
     return ok
 
 
+def add_months_plants():
+    """`add_months`, a date moved by calendar months (ADR-0276): a guard reading it is clean, as are an invariant of a
+    type, of an observation kind and of a value calling it; a timestamp, a fraction or a text given it, or one argument,
+    is refused, as is an indexed derivation calling it, since its generated column's SQL would not compute it alike; and
+    a call of no function names every function the language has."""
+    base = ("module: plans\ncategories: [live, closed]\nvalues:\n  Term:\n    description: A term of whole months.\n"
+            "    attributes:\n      first: { type: date }\n      months: { type: int }\n      last: { type: date }\n"
+            "{value}types:\n  Plan:\n    description: A plan running whole months from its start.\n    tracking: record\n"
+            "    attributes:\n      starts_on: { type: date, indexed: true }\n      months: { type: int }\n"
+            "      ends_on: { type: date }\n      title: { type: string }\n      at: { type: timestamp, optional: true }\n"
+            "      term: { type: Term, optional: true }\n{kind}    states:\n"
+            "      ACTIVE: { description: Running., category: live }\n"
+            "      ENDED: { description: Over., category: closed, final: true }\n{derived}{invariants}    conditions:\n"
+            "      said: { description: It ends its months after it starts., expression: '{expr}', remedy: self_serviceable }\n"
+            "    transitions:\n"
+            "      open: { kind: initial, to: ACTIVE, required_inputs: [starts_on, months, ends_on, title], guards: { said: deny } }\n"
+            "      end: { kind: external, from: ACTIVE, to: ENDED }\n")
+    def module(expr, derived="", invariants="", kind="", value=""):
+        return (base.replace("{expr}", expr).replace("{derived}", derived).replace("{invariants}", invariants)
+                .replace("{kind}", kind).replace("{value}", value))
+    moved = "inputs.ends_on == add_months(inputs.starts_on, inputs.months)"
+    held = ("    invariants:\n      whole_months: { description: It runs its months., "
+            "expression: 'ends_on == add_months(starts_on, months)' }\n")
+    kind = ("    observations:\n      renewals:\n        description: Renewals of the plan.\n        kind: Renewal\n"
+            "        attributes:\n          from_day: { type: date }\n          count: { type: int }\n"
+            "          to_day: { type: date }\n        invariants:\n          whole_months: { description: Whole months., "
+            "expression: 'to_day == add_months(from_day, count)' }\n")
+    value = ("    invariants:\n      whole_months: { description: Whole months., "
+             "expression: 'last == add_months(first, months)' }\n")
+    typed = "condition said does not type: {} (the model's check 24)"
+    cases = [
+        ("a guard moving an input by months", module(moved), []),
+        ("an invariant of a type, of a kind and of a value calling it", module(moved, invariants=held, kind=kind, value=value), []),
+        ("a timestamp moved", module("inputs.ends_on == add_months(at, 1)"),
+         [typed.format("add_months moves a date, and is given a timestamp")]),
+        ("a fraction of a month", module("inputs.ends_on == add_months(inputs.starts_on, 1.5)"),
+         [typed.format("add_months moves a date by a whole number of months, an int, and is given a number")]),
+        ("a text for the months", module("inputs.ends_on == add_months(starts_on, title)"),
+         [typed.format("add_months moves a date by a whole number of months, an int, and is given a string")]),
+        ("one argument", module("inputs.ends_on == add_months(inputs.starts_on)"),
+         [typed.format("add_months takes two arguments, and is given 1")]),
+        ("an indexed derivation calling it",
+         module(moved, "    derived_attributes:\n      renewal: { description: A year on., expression: 'add_months(starts_on, 12)', indexed: true }\n"),
+         ["derived attribute 'renewal' is indexed and calls add_months, which its generated column's SQL does not compute alike"]),
+        ("a call of no function", module("abs(inputs.months) > 0"),
+         [typed.format("abs is no function the language has: it has length, trim, date, add_months, entered_at and time_in, "
+                       "and in a metric avg, median, percentile, day, week, month, quarter and year")]),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, notes = check([("plans.yaml", text)])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  add_months, {name}: {'as expected' if hit else 'NOT: ' + str(got) + ' ' + str([x[4] for x in notes])}")
+    return ok
+
+
 def creation_read_plants():
     """A creation's guard reads a member the creation takes as an input as the value supplied (ADR-0251): no `before`
     notice for it; on a creation, a guard on `n` and one on `inputs.n` constrain one value, so two that contradict leave
@@ -13538,6 +13611,7 @@ def main():
     ok &= actor_move_plants()
     ok &= value_plants()
     ok &= trim_plants()
+    ok &= add_months_plants()
     ok &= creation_read_plants()
     ok &= metric_plants(people)
     ok &= range_plant(people)

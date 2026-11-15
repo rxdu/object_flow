@@ -2,6 +2,17 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Added
+
+- `add_months(<date>, <int>)` moves a date by whole calendar months, back for a negative count: the day of the month kept where the target month has it, and that month's last day where it does not, so 2026-01-31 plus a month is 2026-02-28 (issue #96, ADR-0276). An invariant may call it, an observation kind's and a value's among them, so a rule such as `ends_on == add_months(starts_on, months)` holds for every writer; an `indexed` derivation may not (check 46). A date moved outside the calendar refuses as `value_in_range`, as a date moved by days does.
+
+### Fixed
+
+- Both checkers' message for a call of no function the language has lists `trim`, which it left out.
+- A kind's invariant calling `trim` passes check 54 in `check-syntax-doc.py`, as it passes the core's.
+
 ## 0.25.0, 2026-11-13
 
 A release before 1.0.0, as 0.24.0 was (ADR-0214), with issue #90: a `create`'s `rest: inputs` deriving a set its target need not be given as a set defaulting to the empty set, and carrying through a target that takes the rest of its own (ADR-0275).

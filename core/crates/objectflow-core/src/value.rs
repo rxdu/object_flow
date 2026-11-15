@@ -359,6 +359,34 @@ pub fn in_calendar(day: i64) -> bool {
     (FIRST_DAY..=LAST_DAY).contains(&day)
 }
 
+/// A day, in days since 1970-01-01, moved by whole calendar months: its day
+/// of the month kept where the target month has it, and that month's last
+/// day where it does not, so 2026-01-31 plus a month is 2026-02-28. None
+/// where it leaves the calendar, as a date moved by days has no value there
+/// (ADR-0276, ADR-0190).
+pub fn add_months(day: i64, months: i64) -> Option<i64> {
+    if !in_calendar(day) {
+        return None;
+    }
+    let (y, m, d) = civil_from_days(day);
+    // the target month counted from year 0, checked: a count near i64's
+    // bounds overflows, which leaves the calendar
+    let index = (y * 12 + i64::from(m) - 1).checked_add(months)?;
+    let year = index.div_euclid(12);
+    if !(1..=9999).contains(&year) {
+        return None;
+    }
+    let month = u32::try_from(index.rem_euclid(12) + 1).ok()?;
+    let first = days_from_civil(year, month, 1);
+    let next = if month == 12 {
+        days_from_civil(year + 1, 1, 1)
+    } else {
+        days_from_civil(year, month + 1, 1)
+    };
+    let length = u32::try_from(next - first).ok()?;
+    Some(first + i64::from(d.min(length)) - 1)
+}
+
 pub fn date_text(days: i64) -> String {
     let (y, m, d) = civil_from_days(days);
     format!("{y:04}-{m:02}-{d:02}")
@@ -722,6 +750,77 @@ mod tests {
         assert!(parse_timestamp("2026-01-01T00:00:00").is_none());
         assert_eq!(date_text(parse_date("2024-02-29").unwrap()), "2024-02-29");
         assert!(parse_date("2023-02-29").is_none());
+    }
+
+    /// A date moved by calendar months keeps its day where the target month
+    /// has it and takes that month's last day where it does not, a start on
+    /// a month's last day as any other, and has none past the calendar
+    /// (ADR-0276): each case of the decision's table, then every day of the
+    /// calendar against what the rule says of it.
+    #[test]
+    fn a_date_moves_by_months_keeping_its_day_or_the_months_last() {
+        let moved = |d: &str, n: i64| add_months(parse_date(d).unwrap(), n).map(date_text);
+        for (start, n, end) in [
+            ("2026-01-31", 1, "2026-02-28"),
+            ("2026-04-30", 1, "2026-05-30"),
+            ("2027-02-28", 1, "2027-03-28"),
+            ("2028-02-28", 1, "2028-03-28"),
+            ("2028-01-31", 1, "2028-02-29"),
+            ("2028-02-29", 12, "2029-02-28"),
+            ("2026-03-31", -1, "2026-02-28"),
+            ("2026-01-31", 2, "2026-03-31"),
+            ("2026-12-15", 1, "2027-01-15"),
+            ("2026-01-15", -1, "2025-12-15"),
+            ("2026-01-15", 0, "2026-01-15"),
+            ("9999-11-30", 1, "9999-12-30"),
+            ("0001-02-28", -1, "0001-01-28"),
+        ] {
+            assert_eq!(moved(start, n).as_deref(), Some(end), "{start} + {n}");
+        }
+        // a move back need not undo a move, nor two moves equal one
+        assert_eq!(moved("2026-04-30", -1).as_deref(), Some("2026-03-30"));
+        for (start, n) in [
+            ("9999-12-01", 1),
+            ("0001-01-31", -1),
+            ("2026-01-01", i64::MAX),
+            ("2026-01-01", i64::MIN),
+            ("2026-01-01", 95_977),
+        ] {
+            assert_eq!(moved(start, n), None, "{start} + {n}");
+        }
+        assert_eq!(add_months(FIRST_DAY - 1, 0), None);
+        assert_eq!(add_months(LAST_DAY + 1, 0), None);
+        let length = |y: i64, m: u32| {
+            let next = if m == 12 { (y + 1, 1) } else { (y, m + 1) };
+            days_from_civil(next.0, next.1, 1) - days_from_civil(y, m, 1)
+        };
+        // every day for four counts; for the others the days a month may
+        // lack, where the rule decides anything
+        for n in [-119_988, -13, -12, -1, 0, 1, 11, 12, 13, 119_987] {
+            let every = [-13, -1, 1, 12].contains(&n);
+            for day in FIRST_DAY..=LAST_DAY {
+                let (y, m, d) = civil_from_days(day);
+                if !every && d < 28 {
+                    continue;
+                }
+                let index = y * 12 + i64::from(m) - 1 + n;
+                let (year, month) = (index.div_euclid(12), index.rem_euclid(12) + 1);
+                let got = add_months(day, n);
+                if !(1..=9999).contains(&year) {
+                    assert_eq!(got, None, "{} + {n}", date_text(day));
+                    continue;
+                }
+                let month = u32::try_from(month).unwrap();
+                let (gy, gm, gd) = civil_from_days(got.unwrap());
+                assert_eq!((gy, gm), (year, month), "{} + {n}", date_text(day));
+                assert_eq!(
+                    i64::from(gd),
+                    i64::from(d).min(length(year, month)),
+                    "{} + {n}",
+                    date_text(day)
+                );
+            }
+        }
     }
 
     /// A date and a timestamp are read as RFC 3339 writes them, each field

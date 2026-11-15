@@ -516,6 +516,86 @@ def test_a_text_of_white_space_alone_is_refused_by_trim_alike(tee):
     alike(tee)
 
 
+
+PLANS = """module: plans
+categories: [live, closed]
+types:
+  Plan:
+    description: A plan running whole months from its start.
+    tracking: record
+    attributes:
+      starts_on: { type: date }
+      months: { type: int }
+      ends_on: { type: date }
+    states:
+      ACTIVE: { category: live, description: Running. }
+      ENDED: { category: closed, final: true, description: Over. }
+    derived_attributes:
+      renews_on: { description: A month after it ends., expression: 'add_months(ends_on, 1)' }
+    invariants:
+      whole_months: { description: It runs its months., expression: 'ends_on == add_months(starts_on, months)' }
+    conditions:
+      ends_its_months_on: { description: The end is its months after its start., expression: 'inputs.ends_on == add_months(inputs.starts_on, inputs.months)', remedy: self_serviceable }
+    transitions:
+      open: { kind: initial, to: ACTIVE, required_inputs: [starts_on, months, ends_on], guards: { ends_its_months_on: deny } }
+      take: { kind: initial, to: ACTIVE, required_inputs: [starts_on, months, ends_on] }
+      extend:
+        kind: internal
+        from: [ACTIVE]
+        inputs:
+          more: { type: int }
+        effect:
+          - assign: { location: months, expr: months + inputs.more }
+          - assign: { location: ends_on, expr: 'add_months(starts_on, months)' }
+      end: { kind: external, from: [ACTIVE], to: ENDED }
+    metrics:
+      latest_renewal:
+        description: The latest day a plan renews on, a month after it ends.
+        source: objects
+        item: p
+        expression: max(add_months(p.ends_on, 1))
+"""
+
+
+def test_a_plans_length_is_held_by_add_months_alike(tee):
+    """`add_months` moves a date by calendar months on both runners alike:
+    the day kept or the target month's last, a start on a month's last day
+    as any other, an end of another length refused by the guard and by the
+    invariant, a derived date and an effect's, and a date moved past the
+    calendar refused as `value_in_range` (issue #96, ADR-0276)."""
+    tee.found.clear()
+    load(tee, "plans", PLANS)
+    for starts, months, ends, refused in [
+            ("2026-01-31", 1, "2026-02-28", None), ("2026-04-30", 1, "2026-05-30", None),
+            ("2027-02-28", 1, "2027-03-28", None), ("2028-01-31", 1, "2028-02-29", None),
+            ("2028-02-29", 12, "2029-02-28", None), ("2026-03-31", -1, "2026-02-28", None),
+            ("2026-01-31", 1, "2026-03-02", "ends_its_months_on"),
+            ("2026-04-30", 1, "2026-05-31", "ends_its_months_on"),
+            ("9999-12-01", 1, "2026-01-01", "value_in_range"),
+            ("0001-01-31", -1, "2026-01-01", "value_in_range"),
+            ("2026-01-01", 2**63 - 1, "2026-01-01", "value_in_range")]:
+        v = tee.post("/v1/request", {"transition": "open", "actor": OP, "type": "Plan", "inputs": {
+            "starts_on": starts, "months": months, "ends_on": ends}})
+        if refused is None:
+            assert v["kind"] == "satisfied", (starts, months, v)
+        else:
+            assert v.get("clause") == refused, (starts, months, v)
+    v = tee.post("/v1/request", {"transition": "take", "actor": OP, "type": "Plan", "inputs": {
+        "starts_on": "2026-01-31", "months": 1, "ends_on": "2026-03-02"}})
+    assert v["kind"] == "invariant_violated", v
+    plan = made(tee, "Plan", "take", starts_on="2026-01-31", months=1, ends_on="2026-02-28")
+    held = tee.post("/v1/get", {"id": plan})["attributes"]
+    assert held["renews_on"] == "2026-03-28", held
+    took(tee, plan, "extend", more=1)
+    held = tee.post("/v1/get", {"id": plan})["attributes"]
+    assert (held["months"], held["ends_on"], held["renews_on"]) == (2, "2026-03-31", "2026-04-30"), held
+    v = tee.post("/v1/request", {"transition": "extend", "actor": OP, "object_id": plan, "inputs": {"more": 96_000}})
+    assert v.get("clause") == "value_in_range", v
+    # a metric of a date moved by months answers a date, as the reference's does
+    m = tee.post("/v1/metric", {"actor": OP, "name": "Plan.latest_renewal"})
+    assert [r["value"] for r in m["rows"]] == ["2029-03-28"], m
+    alike(tee)
+
 NOTES = """module: notes
 categories: [live, closed]
 types:

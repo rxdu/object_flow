@@ -1158,13 +1158,26 @@ pub fn declared_value_errors(doc: &Value) -> Found {
             // a keyword before a bracket, as `not (…)`, calls nothing
             called.retain(|c| {
                 ![
-                    "length", "trim", "and", "or", "not", "implies", "in", "is", "null", "if",
-                    "then", "else", "true", "false",
+                    "length",
+                    "trim",
+                    "add_months",
+                    "and",
+                    "or",
+                    "not",
+                    "implies",
+                    "in",
+                    "is",
+                    "null",
+                    "if",
+                    "then",
+                    "else",
+                    "true",
+                    "false",
                 ]
                 .contains(&c.as_str())
             });
             for c in called {
-                out.push(finding(at.clone(), "names", format!("the invariant {vn}.{i} calls {c}; a value's invariant reads its own fields, calling length or trim alone (ADR-0255)")));
+                out.push(finding(at.clone(), "names", format!("the invariant {vn}.{i} calls {c}; a value's invariant reads its own fields, calling length, trim or add_months alone (ADR-0255, ADR-0276)")));
             }
         }
         for (f, spec) in obj(v, "attributes") {

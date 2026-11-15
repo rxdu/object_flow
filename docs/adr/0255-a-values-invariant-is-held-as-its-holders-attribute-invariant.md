@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-11-04 under the author's direction ("go with your recommendations"), on the recommendation given the same day once building ADR-0254 decision 4 found its name conflicting with how an invariant is named elsewhere. Built the same day.
 - **Date:** 2026-11-04
+- **Refined by:** ADR-0276 — a value's invariant may call `add_months`, beside `length` and `trim`.
 - **Refines:** ADR-0254 decision 4, which named a value's invariant broken on a holder `<attribute>.<invariant>`
 - **Relates to:** ADR-0176 decision 1 (`<transition>_taken_by`, a name the engine generates); ADR-0164 (an observation kind's invariant reads its own fields); issue #65
 
