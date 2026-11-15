@@ -307,7 +307,7 @@ fn beyond_own_fields(expr: &str) -> bool {
         use crate::expr::Expr;
         match e {
             Expr::Agg { .. } | Expr::Metric { .. } => true,
-            Expr::Call(f, _) if !matches!(f.as_ref(), Expr::Name(n) if ["length", "trim", "add_months"].contains(&n.as_str())) => {
+            Expr::Call(f, _) if !matches!(f.as_ref(), Expr::Name(n) if ["length", "trim", "add_months", "whole", "is_whole"].contains(&n.as_str())) => {
                 true
             }
             _ => e.children().into_iter().any(reaches),

@@ -1161,6 +1161,8 @@ pub fn declared_value_errors(doc: &Value) -> Found {
                     "length",
                     "trim",
                     "add_months",
+                    "whole",
+                    "is_whole",
                     "and",
                     "or",
                     "not",
@@ -1177,7 +1179,7 @@ pub fn declared_value_errors(doc: &Value) -> Found {
                 .contains(&c.as_str())
             });
             for c in called {
-                out.push(finding(at.clone(), "names", format!("the invariant {vn}.{i} calls {c}; a value's invariant reads its own fields, calling length, trim or add_months alone (ADR-0255, ADR-0276)")));
+                out.push(finding(at.clone(), "names", format!("the invariant {vn}.{i} calls {c}; a value's invariant reads its own fields, calling length, trim, add_months, whole or is_whole alone (ADR-0255, ADR-0276, ADR-0278)")));
             }
         }
         for (f, spec) in obj(v, "attributes") {

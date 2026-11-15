@@ -36195,21 +36195,21 @@
     11,
     "fatal",
     "names",
-    "invariant days_in_order does not type: max is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+    "invariant days_in_order does not type: max is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
    ],
    [
     "bookings.yaml",
     11,
     "fatal",
     "names",
-    "invariant proposed_in_order does not type: max is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+    "invariant proposed_in_order does not type: max is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
    ],
    [
     "bookings.yaml",
     11,
     "fatal",
     "names",
-    "the invariant DayRange.in_order calls max; a value's invariant reads its own fields, calling length, trim or add_months alone (ADR-0255, ADR-0276)"
+    "the invariant DayRange.in_order calls max; a value's invariant reads its own fields, calling length, trim, add_months, whole or is_whole alone (ADR-0255, ADR-0276, ADR-0278)"
    ],
    [
     "bookings.yaml",
@@ -36785,7 +36785,392 @@
     25,
     "fatal",
     "names",
-    "condition said does not type: abs is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+    "condition said does not type: abs is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "whole_plants: a guard testing wholeness",
+  "files": [
+   [
+    "lines.yaml",
+    "5a69c4ab9b3fa05b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Line.bundle is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "whole_plants: a guard reading the int",
+  "files": [
+   [
+    "lines.yaml",
+    "bc996448584bd2bc"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Line.bundle is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "whole_plants: whole of a decimal literal with no fraction",
+  "files": [
+   [
+    "lines.yaml",
+    "9756dcd3b2d8cd5c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Line.bundle is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "whole_plants: an invariant of a type, of a kind and of a value calling them",
+  "files": [
+   [
+    "lines.yaml",
+    "a43a9fc87076868f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    20,
+    "notice",
+    "unwritten",
+    "Line.bundle is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ]
+  },
+  "forms": {
+   "Line.bundle_counted": "local",
+   "Line.counted": "local"
+  },
+  "could_violate": {
+   "Line.bundle_counted": [
+    "Line.open"
+   ],
+   "Line.counted": [
+    "Line.open"
+   ]
+  }
+ },
+ {
+  "label": "whole_plants: an int given whole",
+  "files": [
+   [
+    "lines.yaml",
+    "080275db8bd3d834"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Line.bundle is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "lines.yaml",
+    23,
+    "fatal",
+    "names",
+    "condition said does not type: whole takes a decimal, and is given an int (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "whole_plants: an amount given is_whole",
+  "files": [
+   [
+    "lines.yaml",
+    "e745d0e148da7224"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Line.bundle is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "lines.yaml",
+    23,
+    "fatal",
+    "names",
+    "condition said does not type: is_whole takes a decimal, and is given money(USD) (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "whole_plants: a text given is_whole",
+  "files": [
+   [
+    "lines.yaml",
+    "c06b517f71c2324f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Line.bundle is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "lines.yaml",
+    23,
+    "fatal",
+    "names",
+    "condition said does not type: is_whole takes a decimal, and is given a string (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "whole_plants: an int literal given whole",
+  "files": [
+   [
+    "lines.yaml",
+    "214ae9b357c1212e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Line.bundle is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "lines.yaml",
+    23,
+    "fatal",
+    "names",
+    "condition said does not type: whole takes a decimal, and is given a number (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "whole_plants: whole of a literal with a fraction",
+  "files": [
+   [
+    "lines.yaml",
+    "3cc6bf9a2154c938"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Line.bundle is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "lines.yaml",
+    23,
+    "fatal",
+    "names",
+    "condition said does not type: whole of a number with a fraction has no value (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "whole_plants: two arguments",
+  "files": [
+   [
+    "lines.yaml",
+    "0b5b32ca0ac3e185"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Line.bundle is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "lines.yaml",
+    23,
+    "fatal",
+    "names",
+    "condition said does not type: whole takes one argument, and is given 2 (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "whole_plants: whole alone as a rule",
+  "files": [
+   [
+    "lines.yaml",
+    "d317367b4e2eb994"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Line.bundle is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "lines.yaml",
+    23,
+    "fatal",
+    "names",
+    "invariant counted does not type: it is an int, not a bool (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Line.counted": "local"
+  },
+  "could_violate": {
+   "Line.counted": [
+    "Line.open"
+   ]
+  }
+ },
+ {
+  "label": "whole_plants: an indexed derivation calling whole",
+  "files": [
+   [
+    "lines.yaml",
+    "069463a7d2103170"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Line.bundle is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "lines.yaml",
+    23,
+    "fatal",
+    "names",
+    "derived attribute 'units' is indexed and calls whole, which its generated column's SQL does not compute alike"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "whole_plants: an indexed derivation calling is_whole",
+  "files": [
+   [
+    "lines.yaml",
+    "e646f94c193e0e0d"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    18,
+    "notice",
+    "unwritten",
+    "Line.bundle is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "lines.yaml",
+    23,
+    "fatal",
+    "names",
+    "derived attribute 'units' is indexed and calls is_whole, which its generated column's SQL does not compute alike"
    ]
   ],
   "analysed": {},
@@ -47109,7 +47494,7 @@
     24,
     "fatal",
     "names",
-    "derived attribute probe does not type: abs is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+    "derived attribute probe does not type: abs is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
    ]
   ],
   "analysed": {},
@@ -47176,7 +47561,7 @@
     24,
     "fatal",
     "names",
-    "derived attribute probe does not type: max is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+    "derived attribute probe does not type: max is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
    ]
   ],
   "analysed": {},

@@ -5819,8 +5819,16 @@ impl Walk<'_> {
                 let Expr::Name(n) = f.as_ref() else {
                     return Err(());
                 };
-                if !["length", "trim", "add_months", "entered_at", "intervals"]
-                    .contains(&n.as_str())
+                if ![
+                    "length",
+                    "trim",
+                    "add_months",
+                    "whole",
+                    "is_whole",
+                    "entered_at",
+                    "intervals",
+                ]
+                .contains(&n.as_str())
                 {
                     return Err(());
                 }
@@ -6094,7 +6102,7 @@ fn reads_only_this(lib: &Library, t: &Type, e: &Expr, seen: &mut BTreeSet<String
             _ => false,
         },
         Expr::Call(f, args) => {
-            matches!(f.as_ref(), Expr::Name(n) if ["length", "trim", "add_months", "entered_at", "intervals"].contains(&n.as_str()))
+            matches!(f.as_ref(), Expr::Name(n) if ["length", "trim", "add_months", "whole", "is_whole", "entered_at", "intervals"].contains(&n.as_str()))
                 && args.iter().all(|a| reads_only_this(lib, t, a, seen))
         }
         Expr::Agg { .. } | Expr::Metric { .. } => false,
@@ -8996,6 +9004,145 @@ types:
         let snapshot = s.snapshot().unwrap();
         let held = snapshot.whole(&taken).unwrap().unwrap();
         assert_eq!(held.attr("months"), Value::Int(2));
+    }
+
+    /// A line's quantity whole where it counts units, and fractional where it
+    /// sells time (#97, ADR-0278): `is_whole` holds the rule as an invariant
+    /// every writer meets, a counted line opens a unit per unit sold through
+    /// `whole`, and `whole` of a fraction, or of a whole past 64 bits,
+    /// refuses as `value_in_range` wherever it is evaluated, never reading
+    /// as unknown, but on the side of an `or` that does not decide.
+    #[test]
+    fn a_whole_decimal_counts_units_and_a_fraction_refuses() {
+        const LINES: &str = r#"
+module: lines
+categories: [live, closed]
+types:
+  Unit:
+    attributes:
+      line: { reference: Line, opposite: units }
+      number: { type: int }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [line, number] }
+      finish: { kind: external, from: [OPEN], to: DONE }
+  Line:
+    attributes:
+      quantity: { type: "decimal(30,2)" }
+      by_time: { type: bool }
+      counted: { type: int, optional: true }
+      units: { reference: "Unit[]", opposite: line }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    derived_attributes:
+      sold: { expression: 'if by_time then 0 else whole(quantity)' }
+    invariants:
+      whole_units: { expression: 'by_time or is_whole(quantity)' }
+    conditions:
+      counts_units: { expression: not by_time, remedy: self_serviceable }
+      few: { expression: 'whole(quantity) <= 10', remedy: self_serviceable }
+      either: { expression: 'by_time or whole(quantity) >= 1', remedy: self_serviceable }
+    transitions:
+      take: { kind: initial, to: OPEN, required_inputs: [quantity, by_time] }
+      open_units:
+        kind: internal
+        from: [OPEN]
+        guards: { counts_units: deny }
+        effect: [ { foreach: { item: n, range: whole(quantity), limit: 100, steps: [ { create: { type: Unit, transition: add, inputs: { line: this, number: n } } } ] } } ]
+      spread:
+        kind: internal
+        from: [OPEN]
+        effect: [ { foreach: { item: n, range: whole(quantity), limit: 100, steps: [ { create: { type: Unit, transition: add, inputs: { line: this, number: n } } } ] } } ]
+      count: { kind: internal, from: [OPEN], effect: [ { assign: { location: counted, expr: sold } } ] }
+      count_millions: { kind: internal, from: [OPEN], effect: [ { assign: { location: counted, expr: 'whole(quantity * 1000000)' } } ] }
+      check_few: { kind: internal, from: [OPEN], guards: { few: deny } }
+      either_way: { kind: internal, from: [OPEN], guards: { either: deny } }
+      close: { kind: external, from: [OPEN], to: DONE }
+"#;
+        let lib = Library::load(&[("lines.yaml".into(), LINES.into())]).unwrap();
+        // the invariant reads its own object alone, as one calling `length`
+        // does, so a write re-checks no other line, by either reading of
+        // what it reaches
+        assert_eq!(invariant_reach(&lib, &lib.types["Line"]), Reach::Itself);
+        for (_, e) in &lib.types["Line"].invariants {
+            assert!(reads_only_this(
+                &lib,
+                &lib.types["Line"],
+                e,
+                &mut BTreeSet::new()
+            ));
+            assert_eq!(
+                traversals(&lib, &lib.types["Line"], e),
+                Some(BTreeSet::new())
+            );
+        }
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let line = |s: &mut Store, quantity: &str, by_time: bool| {
+            req(
+                s,
+                "take",
+                OPERATOR,
+                ("Line", true),
+                json!({"quantity": quantity, "by_time": by_time}),
+            )
+        };
+        let on = |s: &mut Store, id: &str, xn: &str| req(s, xn, OPERATOR, (id, false), json!({}));
+        let out_of_range = |v: &Verdict| v.clause().as_deref() == Some("value_in_range");
+        let held = |s: &Store, id: &str, m: &str| {
+            s.snapshot().unwrap().whole(id).unwrap().unwrap().attr(m)
+        };
+        // a counted line of three opens three units, and counts them
+        let three = created(&line(&mut s, "3.00", false));
+        let v = on(&mut s, &three, "open_units");
+        assert!(
+            matches!(&v, Verdict::Satisfied { created, .. } if created.len() == 3),
+            "{v:?}"
+        );
+        assert!(matches!(
+            on(&mut s, &three, "count"),
+            Verdict::Satisfied { .. }
+        ));
+        assert_eq!(held(&s, &three, "counted"), Value::Int(3));
+        assert!(matches!(
+            on(&mut s, &three, "check_few"),
+            Verdict::Satisfied { .. }
+        ));
+        // a counted line of a unit and a half is refused by the invariant
+        let v = line(&mut s, "1.50", false);
+        assert_eq!(v.clause().as_deref(), Some("whole_units"), "{v:?}");
+        // a time line of an hour and a half holds, and opens no unit
+        let hours = created(&line(&mut s, "1.50", true));
+        let v = on(&mut s, &hours, "open_units");
+        assert_eq!(v.clause().as_deref(), Some("counts_units"), "{v:?}");
+        assert!(matches!(
+            on(&mut s, &hours, "count"),
+            Verdict::Satisfied { .. }
+        ));
+        assert_eq!(held(&s, &hours, "counted"), Value::Int(0));
+        // whole of the fraction refuses from a guard and from an effect,
+        // never reading as unknown
+        for xn in ["check_few", "spread"] {
+            let v = on(&mut s, &hours, xn);
+            assert!(out_of_range(&v), "{xn}: {v:?}");
+        }
+        // the side of an `or` that does not decide refuses nothing
+        assert!(matches!(
+            on(&mut s, &hours, "either_way"),
+            Verdict::Satisfied { .. }
+        ));
+        // a whole past 64 bits, which arithmetic makes and no input holds,
+        // refuses as an int past them does
+        let vast = created(&line(&mut s, "10000000000000.00", false));
+        let v = on(&mut s, &vast, "count_millions");
+        assert!(out_of_range(&v), "{v:?}");
+        assert!(matches!(
+            on(&mut s, &three, "count_millions"),
+            Verdict::Satisfied { .. }
+        ));
+        assert_eq!(held(&s, &three, "counted"), Value::Int(3_000_000));
     }
 
     /// A division by zero an effect reads through a derived attribute, or a

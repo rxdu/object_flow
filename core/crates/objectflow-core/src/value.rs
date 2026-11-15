@@ -172,6 +172,12 @@ impl Decimal {
         self.units == 0
     }
 
+    /// Whether the number has no fraction, whatever its scale: 3.00 is
+    /// whole and 1.50 is not (ADR-0278).
+    pub fn is_whole(&self) -> bool {
+        self.rescale(0).is_some_and(|w| w == *self)
+    }
+
     /// The number as an `i64` if it is whole and fits.
     pub fn to_int(&self) -> Option<i64> {
         let whole = self.rescale(0)?;
@@ -631,6 +637,36 @@ mod tests {
         assert!(least < wide);
         assert!(wide.checked_neg().unwrap() < least);
         assert_eq!(d("1.50"), d("1.5"));
+    }
+
+    /// A decimal is whole where it has no fraction, whatever its scale, and
+    /// equals an int only where it is whole and within 64 bits (ADR-0278).
+    #[test]
+    fn a_decimal_is_whole_at_any_scale_and_an_int_within_64_bits() {
+        for (text, whole) in [
+            ("3.00", true),
+            ("3", true),
+            ("0.00", true),
+            ("-2.0", true),
+            ("1.50", false),
+            ("-2.5", false),
+            ("0.01", false),
+            ("99999999999999999999999999999999999.99", false),
+            ("99999999999999999999999999999999999.00", true),
+        ] {
+            assert_eq!(d(text).is_whole(), whole, "{text}");
+        }
+        for (text, int) in [
+            ("3.00", Some(3)),
+            ("-2.0", Some(-2)),
+            ("1.50", None),
+            ("9223372036854775807.00", Some(i64::MAX)),
+            ("-9223372036854775808.0", Some(i64::MIN)),
+            ("9223372036854775808.00", None),
+            ("-9223372036854775809", None),
+        ] {
+            assert_eq!(d(text).to_int(), int, "{text}");
+        }
     }
 
     #[test]

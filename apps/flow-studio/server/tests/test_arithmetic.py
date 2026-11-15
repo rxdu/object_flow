@@ -10,6 +10,7 @@ without it.
 import pytest
 
 from compare import Tee
+from replay import NotRun
 from flowstudio.core import Core
 from test_backends_agree import started
 from test_publishing import alike, load, made, took
@@ -691,6 +692,121 @@ def test_a_division_by_zero_refuses_through_a_derivation_and_a_cascade_alike(tee
         piece = took(tee, batch, "place")["created"][0]
         took(tee, batch, xn)
         assert tee.post("/v1/get", {"id": piece})["attributes"]["opt"] == 3, xn
+    alike(tee)
+
+LINES = """module: lines
+categories: [live, closed]
+types:
+  Unit:
+    description: One unit a line sold.
+    tracking: record
+    attributes:
+      line: { reference: Line, opposite: units }
+      number: { type: int }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [line, number] }
+      finish: { kind: external, from: [OPEN], to: DONE }
+  Line:
+    description: A line selling whole units of a product or a fraction of time.
+    tracking: record
+    attributes:
+      quantity: { type: "decimal(16,2)" }
+      by_time: { type: bool }
+      counted: { type: int, optional: true }
+      units: { reference: "Unit[]", opposite: line }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    derived_attributes:
+      sold: { description: The units sold and none for time., expression: 'if by_time then 0 else whole(quantity)' }
+    invariants:
+      whole_units: { description: A product sells whole units., expression: 'by_time or is_whole(quantity)' }
+    conditions:
+      counts_units: { description: It sells units., expression: not by_time, remedy: self_serviceable }
+      few: { description: At most ten., expression: 'whole(quantity) <= 10', remedy: self_serviceable }
+      either: { description: Time or a unit at least., expression: 'by_time or whole(quantity) >= 1', remedy: self_serviceable }
+      counted_n: { description: A count no checker types., expression: 'whole(inputs.n) >= 0', remedy: self_serviceable }
+    transitions:
+      take: { kind: initial, to: OPEN, required_inputs: [quantity, by_time] }
+      open_units:
+        kind: internal
+        from: [OPEN]
+        guards: { counts_units: deny }
+        effect: [ { foreach: { item: n, range: whole(quantity), limit: 100, steps: [ { create: { type: Unit, transition: add, inputs: { line: this, number: n } } } ] } } ]
+      spread:
+        kind: internal
+        from: [OPEN]
+        effect: [ { foreach: { item: n, range: whole(quantity), limit: 100, steps: [ { create: { type: Unit, transition: add, inputs: { line: this, number: n } } } ] } } ]
+      count: { kind: internal, from: [OPEN], effect: [ { assign: { location: counted, expr: sold } } ] }
+      count_millions: { kind: internal, from: [OPEN], effect: [ { assign: { location: counted, expr: 'whole(quantity * 1000000)' } } ] }
+      check_few: { kind: internal, from: [OPEN], guards: { few: deny } }
+      either_way: { kind: internal, from: [OPEN], guards: { either: deny } }
+      counted_by:
+        kind: internal
+        from: [OPEN]
+        inputs:
+          n: { type: int }
+        guards: { counted_n: deny }
+      close: { kind: external, from: [OPEN], to: DONE }
+    metrics:
+      units_sold:
+        description: The units every line sold.
+        source: objects
+        item: l
+        expression: sum(whole(l.quantity))
+      average_units:
+        description: The units a line sold on average.
+        source: objects
+        item: l
+        expression: avg(whole(l.quantity))
+"""
+
+
+def test_a_whole_decimal_counts_units_and_a_fraction_refuses_alike(tee):
+    """`whole` and `is_whole` on both runners alike: the invariant
+    `by_time or is_whole(quantity)` refusing a counted line of a unit and a
+    half and holding a time line's, a counted line opening a unit per unit
+    sold, `whole` of a fraction or of a whole past 64 bits refused as
+    `value_in_range` from a guard, an effect and a metric, and refusing
+    nothing on the side of an `or` that does not decide (issue #97,
+    ADR-0278)."""
+    tee.found.clear()
+    load(tee, "lines", LINES)
+    three = made(tee, "Line", "take", quantity="3.00", by_time=False)
+    v = took(tee, three, "open_units")
+    assert len(v["created"]) == 3, v
+    took(tee, three, "count")
+    assert tee.post("/v1/get", {"id": three})["attributes"]["counted"] == 3
+    took(tee, three, "check_few")
+    m = tee.post("/v1/metric", {"actor": OP, "name": "Line.units_sold"})
+    assert [r["value"] for r in m["rows"]] == [3], m
+    # an average of the ints `whole` yields is a decimal to six places, as of any ints
+    m = tee.post("/v1/metric", {"actor": OP, "name": "Line.average_units"})
+    assert [r["value"] for r in m["rows"]] == ["3.000000"], m
+    v = tee.post("/v1/request", {"transition": "take", "actor": OP, "type": "Line",
+                                 "inputs": {"quantity": "1.50", "by_time": False}})
+    assert (v["kind"], v["failures"][0]["invariant"]) == ("invariant_violated", "whole_units"), v
+    hours = made(tee, "Line", "take", quantity="1.50", by_time=True)
+    v = tee.post("/v1/request", {"transition": "open_units", "actor": OP, "object_id": hours, "inputs": {}})
+    assert v.get("clause") == "counts_units", v
+    took(tee, hours, "count")
+    assert tee.post("/v1/get", {"id": hours})["attributes"]["counted"] == 0
+    for xn in ("check_few", "spread"):
+        refused(tee, hours, xn)
+    took(tee, hours, "either_way")
+    # an int an input gives, which check 24 cannot tell in a condition, stops the request as not run
+    with pytest.raises(NotRun, match="whole of an int"):
+        tee.post("/v1/request", {"transition": "counted_by", "actor": OP, "object_id": three, "inputs": {"n": 2}})
+    vast = made(tee, "Line", "take", quantity="10000000000000.00", by_time=False)
+    refused(tee, vast, "count_millions")
+    took(tee, three, "count_millions")
+    assert tee.post("/v1/get", {"id": three})["attributes"]["counted"] == 3_000_000
+    # a metric reading whole of a time line's fraction is refused, as a read
+    m = tee.post("/v1/metric", {"actor": OP, "name": "Line.units_sold"})
+    assert "rows" not in m, m
     alike(tee)
 
 NOTES = """module: notes

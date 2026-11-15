@@ -3527,6 +3527,51 @@ impl Typing<'_> {
         None
     }
 
+    /// The type of a call of `length`, `trim`, `add_months`, `whole` or
+    /// `is_whole`, typed here through one arm of [`Self::of`]: each typed in
+    /// `of`, their temporaries grew the frame its recursion holds past the
+    /// oracle's test thread's stack (`docs/LESSONS.md`).
+    #[inline(never)]
+    fn typed_function(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        tn: &str,
+        x: Option<&Value>,
+        env: &TyEnv,
+        seen: &BTreeSet<(String, String)>,
+    ) -> Option<Ty> {
+        match name {
+            "add_months" => self.months_moved(args, tn, x, env, seen),
+            "whole" | "is_whole" => self.made_whole(name, args, tn, x, env, seen),
+            _ => {
+                let arg = if args.len() == 1 {
+                    self.of(&args[0], tn, x, env, seen)
+                } else {
+                    None
+                };
+                if name == "length" {
+                    if let Some(arg) = arg
+                        && !matches!(arg, Ty::Str | Ty::Values(_))
+                    {
+                        self.fail(format!(
+                            "length takes a string or a set of values, and is given {}",
+                            arg.text()
+                        ));
+                    }
+                    Some(Ty::Int)
+                } else {
+                    if let Some(arg) = arg
+                        && !matches!(arg, Ty::Str)
+                    {
+                        self.fail(format!("trim takes a string, and is given {}", arg.text()));
+                    }
+                    Some(Ty::Str)
+                }
+            }
+        }
+    }
+
     /// `add_months`'s type: a date and a whole number of months, a date
     /// moved by them (ADR-0276). A function of its own, so the typing's
     /// recursion, which every frame of [`Self::of`] holds, grows no larger.
@@ -3559,6 +3604,41 @@ impl Typing<'_> {
             ));
         }
         Some(Ty::Date)
+    }
+
+    /// `whole`'s and `is_whole`'s type: a decimal, the int it equals or
+    /// whether it is whole (ADR-0278); `whole` of a literal with a fraction
+    /// has no value, as a division by a literal zero has none. A function of
+    /// its own, so the typing's recursion, which every frame of
+    /// [`Self::of`] holds, grows no larger.
+    #[inline(never)]
+    fn made_whole(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        tn: &str,
+        x: Option<&Value>,
+        env: &TyEnv,
+        seen: &BTreeSet<(String, String)>,
+    ) -> Option<Ty> {
+        let yields = if name == "whole" { Ty::Int } else { Ty::Bool };
+        let [a] = args else {
+            return Some(yields);
+        };
+        if name == "whole" && literal_fraction(a) {
+            self.fail("whole of a number with a fraction has no value".to_string());
+            return Some(yields);
+        }
+        if let Some(arg) = self.of(a, tn, x, env, seen)
+            && !matches!(arg, Ty::Decimal(_))
+            && !matches!(arg, Ty::Number(s) if s > 0)
+        {
+            self.fail(format!(
+                "{name} takes a decimal, and is given {}",
+                arg.text()
+            ));
+        }
+        Some(yields)
     }
 
     /// A flow function names what its object's type has: `time_in` a
@@ -3885,7 +3965,7 @@ impl Typing<'_> {
                         if !FUNCTIONS.contains(&name.as_str())
                             && !METRIC_ONLY_FUNCTIONS.contains(&name.as_str()) =>
                     {
-                        self.fail(format!("{name} is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year"));
+                        self.fail(format!("{name} is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year"));
                         return None;
                     }
                     Expr::Name(name)
@@ -3968,36 +4048,9 @@ impl Typing<'_> {
                     return None;
                 };
                 match name.as_str() {
-                    "length" => {
-                        let arg = if args.len() == 1 {
-                            self.of(&args[0], tn, x, env, seen)
-                        } else {
-                            None
-                        };
-                        if let Some(arg) = arg
-                            && !matches!(arg, Ty::Str | Ty::Values(_))
-                        {
-                            self.fail(format!(
-                                "length takes a string or a set of values, and is given {}",
-                                arg.text()
-                            ));
-                        }
-                        Some(Ty::Int)
+                    "length" | "trim" | "add_months" | "whole" | "is_whole" => {
+                        self.typed_function(name, args, tn, x, env, seen)
                     }
-                    "trim" => {
-                        let arg = if args.len() == 1 {
-                            self.of(&args[0], tn, x, env, seen)
-                        } else {
-                            None
-                        };
-                        if let Some(arg) = arg
-                            && !matches!(arg, Ty::Str)
-                        {
-                            self.fail(format!("trim takes a string, and is given {}", arg.text()));
-                        }
-                        Some(Ty::Str)
-                    }
-                    "add_months" => self.months_moved(args, tn, x, env, seen),
                     "entered_at" => Some(Ty::Timestamp),
                     "time_in" => Some(Ty::Duration),
                     "date" => Some(Ty::Date),
@@ -4588,6 +4641,18 @@ fn typed_kind(ty: &Ty) -> Option<Vec<String>> {
 }
 
 /// Whether an expression is a literal zero, `0` or `0.00`.
+/// A number literal with a fraction, `1.5` or `-0.25`, which no whole
+/// decimal is (ADR-0278).
+fn literal_fraction(e: &Expr) -> bool {
+    match e {
+        Expr::Neg(inner) => literal_fraction(inner),
+        Expr::Num(Number::Decimal(t)) => t
+            .split_once('.')
+            .is_some_and(|(_, f)| f.chars().any(|c| c != '0')),
+        _ => false,
+    }
+}
+
 fn literal_zero(e: &Expr) -> bool {
     match e {
         Expr::Num(Number::Int(n)) => *n == 0,
@@ -6152,6 +6217,7 @@ static FLOW_DATA_READ: LazyLock<Regex> =
     LazyLock::new(|| re(r"\b(?:time_in|entered_at)\(|\bthis\.(?:intervals|transitions)\b"));
 static TRIM_CALL: LazyLock<Regex> = LazyLock::new(|| re(r"\btrim\("));
 static ADD_MONTHS_CALL: LazyLock<Regex> = LazyLock::new(|| re(r"\badd_months\("));
+static WHOLE_CALL: LazyLock<Regex> = LazyLock::new(|| re(r"\b(is_whole|whole)\("));
 
 /// An indexed derived attribute reads only this object's stored, indexed
 /// values (the model's check 46).
@@ -6202,6 +6268,17 @@ fn indexed_errors(tn: &str, t: &Value, library: &Obj) -> Found {
             why.push(
                 "calls add_months, which its generated column's SQL does not compute alike".into(),
             );
+        }
+        // its generated column's SQL would round a fraction on PostgreSQL
+        // (ADR-0278)
+        for f in WHOLE_CALL
+            .captures_iter(&text)
+            .map(|c| c[1].to_string())
+            .collect::<BTreeSet<_>>()
+        {
+            why.push(format!(
+                "calls {f}, which its generated column's SQL does not compute alike"
+            ));
         }
         for w in why {
             out.push(finding(
@@ -7561,11 +7638,13 @@ fn evaluator_errors(doc: &Value, tn: &str, t: &Value) -> Found {
 
 /// The functions an expression may call, and the member functions
 /// (`declaration-syntax.md` §8.3).
-const FUNCTIONS: [&str; 6] = [
+const FUNCTIONS: [&str; 8] = [
     "length",
     "trim",
     "date",
     "add_months",
+    "whole",
+    "is_whole",
     "entered_at",
     "time_in",
 ];

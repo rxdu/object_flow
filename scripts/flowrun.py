@@ -1521,6 +1521,24 @@ class Evaluator:
                 # past the calendar it has no value and refuses, as a date moved by days does (ADR-0276, ADR-0205)
                 raise OutOfRange(self.this)
             return moved
+        if fn in (("name", "whole"), ("name", "is_whole")) and len(args) == 1:
+            v = self.value(args[0], env)
+            if v is ABSENT:
+                return ABSENT
+            try:
+                held = self.held_kind(args[0], self.kinds_here(env), env)[0]
+            except NotRunnable:
+                held = None
+            # an amount, a duration and a time are Fractions here, and not decimals, as the core's values tell them
+            if not isinstance(v, Fraction) or held in ("money", "duration", "timestamp"):
+                raise NotRunnable(f"{fn[1]} of a value that is not a decimal")
+            if fn[1] == "is_whole":
+                return v.denominator == 1           # whether it has no fraction, which never refuses (ADR-0278)
+            if v.denominator != 1 or not -2 ** 63 <= v.numerator <= 2 ** 63 - 1:
+                # a fraction, or a whole past 64 bits, has no value and refuses wherever it is evaluated, as an
+                # arithmetic past its bound does (ADR-0278, ADR-0205 decision 2)
+                raise OutOfRange(self.this)
+            return int(v)
         if fn == ("name", "length") and len(args) == 1:
             v = self.value(args[0], env)
             return ABSENT if v is ABSENT else len(v)
@@ -2208,7 +2226,7 @@ class Evaluator:
                 if fn[1] in ROW_AGGREGATES:
                     return self.aggregate_kind(fn[1], args[-1], env)
                 return {"entered_at": ("timestamp",), "time_in": ("duration",), "date": ("date",),
-                        "add_months": ("date",)}.get(fn[1], ("other",))
+                        "add_months": ("date",), "whole": ("int",), "is_whole": ("bool",)}.get(fn[1], ("other",))
             base = self.kind(fn[1], env)
             if fn[2] in ("entered_at", "time_in"):
                 return ("timestamp",) if fn[2] == "entered_at" else ("duration",)

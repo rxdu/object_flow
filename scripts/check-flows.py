@@ -3507,7 +3507,7 @@ class Typing:
             # did not run it (the values audit's K-7, K-8)
             if f[0] == "name" and f[1] not in FUNCTIONS and f[1] not in METRIC_ONLY_FUNCTIONS:
                 name = f[1]
-                self.fail(f"{name} is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")
+                self.fail(f"{name} is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")
                 return None
             if f[0] == "name" and f[1] in FUNCTIONS and len(e[2]) != ARITY.get(f[1], 1):
                 name, n = f[1], len(e[2])
@@ -3574,6 +3574,19 @@ class Typing:
                 if n is not None and n[0] != "int" and n != ("number", 0):
                     self.fail(f"add_months moves a date by a whole number of months, an int, and is given {type_text(n)}")
                 return ("date",)
+            if f in (("name", "whole"), ("name", "is_whole")):
+                # a decimal, the int it equals or whether it is whole; whole of a literal with a fraction has no value, as
+                # a division by a literal zero has none (ADR-0278)
+                yields = ("int",) if f[1] == "whole" else ("bool",)
+                a = e[2][0] if len(e[2]) == 1 else None
+                lit = a[1] if a is not None and a[0] == "neg" else a
+                if f[1] == "whole" and lit is not None and lit[0] == "num" and Fraction(str(lit[1])).denominator != 1:
+                    self.fail("whole of a number with a fraction has no value")
+                    return yields
+                arg = self.of(a, tn, x, env, seen) if a is not None else None
+                if arg is not None and arg[0] != "decimal" and not (arg[0] == "number" and arg[1] > 0):
+                    self.fail(f"{f[1]} takes a decimal, and is given {type_text(arg)}")
+                return yields
             return {"entered_at": ("timestamp",), "time_in": ("duration",), "date": ("date",)}.get(f[1] if f[0] == "name" else None)
         if k == "changed":
             # the event it reads is one no type here names, so a value of a type it can tell is not one, where an int
@@ -4502,6 +4515,9 @@ def indexed_errors(tn, t, library):
         # PostgreSQL (ADR-0276)
         if re.search(r"\badd_months\(", text):
             why.append("calls add_months, which its generated column's SQL does not compute alike")
+        # its generated column's SQL would round a fraction on PostgreSQL (ADR-0278)
+        for f in sorted(set(re.findall(r"\b(is_whole|whole)\(", text))):
+            why.append(f"calls {f}, which its generated column's SQL does not compute alike")
         out += [(("types", tn, "derived_attributes", d, "indexed"), "names", f"derived attribute '{d}' is indexed and {w}") for w in why]
     return out
 
@@ -4644,10 +4660,10 @@ def declared_value_errors(doc):
                 out.append((at, "names", f"the invariant {vn}.{i} reads {r}, which is no field of {vn}; a value's "
                                          "invariant reads its own fields (ADR-0255)"))
             bare = re.sub(r'"(?:[^"\\]|\\.)*"', '""', text)
-            called = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", bare)) - {"length", "trim", "add_months"} - flowexpr.KEYWORDS
+            called = set(re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", bare)) - {"length", "trim", "add_months", "whole", "is_whole"} - flowexpr.KEYWORDS
             for c in sorted(called):
                 out.append((at, "names", f"the invariant {vn}.{i} calls {c}; a value's invariant reads its own fields, "
-                                         "calling length, trim or add_months alone (ADR-0255, ADR-0276)"))
+                                         "calling length, trim, add_months, whole or is_whole alone (ADR-0255, ADR-0276, ADR-0278)"))
         for f, spec in (v.get("attributes") or {}).items():
             typ = str((spec or {}).get("type", ""))
             head = re.match(r"[A-Za-z_][A-Za-z0-9_]*", typ)
@@ -5365,7 +5381,7 @@ NO_MEMBERS = {"number", "int", "decimal", "money", "duration", "timestamp", "dat
 # the members of a file, its media type and its size in bytes (ADR-0239 decision 4)
 FILE_MEMBERS = {"media_type": ("string",), "size": ("int",)}
 # the functions an expression may call, and the member functions (declaration-syntax.md §8.3)
-FUNCTIONS = {"length", "trim", "date", "add_months", "entered_at", "time_in"}
+FUNCTIONS = {"length", "trim", "date", "add_months", "whole", "is_whole", "entered_at", "time_in"}
 # the number of arguments a function takes: add_months a date and a count of months (ADR-0276), each other one
 ARITY = {"add_months": 2}
 # the functions a metric alone calls, which check 56 refuses elsewhere
@@ -10341,8 +10357,8 @@ def expression_type_plants(people):
          [wrong("derived attribute probe", "entered_at(label) names neither a state of Account nor a member it tracks")]),
         ("time_in of a state and entered_at of a tracked member", ledger("time_in(OPEN) > 1 h and entered_at(tier) < now"), []),
         # a call of what the language has, where any other typed as nothing and the core did not run it (values K-7, K-8)
-        ("a function the language has not", ledger("abs(count) > 0"), [wrong("derived attribute probe", "abs is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")]),
-        ("an aggregate called on values", ledger("max(count, count) > 0"), [wrong("derived attribute probe", "max is no function the language has: it has length, trim, date, add_months, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")]),
+        ("a function the language has not", ledger("abs(count) > 0"), [wrong("derived attribute probe", "abs is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")]),
+        ("an aggregate called on values", ledger("max(count, count) > 0"), [wrong("derived attribute probe", "max is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")]),
         ("a function given two arguments", ledger("length(label, label) > 0"),
          [wrong("derived attribute probe", "length takes one argument, and is given 2")]),
         # a member function on what has it, and a flow function naming a state or a member (values K-8)
@@ -12120,8 +12136,8 @@ def value_plants():
             "enforce it, and a rule about time is a guard (the model's check 32)" for a in ("days", "proposed")]
          + [f"invariant {a}_in_order does not type: it compares a timestamp with a date (the model's check 24)" for a in ("days", "proposed")]),
         ("an invariant calling a metric", [("bookings.yaml", held("first <= last and length(note) < 9 and max(first, last) == last"))], None,
-         ["the invariant DayRange.in_order calls max; a value's invariant reads its own fields, calling length, trim or add_months alone (ADR-0255, ADR-0276)"]
-         + [f"invariant {a}_in_order does not type: max is no function the language has: it has length, trim, date, add_months, "
+         ["the invariant DayRange.in_order calls max; a value's invariant reads its own fields, calling length, trim, add_months, whole or is_whole alone (ADR-0255, ADR-0276, ADR-0278)"]
+         + [f"invariant {a}_in_order does not type: max is no function the language has: it has length, trim, date, add_months, whole, is_whole, "
             "entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
             for a in ("days", "proposed")]),
         ("an invariant that does not type", [("bookings.yaml", held("first + 1 > last"))], None,
@@ -13299,6 +13315,64 @@ def trim_plants():
     return ok
 
 
+def whole_plants():
+    """`whole` and `is_whole`, a whole decimal as an int and its test (ADR-0278): a guard reading either is clean, as are
+    an invariant of a type, of an observation kind and of a value calling them, and `whole` of a decimal literal with no
+    fraction; an int, an amount or a text given either, `whole` of a literal with a fraction, which has no value, two
+    arguments, and `whole` alone as a rule are refused, as is an indexed derivation calling either, since its generated
+    column's SQL would not compute it alike."""
+    base = ("module: lines\ncategories: [live, closed]\nvalues:\n  Bundle:\n    description: A bundle of whole units.\n"
+            "    attributes:\n      size: { type: \"decimal(9,2)\" }\n"
+            "{value}types:\n  Line:\n    description: A line selling whole units of a product or a fraction of time.\n"
+            "    tracking: record\n    attributes:\n      quantity: { type: \"decimal(9,2)\", indexed: true }\n"
+            "      by_time: { type: bool }\n      count: { type: int }\n      price: { type: money(USD) }\n"
+            "      title: { type: string }\n      bundle: { type: Bundle, optional: true }\n{kind}    states:\n"
+            "      OPEN: { description: Open., category: live }\n"
+            "      DONE: { description: Done., category: closed, final: true }\n{derived}{invariants}    conditions:\n"
+            "      said: { description: A product sells whole units., expression: '{expr}', remedy: self_serviceable }\n"
+            "    transitions:\n"
+            "      open: { kind: initial, to: OPEN, required_inputs: [quantity, by_time, count, price, title], guards: { said: deny } }\n"
+            "      close: { kind: external, from: OPEN, to: DONE }\n")
+    def module(expr, derived="", invariants="", kind="", value=""):
+        return (base.replace("{expr}", expr).replace("{derived}", derived).replace("{invariants}", invariants)
+                .replace("{kind}", kind).replace("{value}", value))
+    tested = "by_time or is_whole(quantity)"
+    held = ("    invariants:\n      counted: { description: A product sells whole units., "
+            "expression: 'by_time or is_whole(quantity)' }\n")
+    kind = ("    observations:\n      deliveries:\n        description: Deliveries of the line.\n        kind: Delivery\n"
+            "        attributes:\n          amount: { type: \"decimal(9,2)\" }\n        invariants:\n"
+            "          counted: { description: Whole units., expression: 'whole(amount) >= 1' }\n")
+    value = ("    invariants:\n      counted: { description: Whole units., expression: 'is_whole(size)' }\n")
+    typed = "condition said does not type: {} (the model's check 24)"
+    indexed = "    derived_attributes:\n      units: {{ description: The units sold., expression: '{}', indexed: true }}\n"
+    cases = [
+        ("a guard testing wholeness", module(tested), []),
+        ("a guard reading the int", module("whole(quantity) >= 1"), []),
+        ("whole of a decimal literal with no fraction", module("whole(3.0) == count"), []),
+        ("an invariant of a type, of a kind and of a value calling them", module(tested, invariants=held, kind=kind, value=value), []),
+        ("an int given whole", module("whole(count) >= 1"), [typed.format("whole takes a decimal, and is given an int")]),
+        ("an amount given is_whole", module("is_whole(price)"), [typed.format("is_whole takes a decimal, and is given money(USD)")]),
+        ("a text given is_whole", module("is_whole(title)"), [typed.format("is_whole takes a decimal, and is given a string")]),
+        ("an int literal given whole", module("whole(3) == count"), [typed.format("whole takes a decimal, and is given a number")]),
+        ("whole of a literal with a fraction", module("whole(1.5) == count"), [typed.format("whole of a number with a fraction has no value")]),
+        ("two arguments", module("whole(quantity, 2) == count"), [typed.format("whole takes one argument, and is given 2")]),
+        ("whole alone as a rule", module(tested, invariants="    invariants:\n      counted: { description: Whole., expression: 'whole(quantity)' }\n"),
+         ["invariant counted does not type: it is an int, not a bool (the model's check 24)"]),
+        ("an indexed derivation calling whole", module(tested, indexed.format("whole(quantity)")),
+         ["derived attribute 'units' is indexed and calls whole, which its generated column's SQL does not compute alike"]),
+        ("an indexed derivation calling is_whole", module(tested, indexed.format("is_whole(quantity)")),
+         ["derived attribute 'units' is indexed and calls is_whole, which its generated column's SQL does not compute alike"]),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, notes = check([("lines.yaml", text)])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  whole, {name}: {'as expected' if hit else 'NOT: ' + str(got) + ' ' + str([x[4] for x in notes])}")
+    return ok
+
+
 def add_months_plants():
     """`add_months`, a date moved by calendar months (ADR-0276): a guard reading it is clean, as are an invariant of a
     type, of an observation kind and of a value calling it; a timestamp, a fraction or a text given it, or one argument,
@@ -13344,7 +13418,7 @@ def add_months_plants():
          module(moved, "    derived_attributes:\n      renewal: { description: A year on., expression: 'add_months(starts_on, 12)', indexed: true }\n"),
          ["derived attribute 'renewal' is indexed and calls add_months, which its generated column's SQL does not compute alike"]),
         ("a call of no function", module("abs(inputs.months) > 0"),
-         [typed.format("abs is no function the language has: it has length, trim, date, add_months, entered_at and time_in, "
+         [typed.format("abs is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, "
                        "and in a metric avg, median, percentile, day, week, month, quarter and year")]),
     ]
     ok = True
@@ -13612,6 +13686,7 @@ def main():
     ok &= value_plants()
     ok &= trim_plants()
     ok &= add_months_plants()
+    ok &= whole_plants()
     ok &= creation_read_plants()
     ok &= metric_plants(people)
     ok &= range_plant(people)

@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Added
+
+- `whole(<decimal>)` yields the `int` a decimal equals where it has no fraction, and `is_whole(<decimal>)` whether it has none (issue #97, ADR-0278). `whole` of a decimal with a fraction, or of a whole one past 64 bits, refuses as `value_in_range` wherever it is evaluated, as an arithmetic past its bound does, so a loop `range: whole(quantity)` never opens fewer units than were sold. An invariant may call either, an observation kind's and a value's among them, so `by_time or is_whole(quantity)` holds for every writer; an indexed derivation may call neither (check 46).
+
 ### Changed, and may refuse what 0.26.0 accepted
 
 - A division by zero an effect reads through a derived attribute, or a cascade passes as an input, refuses the request as `value_in_range`, naming its object, as one written in the effect does (ADR-0277). A loop over it ran no step, an argument was not passed, a cascade drove its transition without the input, and a `set` of it cleared the stored value.

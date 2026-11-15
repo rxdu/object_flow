@@ -1,0 +1,28 @@
+module: lines
+categories: [live, closed]
+values:
+  Bundle:
+    description: A bundle of whole units.
+    attributes:
+      size: { type: "decimal(9,2)" }
+types:
+  Line:
+    description: A line selling whole units of a product or a fraction of time.
+    tracking: record
+    attributes:
+      quantity: { type: "decimal(9,2)", indexed: true }
+      by_time: { type: bool }
+      count: { type: int }
+      price: { type: money(USD) }
+      title: { type: string }
+      bundle: { type: Bundle, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    invariants:
+      counted: { description: Whole., expression: 'whole(quantity)' }
+    conditions:
+      said: { description: A product sells whole units., expression: 'by_time or is_whole(quantity)', remedy: self_serviceable }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [quantity, by_time, count, price, title], guards: { said: deny } }
+      close: { kind: external, from: OPEN, to: DONE }

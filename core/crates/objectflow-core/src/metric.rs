@@ -1515,6 +1515,10 @@ impl<'w> Reader<'w> {
                 Expr::Name(f) if f == "time_in" => Kind::Duration,
                 // a date moved by calendar months (ADR-0276)
                 Expr::Name(f) if f == "add_months" => Kind::Date,
+                // the int a whole decimal equals, and whether it is whole
+                // (ADR-0278)
+                Expr::Name(f) if f == "whole" => Kind::Int,
+                Expr::Name(f) if f == "is_whole" => Kind::Bool,
                 Expr::Name(_) => Kind::Other,
                 Expr::Path(base, m) => {
                     let base = self.kind(base, env, this)?;

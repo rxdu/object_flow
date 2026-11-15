@@ -1761,6 +1761,25 @@ impl<'a> Evaluator<'a> {
                     .ok_or_else(|| self.out_of_range()),
                 (a, b) => not_run(format!("add_months of {} and {}", a.kind(), b.kind())),
             },
+            // the int a whole decimal equals; a fraction, or a whole past 64
+            // bits, has no value and refuses wherever it is evaluated, as
+            // an arithmetic past its bound does, where a call's absent
+            // result would read as unknown (ADR-0278, ADR-0205 decision 2)
+            ("whole", [a]) => match self.value(a, env)? {
+                Value::Absent => Ok(Value::Absent),
+                Value::Decimal(d) => d
+                    .to_int()
+                    .map(Value::Int)
+                    .ok_or_else(|| self.out_of_range()),
+                other => not_run(format!("whole of {}", other.kind())),
+            },
+            // whether a decimal has no fraction, which never refuses
+            // (ADR-0278)
+            ("is_whole", [a]) => Ok(match self.value(a, env)? {
+                Value::Absent => Value::Absent,
+                Value::Decimal(d) => Value::Bool(d.is_whole()),
+                other => return not_run(format!("is_whole of {}", other.kind())),
+            }),
             ("entered_at" | "time_in", [Expr::Name(arg)]) => match self.this {
                 Some(id) => self.flow_function(id, name, arg),
                 None => Ok(Value::Absent),

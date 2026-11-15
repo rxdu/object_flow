@@ -278,4 +278,5 @@
 | [0275](0275-a-derived-set-defaults-to-the-empty-set-and-a-derivation-carries-through-its-target.md) | A derived set defaults to the empty set, and a derivation carries through its target | Decided by the author; built |
 | [0276](0276-an-expression-moves-a-date-by-calendar-months.md) | An expression moves a date by calendar months | Decided by the author; built |
 | [0277](0277-a-division-by-zero-refuses-an-effect-through-a-derivation-and-a-cascade.md) | A division by zero refuses an effect through a derivation and a cascade | Decided by the author; built |
+| [0278](0278-a-whole-decimal-is-used-as-an-int-and-tested-whole.md) | A whole decimal is used as an `int`, and tested whole | Decided by the author; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |
