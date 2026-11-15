@@ -314,8 +314,10 @@ pub struct Evaluator<'a> {
     known: std::cell::OnceCell<Known>,
 }
 
-/// The derived values an evaluation has computed, by object and name.
-type Known = std::rc::Rc<std::cell::RefCell<BTreeMap<(String, String), Value>>>;
+/// The derived values an evaluation has computed, by object and name, each
+/// with whether a division by zero left it with none, which an effect reading
+/// it refuses as it does one written in it (ADR-0185, ADR-0277).
+type Known = std::rc::Rc<std::cell::RefCell<BTreeMap<(String, String), (Value, bool)>>>;
 
 /// The most derived attributes, each reading the next, one evaluation goes
 /// inside before the next read is not run: far below what a request's stack
@@ -736,16 +738,26 @@ impl<'a> Evaluator<'a> {
                 negated
             }),
             Expr::IsNull(inner, negated) => {
+                // a division by zero the test reads is answered by it, and
+                // refuses nothing more (ADR-0277)
+                let before = self.failed_arithmetic.get();
                 let v = self.value(inner, env)?;
+                self.failed_arithmetic.set(before);
                 Term::Value(Value::Bool(v.is_absent() != *negated))
             }
             Expr::In(left, right) => self.membership(left, right, env)?,
             Expr::Bin(op, l, r) => Term::Value(self.binary(*op, l, r, env)?),
-            Expr::If(c, a, b) => match truth(&self.value(c, env)?)? {
-                None => Term::absent(),
-                Some(true) => self.term(a, env)?,
-                Some(false) => self.term(b, env)?,
-            },
+            Expr::If(c, a, b) => {
+                let before = self.failed_arithmetic.get();
+                match truth(&self.value(c, env)?)? {
+                    None => Term::absent(),
+                    // a decided condition answered whatever it read
+                    Some(decided) => {
+                        self.failed_arithmetic.set(before);
+                        self.term(if decided { a } else { b }, env)?
+                    }
+                }
+            }
             Expr::Agg {
                 kind,
                 distinct,
@@ -1005,7 +1017,10 @@ impl<'a> Evaluator<'a> {
                     }
                     let known = self.known.get_or_init(Default::default).clone();
                     let key = (o.id.clone(), m.to_string());
-                    if let Some(v) = known.borrow().get(&key) {
+                    if let Some((v, failed)) = known.borrow().get(&key) {
+                        if *failed {
+                            self.failed_arithmetic.set(true);
+                        }
                         return Ok(Term::Value(v.clone()));
                     }
                     // asked with the same answers, as the runner asks it
@@ -1018,7 +1033,14 @@ impl<'a> Evaluator<'a> {
                     // what it reads, the clause reads (DESIGN.md §5.5)
                     derived.naming = self.naming;
                     let v = crate::metric::typed_derived(self.world, t, e, derived.eval(e)?);
-                    known.borrow_mut().insert(key, v.clone());
+                    // a division by zero it read reaches its reader, where an
+                    // effect taking it ran no step, passed nothing or cleared
+                    // what was stored (ADR-0277)
+                    let failed = v.is_absent() && derived.failed_arithmetic.get();
+                    if failed {
+                        self.failed_arithmetic.set(true);
+                    }
+                    known.borrow_mut().insert(key, (v.clone(), failed));
                     v
                 } else {
                     return not_run(format!("the member `{}.{m}`", o.type_));
@@ -1116,6 +1138,15 @@ impl<'a> Evaluator<'a> {
         env: &BTreeMap<String, Value>,
     ) -> Result<Value, NotRun> {
         if matches!(op, BinOp::And | BinOp::Or | BinOp::Implies) {
+            // an answer that is decided answered the division by zero
+            // either side read, which then refuses nothing (ADR-0277)
+            let before = self.failed_arithmetic.get();
+            let answered = |v: Value| {
+                if !v.is_absent() {
+                    self.failed_arithmetic.set(before);
+                }
+                Ok(v)
+            };
             let mut a = truth(&self.value(l, env)?)?;
             if op == BinOp::Implies {
                 a = a.map(|b| !b);
@@ -1125,10 +1156,10 @@ impl<'a> Evaluator<'a> {
             if short {
                 // the side that does not decide is evaluated for the record
                 self.aside(r, env)?;
-                return Ok(Value::Bool(op != BinOp::And));
+                return answered(Value::Bool(op != BinOp::And));
             }
             let b = truth(&self.value(r, env)?)?;
-            return Ok(match op {
+            return answered(match op {
                 BinOp::And => match (a, b) {
                     (_, Some(false)) => Value::Bool(false),
                     (Some(true), Some(true)) => Value::Bool(true),

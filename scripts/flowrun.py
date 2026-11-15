@@ -1048,7 +1048,11 @@ class Evaluator:
         if m in (t.get("derived_attributes") or {}):
             derived = Evaluator(self.s, o.type, o.id, stubs=self.stubs)
             derived.naming = self.naming        # what it reads, the clause reads (DESIGN.md §5.5)
-            return derived.value(flowexpr.parse(t["derived_attributes"][m]["expression"]), {})
+            v = derived.value(flowexpr.parse(t["derived_attributes"][m]["expression"]), {})
+            if v is ABSENT and derived.failed_arithmetic:
+                # a division by zero it read reaches its reader, as the core's (ADR-0277)
+                self.failed_arithmetic = True
+            return v
         if m in (t.get("observations") or {}):
             kind = t["observations"][m]["kind"]
             corrected = {x.attrs.get("corrects") for x in self.s.objects.values() if x.type == kind}
@@ -1198,7 +1202,10 @@ class Evaluator:
             v = self.value(e[1], env)
             return ABSENT if v is ABSENT else self.bounded(v, 0, -v) if isinstance(v, int) else -v
         if k == "isnull":
+            # a division by zero the test reads is answered by it, and refuses nothing more (ADR-0277)
+            before = self.failed_arithmetic
             v = self.value(e[1], env)
+            self.failed_arithmetic = before
             return (v is ABSENT) != e[2]
         if k == "in":
             left, right = self.value(e[1], env), e[2]
@@ -1220,9 +1227,11 @@ class Evaluator:
         if k == "bin":
             return self.binary(e, env)
         if k == "if":
+            before = self.failed_arithmetic
             c = truth(self.value(e[1], env))
             if c is ABSENT:
                 return ABSENT
+            self.failed_arithmetic = before     # a decided condition answered whatever it read
             return self.value(e[2] if c else e[3], env)
         if k == "agg":
             return self.aggregate(e, env)
@@ -1237,27 +1246,37 @@ class Evaluator:
     def binary(self, e, env):
         op = e[1]
         if op in ("and", "or", "implies"):
-            a = truth(self.value(e[2], env))
-            if op == "implies":
-                a = ABSENT if a is ABSENT else not a
-            short = op == "and" and a is False or op != "and" and a is True
-            if short:
-                if self.naming is not None:
-                    # the side that does not decide names its objects too, evaluated in full, as the core evaluates
-                    # it for the record
-                    try:
-                        self.value(e[3], env)
-                    except (NotRunnable, Refused):
-                        pass
-                return a if op != "implies" else True
-            b = truth(self.value(e[3], env))
-            if op == "and":
-                return False if b is False else (ABSENT if ABSENT in (a, b) else True)
-            return True if b is True else (ABSENT if ABSENT in (a, b) else False)
+            # an answer that is decided answered the division by zero either side read, which then refuses nothing
+            # (ADR-0277)
+            before = self.failed_arithmetic
+            r = self.logical(op, e, env)
+            if r is not ABSENT:
+                self.failed_arithmetic = before
+            return r
         r = self.combine(op, self.value(e[2], env), self.value(e[3], env))
         if isinstance(r, Fraction) and (op in ("*", "/") and r.denominator != 1 or abs(r) > 2 ** 63 - 1):
             r = self.as_held(e, env, r)
         return r
+
+    def logical(self, op, e, env):
+        """`and`, `or` or `implies`, three-valued, the side that does not decide evaluated for the record (§8.2)."""
+        a = truth(self.value(e[2], env))
+        if op == "implies":
+            a = ABSENT if a is ABSENT else not a
+        short = op == "and" and a is False or op != "and" and a is True
+        if short:
+            if self.naming is not None:
+                # the side that does not decide names its objects too, evaluated in full, as the core evaluates
+                # it for the record
+                try:
+                    self.value(e[3], env)
+                except (NotRunnable, Refused):
+                    pass
+            return a if op != "implies" else True
+        b = truth(self.value(e[3], env))
+        if op == "and":
+            return False if b is False else (ABSENT if ABSENT in (a, b) else True)
+        return True if b is True else (ABSENT if ABSENT in (a, b) else False)
 
     def as_held(self, e, env, r):
         """A quotient, or a product of an amount or a duration, rounded half to even where the core's evaluator rounds
@@ -3380,7 +3399,12 @@ class Runner:
                 for p in driven:
                     values = {}
                     for k, e in (clause.get("inputs") or {}).items():
-                        v = Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs).value(flowexpr.parse(e), {})
+                        asking = Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs)
+                        v = asking.value(flowexpr.parse(e), {})
+                        if v is ABSENT and asking.failed_arithmetic:
+                            # an input a division by zero left with none refuses, as an effect's value does, where it
+                            # was not passed (ADR-0185, ADR-0277)
+                            raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[o.id])
                         if v is not ABSENT:
                             values[k] = v
                     ptype = work.type_of(p)

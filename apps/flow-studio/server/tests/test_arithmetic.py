@@ -596,6 +596,103 @@ def test_a_plans_length_is_held_by_add_months_alike(tee):
     assert [r["value"] for r in m["rows"]] == ["2029-03-28"], m
     alike(tee)
 
+RATIOS = """module: ratios
+categories: [live, closed]
+types:
+  Piece:
+    description: A piece of a batch.
+    tracking: record
+    attributes:
+      batch: { reference: Batch, opposite: pieces }
+      n: { type: int, optional: true }
+      opt: { type: int, optional: true }
+      flag: { type: bool, optional: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [batch], optional_inputs: [n, opt, flag], only_via: [Batch.place, Batch.spread, Batch.pass, Batch.repass, Batch.tested, Batch.answered, Batch.chosen] }
+      stamp:
+        kind: internal
+        from: [OPEN]
+        optional_inputs: [opt]
+        effect: [ { assign: { location: opt, expr: inputs.opt } } ]
+      finish: { kind: external, from: [OPEN], to: DONE }
+  Batch:
+    description: A total split into pieces of a size.
+    tracking: record
+    attributes:
+      total: { type: int }
+      per: { type: int }
+      flag: { type: bool, optional: true }
+      copied: { type: int, optional: true }
+      pieces:
+        reference: "Piece[]"
+        aggregation: composite
+        opposite: batch
+        cascade:
+          - { on: [close], transition: stamp, inputs: { opt: "total / per" }, limit: 10 }
+          - { on: [shut], transition: stamp, inputs: { opt: "units" }, limit: 10 }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    derived_attributes:
+      units: { description: The total per piece., expression: total / per }
+    transitions:
+      make: { kind: initial, to: OPEN, required_inputs: [total, per], effect: [ { assign: { location: copied, expr: "1" } } ] }
+      spread:
+        kind: internal
+        from: [OPEN]
+        effect: [ { foreach: { item: u, range: units, limit: 100, steps: [ { create: { type: Piece, transition: add, inputs: { batch: this, n: u } } } ] } } ]
+      place: { kind: internal, from: [OPEN], effect: [ { create: { type: Piece, transition: add, inputs: { batch: this } } } ] }
+      copy: { kind: internal, from: [OPEN], effect: [ { assign: { location: copied, expr: units } } ] }
+      recopy: { kind: internal, from: [OPEN], effect: [ { assign: { location: copied, expr: "if units is null then units else 1" } } ] }
+      pass: { kind: internal, from: [OPEN], effect: [ { create: { type: Piece, transition: add, inputs: { batch: this, opt: units } } } ] }
+      repass: { kind: internal, from: [OPEN], effect: [ { create: { type: Piece, transition: add, inputs: { batch: this, opt: "if units is null then units else 1" } } } ] }
+      tested: { kind: internal, from: [OPEN], effect: [ { create: { type: Piece, transition: add, inputs: { batch: this, flag: "units is not null or this.flag" } } } ] }
+      answered: { kind: internal, from: [OPEN], effect: [ { create: { type: Piece, transition: add, inputs: { batch: this, flag: "(units > 0 or true) and this.flag" } } } ] }
+      chosen: { kind: internal, from: [OPEN], effect: [ { create: { type: Piece, transition: add, inputs: { batch: this, flag: "if 1 in {units, 1} then this.flag else true" } } } ] }
+      close: { kind: external, from: [OPEN], to: DONE }
+      shut: { kind: external, from: [OPEN], to: DONE }
+"""
+
+
+def test_a_division_by_zero_refuses_through_a_derivation_and_a_cascade_alike(tee):
+    """A division by zero an effect reads through a derived attribute, or a
+    cascade passes as an input, refuses as `value_in_range` on both runners,
+    as one written in the effect does, where a loop ran no step, an argument
+    was not passed and a `set` cleared what was stored; one a presence test
+    read refuses nothing more (ADR-0185, ADR-0277)."""
+    tee.found.clear()
+    load(tee, "ratios", RATIOS)
+    zero = made(tee, "Batch", "make", total=6, per=0)
+    for xn in ("spread", "copy", "recopy", "pass", "repass"):
+        refused(tee, zero, xn)
+    assert tee.post("/v1/get", {"id": zero})["attributes"]["copied"] == 1
+    for xn in ("tested", "answered", "chosen"):
+        v = took(tee, zero, xn)
+        assert tee.post("/v1/get", {"id": v["created"][0]})["attributes"].get("flag") is None, xn
+    for xn in ("close", "shut"):
+        batch = made(tee, "Batch", "make", total=6, per=0)
+        piece = took(tee, batch, "place")["created"][0]
+        refused(tee, batch, xn)
+        assert tee.post("/v1/get", {"id": piece})["attributes"].get("opt") is None, xn
+    three = made(tee, "Batch", "make", total=6, per=2)
+    v = tee.post("/v1/request", {"transition": "spread", "actor": OP, "object_id": three, "inputs": {}})
+    assert (v["kind"], len(v["created"])) == ("satisfied", 3), v
+    for xn, copied in (("copy", 3), ("recopy", 1)):
+        took(tee, three, xn)
+        assert tee.post("/v1/get", {"id": three})["attributes"]["copied"] == copied, xn
+    for xn, opt in (("pass", 3), ("repass", 1)):
+        v = took(tee, three, xn)
+        assert tee.post("/v1/get", {"id": v["created"][0]})["attributes"]["opt"] == opt, xn
+    for xn in ("close", "shut"):
+        batch = made(tee, "Batch", "make", total=6, per=2)
+        piece = took(tee, batch, "place")["created"][0]
+        took(tee, batch, xn)
+        assert tee.post("/v1/get", {"id": piece})["attributes"]["opt"] == 3, xn
+    alike(tee)
+
 NOTES = """module: notes
 categories: [live, closed]
 types:

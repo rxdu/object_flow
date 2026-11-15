@@ -5367,12 +5367,24 @@ fn cascades(
             for (p, ptype) in driven {
                 let mut values = BTreeMap::new();
                 for (k, e) in &clause.inputs {
-                    let v = Evaluator::new(&ctx.work, Some(t), Some(id))
+                    let ev = Evaluator::new(&ctx.work, Some(t), Some(id))
                         .with_committed(&ctx.before)
                         .with_inputs(inputs)
                         .with_actor(&ctx.who)
-                        .with_reading(&ctx.effect_read, EFFECT)
-                        .eval(e)?;
+                        .with_reading(&ctx.effect_read, EFFECT);
+                    let v = ev.eval(e)?;
+                    // an input a division by zero left with none refuses, as
+                    // an effect's value does, where it was not passed
+                    // (ADR-0185, ADR-0277)
+                    if v.is_absent() && ev.failed_arithmetic.get() {
+                        return refused_naming(
+                            Verdict::Unsatisfied {
+                                clause: "value_in_range".into(),
+                                remedy: Some(Remedy::UnreachableFromHere),
+                            },
+                            id,
+                        );
+                    }
                     if !v.is_absent() {
                         values.insert(k.clone(), v);
                     }
@@ -8984,6 +8996,145 @@ types:
         let snapshot = s.snapshot().unwrap();
         let held = snapshot.whole(&taken).unwrap().unwrap();
         assert_eq!(held.attr("months"), Value::Int(2));
+    }
+
+    /// A division by zero an effect reads through a derived attribute, or a
+    /// cascade passes as an input, refuses the request as `value_in_range`,
+    /// as one written in the effect does (ADR-0185), where a loop over it ran
+    /// no step, an argument was not passed and a `set` cleared what was
+    /// stored; and one a presence test has read refuses nothing more, where a
+    /// value absent for another reason was refused (#97's specialist look).
+    #[test]
+    fn a_division_by_zero_refuses_through_a_derivation_and_a_cascade() {
+        const RATIOS: &str = r#"
+module: ratios
+categories: [live, closed]
+types:
+  Piece:
+    attributes:
+      batch: { reference: Batch, opposite: pieces }
+      n: { type: int, optional: true }
+      opt: { type: int, optional: true }
+      flag: { type: bool, optional: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [batch], optional_inputs: [n, opt, flag], only_via: [Batch.place, Batch.spread, Batch.pass, Batch.repass, Batch.tested, Batch.answered, Batch.chosen] }
+      stamp:
+        kind: internal
+        from: [OPEN]
+        optional_inputs: [opt]
+        effect: [ { assign: { location: opt, expr: inputs.opt } } ]
+      finish: { kind: external, from: [OPEN], to: DONE }
+  Batch:
+    attributes:
+      total: { type: int }
+      per: { type: int }
+      flag: { type: bool, optional: true }
+      copied: { type: int, optional: true }
+      pieces:
+        reference: "Piece[]"
+        aggregation: composite
+        opposite: batch
+        cascade:
+          - { on: [close], transition: stamp, inputs: { opt: "total / per" }, limit: 10 }
+          - { on: [shut], transition: stamp, inputs: { opt: "units" }, limit: 10 }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    derived_attributes:
+      units: { expression: total / per }
+    transitions:
+      make: { kind: initial, to: OPEN, required_inputs: [total, per], effect: [ { assign: { location: copied, expr: "1" } } ] }
+      spread:
+        kind: internal
+        from: [OPEN]
+        effect: [ { foreach: { item: u, range: units, limit: 100, steps: [ { create: { type: Piece, transition: add, inputs: { batch: this, n: u } } } ] } } ]
+      place: { kind: internal, from: [OPEN], effect: [ { create: { type: Piece, transition: add, inputs: { batch: this } } } ] }
+      copy: { kind: internal, from: [OPEN], effect: [ { assign: { location: copied, expr: units } } ] }
+      recopy: { kind: internal, from: [OPEN], effect: [ { assign: { location: copied, expr: "if units is null then units else 1" } } ] }
+      pass: { kind: internal, from: [OPEN], effect: [ { create: { type: Piece, transition: add, inputs: { batch: this, opt: units } } } ] }
+      repass: { kind: internal, from: [OPEN], effect: [ { create: { type: Piece, transition: add, inputs: { batch: this, opt: "if units is null then units else 1" } } } ] }
+      tested: { kind: internal, from: [OPEN], effect: [ { create: { type: Piece, transition: add, inputs: { batch: this, flag: "units is not null or this.flag" } } } ] }
+      answered: { kind: internal, from: [OPEN], effect: [ { create: { type: Piece, transition: add, inputs: { batch: this, flag: "(units > 0 or true) and this.flag" } } } ] }
+      chosen: { kind: internal, from: [OPEN], effect: [ { create: { type: Piece, transition: add, inputs: { batch: this, flag: "if 1 in {units, 1} then this.flag else true" } } } ] }
+      close: { kind: external, from: [OPEN], to: DONE }
+      shut: { kind: external, from: [OPEN], to: DONE }
+"#;
+        let lib = Library::load(&[("ratios.yaml".into(), RATIOS.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let out_of_range = |v: &Verdict| matches!(v, Verdict::Unsatisfied { clause, .. } if clause == "value_in_range");
+        let batch = |s: &mut Store, per: i64| {
+            created(&req(
+                s,
+                "make",
+                OPERATOR,
+                ("Batch", true),
+                json!({"total": 6, "per": per}),
+            ))
+        };
+        let held = |s: &Store, id: &str, m: &str| {
+            s.snapshot().unwrap().whole(id).unwrap().unwrap().attr(m)
+        };
+        let piece = |s: &mut Store, b: &str| match req(s, "place", OPERATOR, (b, false), json!({}))
+        {
+            Verdict::Satisfied { created, .. } => created[0].clone(),
+            other => panic!("place: {other:?}"),
+        };
+        let zero = batch(&mut s, 0);
+        // through a derived attribute: a loop, a set, the value cached, and
+        // an argument each refuse, and nothing is written
+        for xn in ["spread", "copy", "recopy", "pass", "repass"] {
+            let v = req(&mut s, xn, OPERATOR, (&zero, false), json!({}));
+            assert!(out_of_range(&v), "{xn}: {v:?}");
+        }
+        assert_eq!(held(&s, &zero, "copied"), Value::Int(1), "kept");
+        // the division a presence test read refuses nothing more: the flag
+        // absent, the argument is not passed
+        // a presence test, a decided `or` and a decided condition each
+        for xn in ["tested", "answered", "chosen"] {
+            let v = req(&mut s, xn, OPERATOR, (&zero, false), json!({}));
+            let made = match &v {
+                Verdict::Satisfied { created, .. } => created[0].clone(),
+                other => panic!("{xn}: {other:?}"),
+            };
+            assert_eq!(held(&s, &made, "flag"), Value::Absent, "{xn}");
+        }
+        // a cascade's input, written or derived, refuses, nothing driven
+        for xn in ["close", "shut"] {
+            let b = batch(&mut s, 0);
+            let p = piece(&mut s, &b);
+            let v = req(&mut s, xn, OPERATOR, (&b, false), json!({}));
+            assert!(out_of_range(&v), "{xn}: {v:?}");
+            assert_eq!(held(&s, &p, "opt"), Value::Absent, "{xn}: nothing written");
+        }
+        // with a divisor, each step reads the quotient
+        let three = batch(&mut s, 2);
+        let v = req(&mut s, "spread", OPERATOR, (&three, false), json!({}));
+        assert!(
+            matches!(&v, Verdict::Satisfied { created, .. } if created.len() == 3),
+            "{v:?}"
+        );
+        for (xn, copied) in [("copy", 3), ("recopy", 1)] {
+            let v = req(&mut s, xn, OPERATOR, (&three, false), json!({}));
+            assert!(matches!(v, Verdict::Satisfied { .. }), "{xn}: {v:?}");
+            assert_eq!(held(&s, &three, "copied"), Value::Int(copied), "{xn}");
+        }
+        for (xn, opt) in [("pass", 3), ("repass", 1)] {
+            let made = match req(&mut s, xn, OPERATOR, (&three, false), json!({})) {
+                Verdict::Satisfied { created, .. } => created[0].clone(),
+                other => panic!("{xn}: {other:?}"),
+            };
+            assert_eq!(held(&s, &made, "opt"), Value::Int(opt), "{xn}");
+        }
+        for xn in ["close", "shut"] {
+            let b = batch(&mut s, 2);
+            let p = piece(&mut s, &b);
+            let v = req(&mut s, xn, OPERATOR, (&b, false), json!({}));
+            assert!(matches!(v, Verdict::Satisfied { .. }), "{xn}: {v:?}");
+            assert_eq!(held(&s, &p, "opt"), Value::Int(3), "{xn}");
+        }
     }
 
     /// A database of its own on the server `base` names, dropped with this,
