@@ -2,7 +2,9 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
-## Unreleased
+## 0.27.0, 2026-11-15
+
+A release before 1.0.0, as 0.26.0 was (ADR-0214), with issue #97: `whole(<decimal>)` uses a decimal with no fraction as an `int`, and `is_whole(<decimal>)` tests that it has none (ADR-0278). A division by zero an effect reads through a derived attribute or a cascade's input now refuses the request, which may refuse what 0.26.0 accepted (ADR-0277).
 
 ### Added
 
