@@ -2,7 +2,9 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
-## Unreleased
+## 0.26.0, 2026-11-15
+
+A release before 1.0.0, as 0.25.0 was (ADR-0214), with issue #96: `add_months(<date>, <int>)` moves a date by whole calendar months, so an invariant can hold an end date a whole number of months after its start (ADR-0276).
 
 ### Added
 

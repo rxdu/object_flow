@@ -46,8 +46,10 @@ shipped them, those under release-0.21.0/ by the service published as v0.21.0, b
 against its SHA-256, from the modules as 0.21.0 shipped them, those under release-0.22.0/ by the service published
 as v0.22.0, built at 2f11d00 and checked against its SHA-256, from the modules as 0.22.0 shipped them, those under
 release-0.23.0/ by the service published as v0.23.0, built at 6e63017 and checked against its SHA-256, from the
-modules as 0.23.0 shipped them, and those under release-0.24.0/ by the service published as v0.24.0, built at b799001
-and checked against its SHA-256, from the modules as 0.24.0 shipped them.
+modules as 0.23.0 shipped them, those under release-0.24.0/ by the service published as v0.24.0, built at b799001
+and checked against its SHA-256, from the modules as 0.24.0 shipped them, and those under release-0.25.0/ by the
+service published as v0.25.0, built at 94a1ff7 and checked against its SHA-256, from the modules as 0.25.0 shipped
+them.
 """
 import json
 import pathlib
