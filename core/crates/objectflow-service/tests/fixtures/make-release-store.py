@@ -49,8 +49,9 @@ release-0.23.0/ by the service published as v0.23.0, built at 6e63017 and checke
 modules as 0.23.0 shipped them, those under release-0.24.0/ by the service published as v0.24.0, built at b799001
 and checked against its SHA-256, from the modules as 0.24.0 shipped them, those under release-0.25.0/ by the
 service published as v0.25.0, built at 94a1ff7 and checked against its SHA-256, from the modules as 0.25.0 shipped
-them, and those under release-0.26.0/ by the service published as v0.26.0, built at b5ecfab and checked against its
-SHA-256, from the modules as 0.26.0 shipped them.
+them, those under release-0.26.0/ by the service published as v0.26.0, built at b5ecfab and checked against its
+SHA-256, from the modules as 0.26.0 shipped them, and those under release-0.27.0/ by the service published as v0.27.0,
+built at c8685df and checked against its SHA-256, from the modules as 0.27.0 shipped them.
 """
 import json
 import pathlib
