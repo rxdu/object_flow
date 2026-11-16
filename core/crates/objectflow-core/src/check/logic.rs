@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
-use super::doc::{Obj, Path, flag, obj, py_str, segs, str_or, strings};
+use super::doc::{Obj, Path, flag, list, obj, py_str, segs, str_or, strings};
 use super::steps::kind;
 use crate::expr::{BinOp, Expr, Number, parse};
 
@@ -371,6 +371,17 @@ enum Written {
     Unknown,
 }
 
+/// Names no expression parses, standing in a part's key for absence and for
+/// a value not exact after a transition's writes (ADR-0279).
+const NULL: &str = "\u{0}null";
+const AFTER: &str = "\u{0}after";
+
+/// A part read after a transition's writes where its value is not exact: a
+/// part of its own, `flowlogic.py`'s `AFTER`.
+fn after(node: Expr) -> Expr {
+    Expr::Call(Box::new(Expr::Name(AFTER.into())), vec![node])
+}
+
 const SECONDS: &[(&str, i128)] = &[
     ("s", 1),
     ("min", 60),
@@ -392,6 +403,9 @@ struct Analysis<'m, 'a> {
     m: &'m TypeModel<'a>,
     written: BTreeMap<String, Written>,
     fixed_state: Option<String>,
+    /// The transition may change another object: a call, a create or a
+    /// cascade.
+    others: bool,
     opaque_seen: bool,
     inlining: BTreeSet<String>,
 }
@@ -421,14 +435,148 @@ impl<'m, 'a> Analysis<'m, 'a> {
         m: &'m TypeModel<'a>,
         written: BTreeMap<String, Written>,
         fixed_state: Option<String>,
+        others: bool,
     ) -> Analysis<'m, 'a> {
         Analysis {
             m,
             written,
             fixed_state,
+            others,
             opaque_seen: false,
             inlining: BTreeSet::new(),
         }
+    }
+
+    /// `e` with each name read as the value it stands for, so two parts are
+    /// one where they read one value: a derived attribute as its expression,
+    /// `this.x` as x, on a creation an attribute it takes as the input, and
+    /// after a transition's writes each written attribute as the value
+    /// written and `state` as the state entered. Where that value is not
+    /// exact after the writes, the node is marked [`after`]: an attribute
+    /// whose write is not followed, a `changed_since` naming a written
+    /// attribute, `entered_at` once a state is entered, and a path through
+    /// another object where the transition may change one. `bound` holds
+    /// the loop names in scope (`flowlogic.py`'s `part`, ADR-0279).
+    fn part(&self, e: &Expr, bound: &BTreeSet<String>, unfolding: &mut BTreeSet<String>) -> Expr {
+        let m = self.m;
+        let each =
+            |x: &Expr, unfolding: &mut BTreeSet<String>| Box::new(self.part(x, bound, unfolding));
+        match e {
+            Expr::Name(n) if bound.contains(n) => e.clone(),
+            Expr::Name(n) if m.attrs.contains_key(n) => match self.written.get(n) {
+                Some(Written::Unknown) => after(e.clone()),
+                Some(Written::Null) => Expr::Name(NULL.into()),
+                Some(Written::Expr(w)) => self.part(w, &BTreeSet::new(), unfolding),
+                None if m.created && m.inputs.contains_key(n) => {
+                    Expr::Path(Box::new(Expr::Name("inputs".into())), n.clone())
+                }
+                None => e.clone(),
+            },
+            Expr::Name(n)
+                if m.derived.contains_key(n) && !unfolding.contains(n) && !super::late() =>
+            {
+                let Ok(tree) = parse(&str_or(&m.derived[n.as_str()], "expression", "")) else {
+                    return e.clone();
+                };
+                unfolding.insert(n.clone());
+                let out = self.part(&tree, &BTreeSet::new(), unfolding);
+                unfolding.remove(n);
+                out
+            }
+            Expr::Name(n) if n == "state" => self
+                .fixed_state
+                .as_ref()
+                .map_or_else(|| e.clone(), |s| Expr::Name(s.clone())),
+            Expr::Path(base, member) if matches!(&**base, Expr::Name(b) if b == "this") => {
+                self.part(&Expr::Name(member.clone()), bound, unfolding)
+            }
+            Expr::Path(base, member) => {
+                let node = Expr::Path(each(base, unfolding), member.clone());
+                if self.others && !self.own(base, bound) {
+                    after(node)
+                } else {
+                    node
+                }
+            }
+            Expr::Agg {
+                kind,
+                distinct,
+                var,
+                collection,
+                filter,
+                body,
+            } => {
+                let mut inner = bound.clone();
+                inner.extend(var.iter().cloned());
+                Expr::Agg {
+                    kind: kind.clone(),
+                    distinct: *distinct,
+                    var: var.clone(),
+                    collection: collection.as_ref().map(|c| each(c, unfolding)),
+                    filter: filter
+                        .as_ref()
+                        .map(|f| Box::new(self.part(f, &inner, unfolding))),
+                    body: body
+                        .as_ref()
+                        .map(|b| Box::new(self.part(b, &inner, unfolding))),
+                }
+            }
+            Expr::Changed(names, ev) => {
+                let node = Expr::Changed(names.clone(), each(ev, unfolding));
+                if names.iter().any(|n| self.written.contains_key(n)) {
+                    after(node)
+                } else {
+                    node
+                }
+            }
+            Expr::Call(f, args) => {
+                let fun = if matches!(&**f, Expr::Name(_)) {
+                    f.clone()
+                } else {
+                    each(f, unfolding)
+                };
+                let node = Expr::Call(fun, args.iter().map(|a| *each(a, unfolding)).collect());
+                if self.fixed_state.is_some() && matches!(&**f, Expr::Name(n) if n == "entered_at")
+                {
+                    after(node)
+                } else {
+                    node
+                }
+            }
+            Expr::Set(items) => Expr::Set(items.iter().map(|i| *each(i, unfolding)).collect()),
+            Expr::Not(x) => Expr::Not(each(x, unfolding)),
+            Expr::Neg(x) => Expr::Neg(each(x, unfolding)),
+            Expr::IsNull(x, negated) => Expr::IsNull(each(x, unfolding), *negated),
+            Expr::In(a, b) => Expr::In(each(a, unfolding), each(b, unfolding)),
+            Expr::Bin(op, a, b) => Expr::Bin(*op, each(a, unfolding), each(b, unfolding)),
+            Expr::If(c, a, b) => {
+                Expr::If(each(c, unfolding), each(a, unfolding), each(b, unfolding))
+            }
+            // a metric is a guard's alone: a part read before the request
+            _ => e.clone(),
+        }
+    }
+
+    /// Whether a path from `base` reads this object, an input or a literal,
+    /// rather than another object.
+    fn own(&self, base: &Expr, bound: &BTreeSet<String>) -> bool {
+        matches!(base, Expr::Name(b) if !bound.contains(b)
+            && (b == "inputs" || b == "state" || self.m.enums.contains_key(b) || *b == self.m.tn))
+    }
+
+    fn key(&self, e: &Expr) -> String {
+        format!("{:?}", self.part(e, &BTreeSet::new(), &mut BTreeSet::new()))
+    }
+
+    /// A count over one of the object's own collections, keyed as the
+    /// collection and filter it reads.
+    fn count_key(&self, c: &Expr, var: &str, filter: Option<&Expr>) -> String {
+        let inner = BTreeSet::from([var.to_string()]);
+        let f = filter.map(|f| self.part(f, &inner, &mut BTreeSet::new()));
+        format!(
+            "{:?}|{f:?}",
+            self.part(c, &BTreeSet::new(), &mut BTreeSet::new())
+        )
     }
 
     fn resolve_written(&self, w: &Written) -> Option<Res> {
@@ -537,7 +685,7 @@ impl<'m, 'a> Analysis<'m, 'a> {
         }
         if let Expr::Agg {
             kind,
-            var: Some(_),
+            var: Some(v),
             collection: Some(c),
             filter,
             ..
@@ -546,7 +694,7 @@ impl<'m, 'a> Analysis<'m, 'a> {
             && self.own_collection(c)
         {
             return Some((
-                Some(Var::Count(format!("{c:?}|{filter:?}"))),
+                Some(Var::Count(self.count_key(c, v, filter.as_deref()))),
                 Rat::int(0),
                 "int",
             ));
@@ -579,12 +727,16 @@ impl<'m, 'a> Analysis<'m, 'a> {
 
     fn opaque(&mut self, e: &Expr, want: char) -> Vec<Case> {
         self.opaque_seen = true;
-        one(vec![Atom::Op(format!("{e:?}"), want)])
+        one(vec![Atom::Op(self.key(e), want)])
     }
 
     /// The conjunctions of atoms under which e has the value want: T, F or U.
     fn cases(&mut self, e: &Expr, want: char) -> Decided<Vec<Case>> {
         match e {
+            // `this.x` is x, a derived attribute's expression among them
+            Expr::Path(base, member) if matches!(&**base, Expr::Name(b) if b == "this") => {
+                return self.cases(&Expr::Name(member.clone()), want);
+            }
             Expr::Bin(BinOp::Implies, a, b) => {
                 let rewritten = Expr::Bin(BinOp::Or, Box::new(Expr::Not(a.clone())), b.clone());
                 return self.cases(&rewritten, want);
@@ -644,13 +796,13 @@ impl<'m, 'a> Analysis<'m, 'a> {
             Expr::In(l, r) => return self.membership(e, l, r, want),
             Expr::Agg {
                 kind,
-                var: Some(_),
+                var: Some(v),
                 collection: Some(c),
                 filter,
                 body: None,
                 ..
             } if (kind == "none" || kind == "any") && self.own_collection(c) => {
-                let count = Var::Count(format!("{c:?}|{filter:?}"));
+                let count = Var::Count(self.count_key(c, v, filter.as_deref()));
                 if want == 'U' {
                     return Ok(one(vec![Atom::Null(count)]));
                 }
@@ -1225,6 +1377,10 @@ fn holds(a: &mut Analysis<'_, '_>, tree: &Expr) -> Decided<Vec<Case>> {
 fn names_in(e: &Expr) -> BTreeSet<String> {
     match e {
         Expr::Name(n) => BTreeSet::from([n.clone()]),
+        // `this.x` reads x
+        Expr::Path(b, m) if matches!(&**b, Expr::Name(t) if t == "this") => {
+            BTreeSet::from([m.clone()])
+        }
         Expr::Path(b, _) => names_in(b),
         Expr::Agg {
             var,
@@ -1263,6 +1419,72 @@ fn names_in(e: &Expr) -> BTreeSet<String> {
     }
 }
 
+/// The bare names an expression reads, a derived attribute's own among them.
+fn reads(e: &Expr, derived: &Obj) -> BTreeSet<String> {
+    let mut out = names_in(e);
+    let mut todo: Vec<String> = out
+        .iter()
+        .filter(|n| derived.contains_key(*n))
+        .cloned()
+        .collect();
+    let mut seen = BTreeSet::new();
+    while let Some(d) = todo.pop() {
+        if !seen.insert(d.clone()) {
+            continue;
+        }
+        let Ok(tree) = parse(&str_or(&derived[d.as_str()], "expression", "")) else {
+            continue;
+        };
+        for n in names_in(&tree) {
+            if derived.contains_key(&n) {
+                todo.push(n.clone());
+            }
+            out.insert(n);
+        }
+    }
+    out
+}
+
+/// The attributes effect steps write, within a loop's steps too.
+fn writes(steps: &[Value]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for st in steps {
+        if let Some(a) = st.get("assign") {
+            out.insert(str_or(a, "location", ""));
+        } else if let Some(Value::Array(cleared)) = st.get("clear") {
+            out.extend(cleared.iter().map(py_str));
+        } else if let Some(a) = st.get("add").or_else(|| st.get("remove")) {
+            out.insert(str_or(a, "location", ""));
+        } else if let Some(Value::Array(inner)) = st.get("foreach").and_then(|f| f.get("steps")) {
+            out.extend(writes(inner));
+        }
+    }
+    out
+}
+
+/// Whether taking a transition may change another object: a call or a
+/// create in its effect, within a loop too, or a cascade on it from one of
+/// its type's parts (`flow-format.md` §4.3, §4.8).
+fn changes_others(xn: &str, x: &Value, t: &Value) -> bool {
+    fn calls(steps: &[Value]) -> bool {
+        steps.iter().any(|st| {
+            st.get("call").is_some()
+                || st.get("create").is_some()
+                || matches!(st.get("foreach").and_then(|f| f.get("steps")), Some(Value::Array(inner)) if calls(inner))
+        })
+    }
+    let effect = match x.get("effect") {
+        Some(Value::Array(steps)) => calls(steps),
+        _ => false,
+    };
+    effect
+        || obj(t, "attributes")
+            .values()
+            .chain(obj(t, "inherited_parts").values())
+            .flat_map(|p| list(p, "cascade"))
+            .any(|c| list(c, "on").iter().any(|o| o.as_str() == Some(xn)))
+}
+
 /// A finding of step 5: where, fatal or a notice, its code and its words.
 pub type Logic = (Path, bool, &'static str, String);
 
@@ -1285,7 +1507,7 @@ pub fn analyse_type(
         let model = TypeModel::new(tn, t, enums);
         let here = segs!["types", tn, "states", s];
         let decided: Decided<()> = (|| {
-            let mut a = Analysis::new(&model, BTreeMap::new(), None);
+            let mut a = Analysis::new(&model, BTreeMap::new(), None, false);
             let given: Case = [
                 Atom::Dom(Var::State, BTreeSet::from([Val::S(s.clone())])),
                 Atom::Present(Var::State),
@@ -1370,7 +1592,7 @@ pub fn analyse_type(
             Some(other) => vec![py_str(other)],
         };
         let decided: Decided<()> = (|| {
-            let mut a = Analysis::new(&model, BTreeMap::new(), None);
+            let mut a = Analysis::new(&model, BTreeMap::new(), None, false);
             let mut reqs: Vec<Requirement> = if kind(x) == "initial" {
                 Vec::new()
             } else {
@@ -1463,19 +1685,32 @@ pub fn analyse_type(
                         for c in cleared {
                             written.insert(py_str(c), Written::Null);
                         }
+                    } else {
+                        // within a loop, or a set's member added or removed:
+                        // not followed
+                        for loc in writes(std::slice::from_ref(st)) {
+                            assigned.retain(|(l, _)| *l != loc);
+                            written.insert(loc, Written::Unknown);
+                        }
                     }
                 }
             }
             let written_names: BTreeSet<String> = written.keys().cloned().collect();
             for (loc, tree) in &assigned {
-                if !names_in(tree).is_disjoint(&written_names) {
+                // read in the effect's own order, which is not followed
+                if !reads(tree, &model.derived).is_disjoint(&written_names) {
                     written.insert(loc.clone(), Written::Unknown);
                 }
             }
             let post = matches!(kind(x), "initial" | "external")
                 .then(|| x.get("to").map(py_str))
                 .flatten();
-            let mut after = Analysis::new(&model, written.clone(), post.clone());
+            let mut after = Analysis::new(
+                &model,
+                written.clone(),
+                post.clone(),
+                changes_others(xn, x, t),
+            );
             let mut post_reqs = reqs.clone();
             for (n, tree) in &invariants {
                 let mut read = names_in(tree);
@@ -1563,7 +1798,8 @@ mod tests {
             "amount": {"type": "decimal(10,2)"}, "n": {"type": "int"}, "note": {"type": "string", "optional": true},
             "grade": {"type": "Grade"}, "x": {"type": "int", "optional": true}, "eta": {"type": "timestamp"},
             "flag": {"type": "bool", "optional": true}, "a": {"type": "bool"}, "b": {"type": "bool"},
-            "items": {"reference": "Item[]"}, "reason": {"type": "string", "optional": true}
+            "items": {"reference": "Item[]"}, "reason": {"type": "string", "optional": true},
+            "item": {"reference": "Item"}, "approvers": {"type": "identity[]"}
         });
         let states = json!({"OPEN": {"category": "live"}, "CLOSED": {"category": "closed"}, "DONE": {"category": "closed", "final": true}});
         let cond: serde_json::Map<String, Value> = conditions
@@ -1602,6 +1838,19 @@ mod tests {
         json!({"go": x})
     }
 
+    /// One creation `go` into DONE, its guards deny.
+    fn creating(guards: &[&str], extra: Value) -> Value {
+        let g: serde_json::Map<String, Value> = guards
+            .iter()
+            .map(|x| (x.to_string(), json!("deny")))
+            .collect();
+        let mut x = json!({"kind": "initial", "to": "DONE", "guards": g});
+        if let (Some(o), Value::Object(e)) = (x.as_object_mut(), extra) {
+            o.extend(e);
+        }
+        json!({"go": x})
+    }
+
     /// One case of the self-test: its name, conditions, transitions,
     /// invariants, derived attributes and the code it expects, if any.
     type SelfTest = (
@@ -1624,6 +1873,8 @@ mod tests {
         )]);
         let none = json!({});
         let user = json!({"inputs": {"e": {"reference": "User"}}});
+        let mark = json!([{"call": {"target": "inputs.item", "transition": "mark", "inputs": {}}}]);
+        let once = json!([{"foreach": {"item": "k", "range": 1, "limit": 1, "steps": [{"assign": {"location": "n", "expr": "1"}}]}}]);
         let cases: Vec<SelfTest> = vec![
             (
                 "two bounds with no number between",
@@ -1816,6 +2067,193 @@ mod tests {
                 vec![],
                 Some("neverpasses"),
             ),
+            // a part read after the write is the part of the value written
+            // (ADR-0279)
+            (
+                "an opaque part read before the write and after it",
+                vec![("c1", "not is_whole(amount)")],
+                taking(&["c1"], &[], "OPEN", json!({"required_inputs": ["amount"]})),
+                vec![("whole", "is_whole(amount)")],
+                vec![],
+                None,
+            ),
+            (
+                "an opaque part of the input, read after the write",
+                vec![("c1", "not is_whole(inputs.amount)")],
+                taking(&["c1"], &[], "OPEN", json!({"required_inputs": ["amount"]})),
+                vec![("whole", "is_whole(amount)")],
+                vec![],
+                Some("contradiction"),
+            ),
+            (
+                "a count read before the write and after it",
+                vec![("c1", "none(a in approvers)")],
+                taking(
+                    &["c1"],
+                    &[],
+                    "OPEN",
+                    json!({"required_inputs": ["approvers"]}),
+                ),
+                vec![("some", "any(a in approvers)")],
+                vec![],
+                None,
+            ),
+            (
+                "a path through a reference read before the write and after it",
+                vec![("c1", "not item.f1")],
+                taking(&["c1"], &[], "OPEN", json!({"required_inputs": ["item"]})),
+                vec![("marked", "item.f1")],
+                vec![],
+                None,
+            ),
+            (
+                "a path through the input, read after the write",
+                vec![("c1", "not inputs.item.f1")],
+                taking(&["c1"], &[], "OPEN", json!({"required_inputs": ["item"]})),
+                vec![("marked", "item.f1")],
+                vec![],
+                Some("contradiction"),
+            ),
+            (
+                "a path through an object a call may change, read after it",
+                vec![("c1", "not inputs.item.f1")],
+                taking(
+                    &["c1"],
+                    &[],
+                    "OPEN",
+                    json!({"required_inputs": ["item"], "effect": mark}),
+                ),
+                vec![("marked", "item.f1")],
+                vec![],
+                None,
+            ),
+            (
+                "a name read through this, not written",
+                vec![("c1", "n <= 5")],
+                taking(&["c1"], &[], "OPEN", json!({"required_inputs": ["amount"]})),
+                vec![("both", "amount > 0 and this.n > 5")],
+                vec![],
+                None,
+            ),
+            (
+                "a name read through this, written",
+                vec![("c1", "inputs.amount <= 0")],
+                taking(&["c1"], &[], "OPEN", json!({"required_inputs": ["amount"]})),
+                vec![("positive", "this.amount > 0")],
+                vec![],
+                Some("contradiction"),
+            ),
+            (
+                "a derived attribute read through this",
+                vec![("c1", "this.big"), ("c2", "amount < 50")],
+                taking(&["c1", "c2"], &[], "OPEN", none.clone()),
+                vec![],
+                vec![("big", "amount > 100")],
+                Some("contradiction"),
+            ),
+            (
+                "a write within a loop, after the input",
+                vec![("c1", "inputs.n <= 0")],
+                taking(
+                    &["c1"],
+                    &[],
+                    "OPEN",
+                    json!({"required_inputs": ["n"], "effect": once}),
+                ),
+                vec![("positive", "n > 0")],
+                vec![],
+                None,
+            ),
+            (
+                "the input written, and no loop after it",
+                vec![("c1", "inputs.n <= 0")],
+                taking(&["c1"], &[], "OPEN", json!({"required_inputs": ["n"]})),
+                vec![("positive", "n > 0")],
+                vec![],
+                Some("contradiction"),
+            ),
+            (
+                "a derived attribute within an opaque part, read as its expression",
+                vec![("c1", "not (wq == b)"), ("c2", "is_whole(amount) == b")],
+                taking(&["c1", "c2"], &[], "OPEN", none.clone()),
+                vec![],
+                vec![("wq", "is_whole(amount)")],
+                Some("contradiction"),
+            ),
+            (
+                "the state within an opaque part, read before and after it changes",
+                vec![("c1", "not (inputs.item.home == state)")],
+                taking(&["c1"], &[], "OPEN", json!({"required_inputs": ["item"]})),
+                vec![("home", "item.home == state")],
+                vec![],
+                None,
+            ),
+            (
+                "an opaque part of a write the analysis cannot follow",
+                vec![("c1", "not is_whole(amount)")],
+                taking(
+                    &["c1"],
+                    &[],
+                    "OPEN",
+                    json!({"inputs": {"d": {"type": "decimal(10,2)"}},
+                    "effect": [{"assign": {"location": "amount", "expr": "amount + inputs.d"}}]}),
+                ),
+                vec![("whole", "is_whole(amount)")],
+                vec![],
+                None,
+            ),
+            (
+                "a change test naming what the transition writes",
+                vec![("c1", "not changed_since([amount], inputs.ev)")],
+                taking(&["c1"], &[], "OPEN", json!({"required_inputs": ["amount"]})),
+                vec![("changed", "changed_since([amount], inputs.ev)")],
+                vec![],
+                None,
+            ),
+            (
+                "when the state entered was entered, read before and after",
+                vec![("c1", "not (inputs.item.at == entered_at(DONE))")],
+                taking(&["c1"], &[], "OPEN", json!({"required_inputs": ["item"]})),
+                vec![("at", "item.at == entered_at(DONE)")],
+                vec![],
+                None,
+            ),
+            (
+                "a set given, then a member removed from it",
+                vec![("c1", "not all(i in inputs.items: i.ok)")],
+                taking(
+                    &["c1"],
+                    &[],
+                    "OPEN",
+                    json!({"required_inputs": ["items"], "inputs": {"bad": {"reference": "Item"}},
+                    "effect": [{"remove": {"location": "items", "expr": "inputs.bad"}}]}),
+                ),
+                vec![("ok", "all(i in items: i.ok)")],
+                vec![],
+                None,
+            ),
+            (
+                "a derived attribute written before what it reads is",
+                vec![("c1", "not is_whole(inputs.v)")],
+                taking(
+                    &["c1"],
+                    &[],
+                    "OPEN",
+                    json!({"inputs": {"v": {"type": "decimal(10,2)"}},
+                    "effect": [{"assign": {"location": "a", "expr": "wq"}}, {"assign": {"location": "amount", "expr": "inputs.v"}}]}),
+                ),
+                vec![("held", "a")],
+                vec![("wq", "is_whole(amount)")],
+                None,
+            ),
+            (
+                "a creation's guard reads the value it supplies, as the invariant after it",
+                vec![("c1", "not is_whole(amount)")],
+                creating(&["c1"], json!({"required_inputs": ["amount"]})),
+                vec![("whole", "is_whole(amount)")],
+                vec![],
+                Some("contradiction"),
+            ),
         ];
         let mut wrong = Vec::new();
         for (name, conds, transitions, invariants, derived, want) in &cases {
@@ -1832,6 +2270,19 @@ mod tests {
             if !right {
                 wrong.push(format!("{name}: expected {want:?}, found {codes:?}"));
             }
+        }
+        // a part's cascade on the transition may change another object, so a
+        // path through one read after it is its own part
+        let mut parted = small(
+            &[("c1", "not inputs.item.f1")],
+            taking(&["c1"], &[], "OPEN", json!({"required_inputs": ["item"]})),
+            &[("marked", "item.f1")],
+            &[],
+        );
+        parted["attributes"]["parts"] = json!({"reference": "Part[]", "cascade": [{"on": ["go"], "transition": "close", "limit": 10}]});
+        let found = analyse_type("T", &parted, &enums).0;
+        if !found.is_empty() {
+            wrong.push(format!("a path through another object read after a cascade: expected nothing, found {found:?}"));
         }
         // a lifecycle of thirteen states, each requiring what the one before
         // set, decided in every state rather than expanded past the limit

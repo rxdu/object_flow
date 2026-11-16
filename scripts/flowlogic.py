@@ -16,9 +16,12 @@ bound u - v <= c between two ordered values of one kind, or one and a constant, 
 numbers, money, durations and timestamps, and of counts over the object's own collections. Anything else, a path
 to another object, a metric, an evaluator, `all`, arithmetic beyond adding a constant, is an opaque atom that may
 be true, false or unknown, so it can only make conditions look satisfiable. A derived attribute is replaced by
-its expression. Nothing is assumed of what an earlier request wrote beyond what the declaration makes it: an
-invariant may stand violated under an admission, so an invariant counts against a transition only where it reads
-nothing but what that transition writes and the state it enters.
+its expression, read by its name or through `this`. Nothing is assumed of what an earlier request wrote beyond what
+the declaration makes it: an invariant may stand violated under an admission, so an invariant counts against a
+transition only where it reads nothing but what that transition writes and the state it enters. Read after the
+writes, an opaque atom or a count is keyed by the values it reads there, each written attribute replaced by the value
+written, and by a key of its own where that value is not exact, so it is one atom with a guard's only where both read
+one value (ADR-0279).
 """
 import math
 from fractions import Fraction
@@ -30,6 +33,7 @@ SECONDS = {"s": 1, "min": 60, "h": 3600, "day": 86400, "days": 86400, "week": 60
 ZERO = ("zero",)
 NOT = {"T": "F", "F": "T", "U": "U"}
 UNKNOWN_VALUE = ("unknown value",)   # what a write leaves where the analysis cannot follow it
+AFTER = "after"                      # marks a part read after a transition's writes where its value is not exact
 
 
 class TooLarge(Exception):
@@ -63,7 +67,7 @@ def names_in(n):
     if k == "name":
         return {n[1]}
     if k == "path":
-        return names_in(n[1])
+        return {n[2]} if n[1] == ("name", "this") else names_in(n[1])      # `this.x` reads x
     if k == "agg":
         inner = (names_in(n[5]) if n[5] else set()) | (names_in(n[6]) if n[6] else set())
         return (names_in(n[4]) if n[4] else set()) | (inner - {n[3]})
@@ -136,12 +140,72 @@ class TypeModel:
 class Analysis:
     """A condition as cases, over one type and one transition's inputs."""
 
-    def __init__(self, model, written=None, fixed_state=None):
+    def __init__(self, model, written=None, fixed_state=None, others=False):
         self.m = model
         self.written = written or {}        # attribute -> the tree of its value after the transition's writes
         self.fixed_state = fixed_state      # the state the object is known to be in, after a transition
+        self.others = others                # the transition may change another object: a call, a create or a cascade
         self.opaque_seen = False
         self.inlining = set()
+        self.unfolding = set()
+
+    # ── a part the analysis cannot read, as the value it stands for ─────────
+    def part(self, e, bound=frozenset()):
+        """e with each name read as the value it stands for, so two parts are one where they read one value: a
+        derived attribute as its expression, `this.x` as x, on a creation an attribute it takes as the input, and
+        after a transition's writes each written attribute as the value written and `state` as the state entered.
+        Where that value is not exact after the writes, the node is marked AFTER, a part of its own: an attribute
+        whose write is not followed, a `changed_since` naming a written attribute, `entered_at` once a state is
+        entered, and a path through another object where the transition may change one; an invariant reads no metric
+        and no `time_in` (checks 56 and 32). `bound` holds the loop names in scope, which no attribute replaces."""
+        if not isinstance(e, tuple) or not e:
+            return e
+        m, k = self.m, e[0]
+        if k == "name":
+            n = e[1]
+            if n in bound:
+                return e
+            if n in m.attrs:
+                if n in self.written:
+                    w = self.written[n]
+                    return (AFTER, n) if w == UNKNOWN_VALUE else self.part(w)
+                return ("path", ("name", "inputs"), n) if m.created and n in m.inputs else e
+            if n in m.derived and n not in self.unfolding:
+                self.unfolding.add(n)
+                try:
+                    return self.part(flowexpr.parse(m.derived[n]["expression"]))
+                finally:
+                    self.unfolding.discard(n)
+            if self.fixed_state and n == "state":
+                return ("name", self.fixed_state)
+            return e
+        if k == "path":
+            if e[1] == ("name", "this"):
+                return self.part(("name", e[2]), bound)
+            node = ("path", self.part(e[1], bound), e[2])
+            return (AFTER, node) if self.others and not self.own(e[1], bound) else node
+        if k == "agg":
+            inner = bound | {e[3]} if e[3] else bound
+            return ("agg", e[1], e[2], e[3], self.part(e[4], bound), self.part(e[5], inner), self.part(e[6], inner))
+        if k == "changed":
+            node = ("changed", e[1], self.part(e[2], bound))
+            return (AFTER, node) if set(e[1]) & set(self.written) else node
+        if k == "call":
+            node = ("call", e[1] if e[1][0] == "name" else self.part(e[1], bound), [self.part(a, bound) for a in e[2]])
+            return (AFTER, node) if self.fixed_state and e[1] == ("name", "entered_at") else node
+        if k == "set":
+            return ("set", [self.part(i, bound) for i in e[1]])
+        if k == "metric":
+            return e                                # a guard's alone: a part read before the request
+        return tuple(self.part(p, bound) if isinstance(p, tuple) else p for p in e)
+
+    def own(self, base, bound):
+        """Whether a path from base reads this object, an input or a literal, rather than another object."""
+        return base[0] == "name" and base[1] not in bound and (
+            base[1] in ("inputs", "state") or base[1] in self.m.enums or base[1] == self.m.tn)
+
+    def key(self, e, bound=frozenset()):
+        return repr(self.part(e, bound))
 
     # ── the values a condition reads ────────────────────────────────────────
     def resolve(self, e):
@@ -209,7 +273,7 @@ class Analysis:
             kind = sum_kind(a[2], b[2])
             return None if kind is None else (a[0], a[1] + b[1] if e[1] == "+" else a[1] - b[1], kind)
         if e[0] == "agg" and e[1] == "count" and e[3] is not None and self.own_collection(e[4]):
-            return (("count", repr((e[4], e[5]))), Fraction(0), "int")
+            return (("count", self.count_key(e)), Fraction(0), "int")
         r = self.resolve(e)
         if r is None or r[0] == "null":
             return None
@@ -223,6 +287,10 @@ class Analysis:
     def own_collection(self, e):
         return e[0] == "name" and (e[1] in self.m.attrs or e[1] in (self.m.t.get("observations") or {}))
 
+    def count_key(self, e):
+        """A count over one of the object's own collections, keyed as the collection and filter it reads."""
+        return repr((self.part(e[4]), self.part(e[5], frozenset({e[3]}))))
+
     def finite_value(self, info, lit):
         if info is None or info[0] != "finite" or lit is None or lit[0] != "lit":
             return None
@@ -233,11 +301,13 @@ class Analysis:
     # ── a condition as cases ────────────────────────────────────────────────
     def opaque(self, e, want):
         self.opaque_seen = True
-        return [frozenset({("op", repr(e), want)})]
+        return [frozenset({("op", self.key(e), want)})]
 
     def cases(self, e, want):
         """The conjunctions of atoms under which e has the value want: T, F or U."""
         k = e[0]
+        if k == "path" and e[1] == ("name", "this"):
+            return self.cases(("name", e[2]), want)         # `this.x` is x, a derived attribute's expression among them
         if k == "bin" and e[1] == "implies":
             return self.cases(("bin", "or", ("not", e[2]), e[3]), want)
         if k == "bin" and e[1] in ("and", "or"):
@@ -269,7 +339,7 @@ class Analysis:
         if k == "in":
             return self.membership(e, want)
         if k == "agg" and e[1] in ("none", "any") and e[3] is not None and e[6] is None and self.own_collection(e[4]):
-            count = ("count", repr((e[4], e[5])))
+            count = ("count", self.count_key(e))
             if want == "U":
                 return [frozenset({("null", count)})]
             empty = (e[1] == "none") == (want == "T")
@@ -528,6 +598,39 @@ def state_invariants(t):
     return {n: tree for n, tree in out.items() if not generated(n) or generated(n) in read}
 
 
+def reads(tree, derived, seen=frozenset()):
+    """The bare names an expression reads, a derived attribute's own among them."""
+    out = names_in(tree)
+    for d in (out & set(derived)) - seen:
+        out |= reads(flowexpr.parse(derived[d]["expression"]), derived, seen | {d})
+    return out
+
+
+def writes(steps):
+    """The attributes effect steps write, within a loop's steps too."""
+    out = set()
+    for st in steps:
+        if "assign" in st:
+            out.add(st["assign"]["location"])
+        elif "clear" in st:
+            out.update(st["clear"])
+        elif "add" in st or "remove" in st:
+            out.add((st.get("add") or st.get("remove"))["location"])
+        elif "foreach" in st:
+            out |= writes(st["foreach"].get("steps") or [])
+    return out
+
+
+def changes_others(xn, x, t):
+    """Whether taking a transition may change another object: a call or a create in its effect, within a loop too, or a
+    cascade on it from one of its type's parts (flow-format.md §4.3, §4.8)."""
+    def steps_call(steps):
+        return any("call" in st or "create" in st or ("foreach" in st and steps_call(st["foreach"].get("steps") or []))
+                   for st in steps)
+    parts = list((t.get("attributes") or {}).values()) + list((t.get("inherited_parts") or {}).values())
+    return steps_call(x.get("effect") or []) or any(xn in (c.get("on") or []) for p in parts for c in (p or {}).get("cascade") or [])
+
+
 def together(names):
     """How many cannot hold together: both, or all."""
     return "both" if len(names) == 2 else "all"
@@ -614,11 +717,15 @@ def analyse_type(tn, t, enums):
                     written[st["assign"]["location"]] = assigned[st["assign"]["location"]]
                 elif "clear" in st:
                     written.update({c: ("null",) for c in st["clear"]})
+                else:
+                    for loc in writes([st]):            # within a loop, or a set's member added or removed: not followed
+                        written[loc] = UNKNOWN_VALUE
+                        assigned.pop(loc, None)
             for loc, tree in assigned.items():
-                if names_in(tree) & set(written):       # read in the effect's own order, which is not followed here
+                if reads(tree, model.derived) & set(written):   # read in the effect's own order, which is not followed
                     written[loc] = UNKNOWN_VALUE
             post = x.get("to") if x["kind"] in ("initial", "external") else None
-            after = Analysis(model, written, post)
+            after = Analysis(model, written, post, changes_others(xn, x, t))
             post_reqs = list(reqs)
             for n, tree in invariants.items():
                 read = names_in(tree) - {"inputs", "now", "this"}
@@ -659,7 +766,10 @@ def self_test():
     num = {"amount": {"type": "decimal(10,2)"}, "n": {"type": "int"}, "note": {"type": "string", "optional": True},
            "grade": {"type": "Grade"}, "x": {"type": "int", "optional": True}, "eta": {"type": "timestamp"},
            "flag": {"type": "bool", "optional": True}, "a": {"type": "bool"}, "b": {"type": "bool"},
-           "items": {"reference": "Item[]"}, "reason": {"type": "string", "optional": True}}
+           "items": {"reference": "Item[]"}, "reason": {"type": "string", "optional": True},
+           "item": {"reference": "Item"}, "approvers": {"type": "identity[]"}}
+    mark = [{"call": {"target": "inputs.item", "transition": "mark", "inputs": {}}}]
+    once = [{"foreach": {"item": "k", "range": 1, "limit": 1, "steps": [{"assign": {"location": "n", "expr": "1"}}]}}]
     closed = {"OPEN": {"category": "live"}, "CLOSED": {"category": "closed"}, "DONE": {"category": "closed", "final": True}}
     cases = [
         ("two bounds with no number between", {"c1": "amount > 100", "c2": "amount < 50"}, _taking("c1", "c2"), {}, {}, "contradiction"),
@@ -694,6 +804,49 @@ def self_test():
         ("a write the state entered does not read", {}, _taking(effect=[{"clear": ["note"]}]),
          {"reasoned": "state != DONE or reason is not null"}, {}, None),
         ("a flag that fails whenever the blocking guards pass", {"c1": "n > 5", "c2": "n < 3"}, _taking("c1", flags=("c2",)), {}, {}, "neverpasses"),
+        # a part read after the write is the part of the value written (ADR-0279)
+        ("an opaque part read before the write and after it", {"c1": "not is_whole(amount)"},
+         _taking("c1", required_inputs=["amount"]), {"whole": "is_whole(amount)"}, {}, None),
+        ("an opaque part of the input, read after the write", {"c1": "not is_whole(inputs.amount)"},
+         _taking("c1", required_inputs=["amount"]), {"whole": "is_whole(amount)"}, {}, "contradiction"),
+        ("a count read before the write and after it", {"c1": "none(a in approvers)"},
+         _taking("c1", required_inputs=["approvers"]), {"some": "any(a in approvers)"}, {}, None),
+        ("a path through a reference read before the write and after it", {"c1": "not item.f1"},
+         _taking("c1", required_inputs=["item"]), {"marked": "item.f1"}, {}, None),
+        ("a path through the input, read after the write", {"c1": "not inputs.item.f1"},
+         _taking("c1", required_inputs=["item"]), {"marked": "item.f1"}, {}, "contradiction"),
+        ("a path through an object a call may change, read after it", {"c1": "not inputs.item.f1"},
+         _taking("c1", required_inputs=["item"], effect=mark), {"marked": "item.f1"}, {}, None),
+        ("a name read through this, not written", {"c1": "n <= 5"},
+         _taking("c1", required_inputs=["amount"]), {"both": "amount > 0 and this.n > 5"}, {}, None),
+        ("a name read through this, written", {"c1": "inputs.amount <= 0"},
+         _taking("c1", required_inputs=["amount"]), {"positive": "this.amount > 0"}, {}, "contradiction"),
+        ("a derived attribute read through this", {"c1": "this.big", "c2": "amount < 50"}, _taking("c1", "c2"), {},
+         {"big": "amount > 100"}, "contradiction"),
+        ("a write within a loop, after the input", {"c1": "inputs.n <= 0"},
+         _taking("c1", required_inputs=["n"], effect=once), {"positive": "n > 0"}, {}, None),
+        ("the input written, and no loop after it", {"c1": "inputs.n <= 0"},
+         _taking("c1", required_inputs=["n"]), {"positive": "n > 0"}, {}, "contradiction"),
+        ("a derived attribute within an opaque part, read as its expression", {"c1": "not (wq == b)", "c2": "is_whole(amount) == b"},
+         _taking("c1", "c2"), {}, {"wq": "is_whole(amount)"}, "contradiction"),
+        ("the state within an opaque part, read before and after it changes", {"c1": "not (inputs.item.home == state)"},
+         _taking("c1", required_inputs=["item"]), {"home": "item.home == state"}, {}, None),
+        ("an opaque part of a write the analysis cannot follow", {"c1": "not is_whole(amount)"},
+         _taking("c1", inputs={"d": {"type": "decimal(10,2)"}}, effect=[{"assign": {"location": "amount", "expr": "amount + inputs.d"}}]),
+         {"whole": "is_whole(amount)"}, {}, None),
+        ("a change test naming what the transition writes", {"c1": "not changed_since([amount], inputs.ev)"},
+         _taking("c1", required_inputs=["amount"]), {"changed": "changed_since([amount], inputs.ev)"}, {}, None),
+        ("when the state entered was entered, read before and after", {"c1": "not (inputs.item.at == entered_at(DONE))"},
+         _taking("c1", required_inputs=["item"]), {"at": "item.at == entered_at(DONE)"}, {}, None),
+        ("a set given, then a member removed from it", {"c1": "not all(i in inputs.items: i.ok)"},
+         _taking("c1", required_inputs=["items"], inputs={"bad": {"reference": "Item"}},
+                 effect=[{"remove": {"location": "items", "expr": "inputs.bad"}}]), {"ok": "all(i in items: i.ok)"}, {}, None),
+        ("a derived attribute written before what it reads is", {"c1": "not is_whole(inputs.v)"},
+         _taking("c1", inputs={"v": {"type": "decimal(10,2)"}},
+                 effect=[{"assign": {"location": "a", "expr": "wq"}}, {"assign": {"location": "amount", "expr": "inputs.v"}}]),
+         {"held": "a"}, {"wq": "is_whole(amount)"}, None),
+        ("a creation's guard reads the value it supplies, as the invariant after it", {"c1": "not is_whole(amount)"},
+         _taking("c1", frm=None, kind="initial", required_inputs=["amount"]), {"whole": "is_whole(amount)"}, {}, "contradiction"),
     ]
     ok = True
     for name, conds, transitions, invariants, derived, want in cases:
@@ -704,6 +857,15 @@ def self_test():
         ok &= right
         if not right:
             print(f"  {name}: expected {want or 'nothing'}, found {sorted(codes) or 'nothing'}: {[m for *_x, m in found]}")
+    # a part's cascade on the transition may change another object, so a path through one read after it is its own part
+    parted = dict(num, parts={"reference": "Part[]", "cascade": [{"on": ["go"], "transition": "close", "limit": 10}]})
+    found, _w, _n = analyse_type("T", _type(parted, closed, {"c1": "not inputs.item.f1"}, _taking("c1", required_inputs=["item"]),
+                                            {"marked": "item.f1"}), E)
+    right = not found
+    ok &= right
+    cases.append("a path through another object read after a cascade")
+    if not right:
+        print(f"  a path through another object read after a cascade: expected nothing, found {[m for *_x, m in found]}")
     # a lifecycle of thirteen states, each requiring what the one before set, is decided in every state: 2^13 cases
     # before the other states' invariants were set aside, which is past LIMIT
     chain = {f"S{i}": {"category": "live", "required_attributes": [f"t{j}" for j in range(1, i + 1)]} for i in range(1, 14)}
