@@ -5909,7 +5909,8 @@ def absents(v, library):
     `value_in_range` when it is (ADR-0201 decision 7, D655), other than a plain read, a name or a path, assigned to an
     optional attribute, which clears it (ADR-0209 decision 5): read as a guard is for `unknown`, an attribute every
     state the transition may be taken in requires being present, and a read a deny guard of the transition tests
-    being decided before the effect runs; an unsupplied optional input assigned as it is, which the decision exempts,
+    being decided before the effect runs, and one a loop's `where` tests before each of its steps runs, within the
+    loops in it too (issue #99, ADR-0281); an unsupplied optional input assigned as it is, which the decision exempts,
     is not noticed."""
     out = []
     for tn, t in types(v):
@@ -5923,14 +5924,19 @@ def absents(v, library):
                     r.walk(flowexpr.parse(expr), {})
                     guarded |= r.tested
 
-            def steps(sts, path, env):
+            def steps(sts, path, env, tested):
                 for i, st in enumerate(sts or []):
                     kind = next(k for k in STEP_KINDS if k in st)
                     if kind == "foreach":
                         spec = st["foreach"]
                         at = OptionalReads(library, tn, x).walk(flowexpr.parse(spec["array"]), env) if "array" in spec else None
                         inner = dict(env, **{spec["item"]: at[:-2] if at and at.endswith("[]") else None})
-                        steps(spec.get("steps"), path + (i, "foreach", "steps"), inner)
+                        within = set(tested)
+                        if spec.get("where"):                   # read as a deny guard is: its steps run where it holds
+                            r = OptionalReads(library, tn, x)
+                            r.walk(flowexpr.parse(spec["where"]), inner)
+                            within |= r.tested
+                        steps(spec.get("steps"), path + (i, "foreach", "steps"), inner, within)
                         continue
                     if kind != "assign" or (st["assign"] or {}).get("expr") is None:
                         continue
@@ -5943,13 +5949,14 @@ def absents(v, library):
                     # an optional input assigned as it is leaves the attribute as it was, which the decision exempts,
                     # and inside a larger expression of a step it is already fatal
                     why = {k: w for k, w in r.reads.items()
-                           if k not in r.tested and k not in guarded and not k.startswith("inputs.")}
+                           if k not in r.tested and k not in tested and not k.startswith("inputs.")}
                     if why:
                         out.append((path + (i, "assign"), "absent",
                                     f"{xn} assigns {st['assign'].get('location')} a value that can be absent, through "
-                                    f"{'; '.join(f'{k} ({w})' for k, w in sorted(why.items()))}, which neither it nor "
-                                    "a deny guard tests with `is null`; an absent value refuses the request value_in_range"))
-            steps(x.get("effect"), ("types", tn, "transitions", xn, "effect"), {})
+                                    f"{'; '.join(f'{k} ({w})' for k, w in sorted(why.items()))}, which neither it, "
+                                    "a deny guard nor the filter of a loop around it tests with `is null`; an absent value "
+                                    "refuses the request value_in_range"))
+            steps(x.get("effect"), ("types", tn, "transitions", xn, "effect"), {}, guarded)
     return out
 
 
@@ -7679,9 +7686,10 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     print(f"  planted an optional attribute nothing writes: "
           f"{'noticed, and neither one an input nor one a machine writes' if hit else 'MISSED ' + str(unwritten_seen)}")
     # an assignment whose value can be absent is noticed, a copy into a required attribute as arithmetic is, and under a
-    # warn guard, which refuses nothing; tested in the expression or by a deny guard, required by the state it is taken
-    # in, an optional input assigned as it is, or a plain read moved into an optional attribute, which clears it, it is
-    # not (ADR-0201 decision 7, ADR-0209 decision 5)
+    # warn guard, which refuses nothing; tested in the expression, by a deny guard or by the filter of a loop around it,
+    # a loop within that loop among it, required by the state it is taken in, an optional input assigned as it is, or a
+    # plain read moved into an optional attribute, which clears it, it is not (ADR-0201 decision 7, ADR-0209 decision 5,
+    # issue #99); a filter testing another value, and a step after the filtered loop, are noticed
     counter = ("module: m\ncategories: [live]\ntypes:\n  T:\n    description: A counter.\n    tracking: record\n"
                "    attributes:\n      count: { type: int, optional: true }\n      other: { type: int, optional: true }\n"
                "      total: { type: int, default: 0 }\n"
@@ -7696,6 +7704,24 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
                        "effect: [ { foreach: { item: n, array: nums, limit: 10, "
                        "steps: [ { assign: { location: other, expr: 'n + count' } } ] } } ]"))
     counted = "    conditions: { counted: { description: Counted., expression: count is not null, remedy: unreachable_from_here } }\n"
+    filtered = looped.replace("limit: 10, ", "where: 'count is not null', limit: 10, ")
+    nested = looped.replace("limit: 10, steps: [ { assign: { location: other, expr: 'n + count' } } ]",
+                            "where: 'count is not null', limit: 10, steps: [ { foreach: { item: m, array: nums, limit: 10, "
+                            "steps: [ { assign: { location: other, expr: 'm + count' } } ] } } ]")
+    after = filtered.replace("steps: [ { assign: { location: other, expr: 'n + count' } } ] } } ]",
+                             "steps: [ { assign: { location: other, expr: 'n + count' } } ] } }, "
+                             "{ assign: { location: total, expr: 'count + 1' } } ]")
+    parts = ("module: m\ncategories: [live]\ntypes:\n  Part:\n    description: A part.\n    tracking: record\n"
+             "    attributes:\n      months: { type: int, optional: true }\n"
+             "      kit: { reference: Kit, optional: true, opposite: parts }\n"
+             "    states: { S: { category: live, final: true, description: Listed. } }\n"
+             "    transitions:\n      t: { kind: initial, to: S, optional_inputs: [months] }\n"
+             "  Kit:\n    description: A kit.\n    tracking: record\n"
+             "    attributes:\n      parts: { reference: \"Part[]\", opposite: kit }\n      total: { type: int, default: 0 }\n"
+             "    states: { S: { category: live, final: true, description: Made. } }\n"
+             "    transitions:\n      t: { kind: initial, to: S, required_inputs: [parts], effect: [ { foreach: { item: p, "
+             "array: parts, where: 'p.months is not null', limit: 5, "
+             "steps: [ { assign: { location: total, expr: 'total + p.months' } } ] } } ] }\n")
     absent_cases = (
         ("summed", counter, 1),
         ("copied", counter.replace("location: other, expr: 'count + 1'", "location: total, expr: 'count'"), 1),
@@ -7710,6 +7736,14 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
                                      "S: { category: live, description: Open., required_attributes: [count] }")
                             .replace("optional_inputs: [count, other]", "required_inputs: [count], optional_inputs: [other]"), 0),
         ("input", counter.replace("'count + 1'", "inputs.by"), 0),
+        ("filtered", filtered, 0),
+        ("nested", nested, 0),
+        ("negated", filtered.replace("'count is not null'", "'not (count is null)'"), 0),
+        ("filtered for absence", filtered.replace("'count is not null'", "'count is null'"), 0),
+        ("filtered on its item", parts, 0),
+        ("its item unfiltered", parts.replace("where: 'p.months is not null', ", ""), 1),
+        ("filtered on another", filtered.replace("'count is not null'", "'other is not null'"), 1),
+        ("after the loop", after, 1),
     )
     absent_checked = {name: check([(f"{name}.yaml", text)]) for name, text, _ in absent_cases}
     absent_seen = {name: [x for x in notes if x[3] == "absent"] for name, (_, notes) in absent_checked.items()}
@@ -7717,7 +7751,7 @@ def self_test(people, service, inventory, delivery, approvals, customers, servic
     hit = all(len(absent_seen[name]) == want and not absent_checked[name][0] for name, _, want in absent_cases)
     ok &= hit
     print(f"  planted an assignment whose value can be absent: "
-          f"{'noticed, summed, copied to a required attribute and under a warn guard, and not where it is tested, denied, required, an input or moved' if hit else 'MISSED ' + str({n: len(v) for n, v in absent_seen.items()})}")
+          f"{'noticed, summed, copied to a required attribute, under a warn guard, a filter on another value, an item unfiltered and after a filtered loop, and not where it is tested, denied, filtered, within a filtered loop, on its item, required, an input or moved' if hit else 'MISSED ' + str({n: len(v) for n, v in absent_seen.items()})}")
     # where the version declares an agent kind of actor, a module's transitions that name no taken_by are noticed, once
     # for the module, whichever module checked declares the kind; a version declaring none is not (ADR-0189 decision 1)
     tasks = ("module: tasks\ncategories: [live]\ntypes:\n  Task:\n    description: A task.\n    tracking: record\n"

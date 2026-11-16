@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-16 by the author ("continue the loop with your recommendations"), given after both questions were brought the same day with a recommendation (`TODO.md`); each decision is the recommendation. The three questions brought before them, metric reads at C5, a mirror's `imported_at` and what an erasure reaches through caller taint, are not read as decided by it and stay open.
 - **Date:** 2026-10-16
+- **Refined by:** ADR-0281 — decision 5's `absent` notice reads a loop's `where` as it reads a deny guard.
 - **Refines:** ADR-0033 decision 2 (how a fold of the log reproduces a row); ADR-0201 decision 7 (an assignment whose value is absent)
 - **Relates to:** D692; `design/storage-schema.md` §4 and §9; `design/adversarial-harness.md` §1; ADR-0078 (every input recorded); ADR-0029 (a sequence's gaps); D655
 

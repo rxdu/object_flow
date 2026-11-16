@@ -590,10 +590,11 @@ fn said(why: &BTreeMap<String, String>) -> String {
 /// plain read, a name or a path, assigned to an optional attribute, which
 /// clears it (ADR-0209 decision 5): read as a
 /// guard is for `unknown`, an attribute every state the transition may be
-/// taken in requires being present, and a read a deny guard of the
-/// transition tests being decided before the effect runs; an unsupplied
-/// optional input assigned as it is, which the decision exempts, is not
-/// noticed.
+/// taken in requires being present, a read a deny guard of the transition
+/// tests being decided before the effect runs, and one a loop's `where`
+/// tests before each of its steps runs, within the loops in it too (issue
+/// #99, ADR-0281); an unsupplied optional input assigned as it is, which
+/// the decision exempts, is not noticed.
 pub fn absents(v: &Value, library: &Obj) -> Found {
     let mut out = Found::new();
     for (tn, t) in types(v) {
@@ -653,6 +654,15 @@ fn assigned(
                     str_or(&spec, "item", ""),
                     ty.and_then(|t| t.strip_suffix("[]").map(str::to_string)),
                 );
+                // read as a deny guard is: its steps run where it holds
+                let mut within = guarded.clone();
+                if let Some(w) = spec.get("where").filter(|w| super::doc::truthy(Some(w)))
+                    && let Ok(tree) = parse(&py_str(w))
+                {
+                    let mut r = OptionalReads::new(library, tn, Some(x));
+                    r.walk(&tree, &inner);
+                    within.extend(r.tested);
+                }
                 assigned(
                     library,
                     tn,
@@ -661,7 +671,7 @@ fn assigned(
                     list(&spec, "steps"),
                     ext(&at, segs![i, "foreach", "steps"]),
                     &inner,
-                    guarded,
+                    &within,
                     out,
                 );
             }
@@ -701,7 +711,7 @@ fn assigned(
                         ext(&at, segs![i, "assign"]),
                         "absent",
                         format!(
-                            "{xn} assigns {} a value that can be absent, through {}, which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range",
+                            "{xn} assigns {} a value that can be absent, through {}, which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range",
                             str_or(&body, "location", "None"),
                             said(&why)
                         ),

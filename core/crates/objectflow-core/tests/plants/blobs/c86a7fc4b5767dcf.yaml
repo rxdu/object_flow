@@ -1,0 +1,21 @@
+module: m
+categories: [live]
+types:
+  Part:
+    description: A part.
+    tracking: record
+    attributes:
+      months: { type: int, optional: true }
+      kit: { reference: Kit, optional: true, opposite: parts }
+    states: { S: { category: live, final: true, description: Listed. } }
+    transitions:
+      t: { kind: initial, to: S, optional_inputs: [months] }
+  Kit:
+    description: A kit.
+    tracking: record
+    attributes:
+      parts: { reference: "Part[]", opposite: kit }
+      total: { type: int, default: 0 }
+    states: { S: { category: live, final: true, description: Made. } }
+    transitions:
+      t: { kind: initial, to: S, required_inputs: [parts], effect: [ { foreach: { item: p, array: parts, where: 'p.months is not null', limit: 5, steps: [ { assign: { location: total, expr: 'total + p.months' } } ] } } ] }

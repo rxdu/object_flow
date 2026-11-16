@@ -8407,7 +8407,7 @@
     812,
     "notice",
     "absent",
-    "receive assigns on_hand a value that can be absent, through on_hand (PartStock.on_hand is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "receive assigns on_hand a value that can be absent, through on_hand (PartStock.on_hand is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ],
    [
     "servicedesk.yaml",
@@ -8421,7 +8421,7 @@
     841,
     "notice",
     "absent",
-    "use assigns on_hand a value that can be absent, through on_hand (PartStock.on_hand is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "use assigns on_hand a value that can be absent, through on_hand (PartStock.on_hand is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ],
    [
     "servicedesk.yaml",
@@ -12338,7 +12338,7 @@
     109,
     "notice",
     "absent",
-    "reassign assigns photo a value that can be absent, through photo (ServiceJob.photo is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "reassign assigns photo a value that can be absent, through photo (ServiceJob.photo is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ],
    [
     "service.yaml",
@@ -13284,7 +13284,7 @@
     14,
     "notice",
     "absent",
-    "bump assigns other a value that can be absent, through count (T.count is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "bump assigns other a value that can be absent, through count (T.count is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {
@@ -13311,7 +13311,7 @@
     14,
     "notice",
     "absent",
-    "bump assigns total a value that can be absent, through count (T.count is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "bump assigns total a value that can be absent, through count (T.count is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {
@@ -13357,7 +13357,7 @@
     15,
     "notice",
     "absent",
-    "bump assigns other a value that can be absent, through count (T.count is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "bump assigns other a value that can be absent, through count (T.count is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ],
    [
     "looped.yaml",
@@ -13391,7 +13391,7 @@
     15,
     "notice",
     "absent",
-    "bump assigns other a value that can be absent, through count (T.count is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "bump assigns other a value that can be absent, through count (T.count is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ],
    [
     "warned.yaml",
@@ -13477,6 +13477,205 @@
   ],
   "previous": {},
   "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: filtered",
+  "files": [
+   [
+    "filtered.yaml",
+    "58cf46bb08e5e1f4"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: nested",
+  "files": [
+   [
+    "nested.yaml",
+    "c690655f78f55c55"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "nested.yaml",
+    15,
+    "notice",
+    "unbounded_reach",
+    "T.bump takes at most 10 of nums, and no invariant of T holds it to 10: past 10, it is refused over_limit, and an object holding more can never take it; declare one such as count(x in nums) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: negated",
+  "files": [
+   [
+    "negated.yaml",
+    "6579829fc645166a"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: filtered for absence",
+  "files": [
+   [
+    "filtered for absence.yaml",
+    "e666e68c43aa61cb"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: filtered on its item",
+  "files": [
+   [
+    "filtered on its item.yaml",
+    "c86a7fc4b5767dcf"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Kit": [
+    0,
+    0
+   ],
+   "Part": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: its item unfiltered",
+  "files": [
+   [
+    "its item unfiltered.yaml",
+    "a903087fbfbd760c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "its item unfiltered.yaml",
+    21,
+    "notice",
+    "absent",
+    "t assigns total a value that can be absent, through p.months (Part.months is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
+   ],
+   [
+    "its item unfiltered.yaml",
+    21,
+    "notice",
+    "unbounded_reach",
+    "Kit.t takes at most 5 of parts, and no invariant of Kit holds it to 5: past 5, it is refused over_limit, and an object holding more can never take it; declare one such as count(x in parts) <= 5 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "Kit": [
+    0,
+    0
+   ],
+   "Part": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: filtered on another",
+  "files": [
+   [
+    "filtered on another.yaml",
+    "3fc1603dc3af4a15"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "filtered on another.yaml",
+    15,
+    "notice",
+    "absent",
+    "bump assigns other a value that can be absent, through count (T.count is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {
+   "T": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "<dictcomp>: after the loop",
+  "files": [
+   [
+    "after the loop.yaml",
+    "4eb70fdd195f1d37"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "after the loop.yaml",
+    15,
+    "notice",
+    "absent",
+    "bump assigns total a value that can be absent, through count (T.count is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
   "analysed": {
    "T": [
     0,
@@ -35750,7 +35949,7 @@
     29,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {
@@ -35784,7 +35983,7 @@
     29,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -35820,7 +36019,7 @@
     29,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -35849,7 +36048,7 @@
     29,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -35900,7 +36099,7 @@
     29,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -35929,7 +36128,7 @@
     29,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -35965,7 +36164,7 @@
     30,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -35994,7 +36193,7 @@
     35,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -36025,7 +36224,7 @@
     29,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -36063,7 +36262,7 @@
     29,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -36085,7 +36284,7 @@
     31,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {
@@ -36160,7 +36359,7 @@
     31,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -36216,7 +36415,7 @@
     31,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -36265,7 +36464,7 @@
     31,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -36307,7 +36506,7 @@
     33,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -36346,7 +36545,7 @@
     29,
     "notice",
     "absent",
-    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ],
    [
     "stays.yaml",
@@ -45362,7 +45561,7 @@
     16,
     "notice",
     "absent",
-    "swap assigns login a value that can be absent, through alias (Member.alias is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "swap assigns login a value that can be absent, through alias (Member.alias is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},
@@ -50359,7 +50558,7 @@
     28,
     "notice",
     "absent",
-    "shut assigns label a value that can be absent, through tags (Account.tags is optional), which neither it nor a deny guard tests with `is null`; an absent value refuses the request value_in_range"
+    "shut assigns label a value that can be absent, through tags (Account.tags is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ]
   ],
   "analysed": {},

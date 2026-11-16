@@ -11,6 +11,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ### Fixed
 
+- The `absent` notice reads a loop's `where` as it reads a deny guard, so an assignment within a loop filtered on the optional value it reads, such as `where: "model.months is not null"`, is no longer noticed; a loop within that loop counts it too (issue #99, ADR-0281).
 - Step 5 refused a transition a request can take where a guard and an invariant read one part before and after the transition writes it, as `not is_whole(q1)` guarding a transition that takes `q1` beside an invariant `is_whole(q1)` (issue #98's review, ADR-0279). It now reads each part after the writes as the value written, and as a part of its own where it cannot follow that value: an attribute written within a loop or by a set's `add` or `remove`, and a path through another object the transition calls, creates or cascades on. It also counted an invariant reading `this.p` against a transition that does not write `p`.
 
 ## 0.27.0, 2026-11-15
