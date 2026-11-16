@@ -1075,3 +1075,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** On 2026-11-12, building #89, a script inserted `history_pair_errors` directly before the text `pub fn migration_pair_errors(`. The doc comment and `#[allow(clippy::too_many_arguments)]` above that signature then sat above the new function, and clippy refused the old one for its eight arguments. A doc comment moved so raises no warning at all.
 - **Correction:** Anchor an insertion on the preceding item's closing brace, or on the doc comment's first line, never on a signature. After a scripted insertion, read the lines above each function it touched.
 - **Context:** Scripted edits to Rust and Python sources in this repository.
+
+### A step 5 test meant to pass the bound shrinks under it when it reads required values
+- **Pattern:** On 2026-11-16, building ADR-0280, a self-test meant to show six rules `k<n> > 0 or item.f<n>` past 4,096 cases when joined read six required `int` attributes. A planted defect joining them was not caught: `fixed` drops each case where a required value is absent, so each rule kept three cases, and 3⁶ = 729 stayed within the bound.
+- **Correction:** A step 5 test that must expand past the bound reads optional values or opaque parts, whose cases nothing drops. Count its cases after `fixed`, not from the expression, and confirm a planted defect turns the answer.
+- **Context:** `scripts/flowlogic.py`'s self-test and its mirror in `check/logic.rs`.
