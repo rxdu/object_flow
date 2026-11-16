@@ -28,7 +28,7 @@ from fractions import Fraction
 
 import flowexpr
 
-LIMIT = 4096            # the cases a set of conditions may expand to before it is reported rather than decided
+LIMIT = 4096            # the cases a group of conditions sharing a value may expand to before it is reported, not decided
 SECONDS = {"s": 1, "min": 60, "h": 3600, "day": 86400, "days": 86400, "week": 604800, "weeks": 604800}
 ZERO = ("zero",)
 NOT = {"T": "F", "F": "T", "U": "U"}
@@ -502,8 +502,29 @@ def satisfiable(case, model):
 
 
 def consistent(bounds, model):
-    """Difference bounds u - v <= c, strict where marked, have a solution: no negative cycle (Floyd-Warshall).
-    Over integers a strict bound tightens to the next integer, which is exact there and never used otherwise."""
+    """Difference bounds u - v <= c, strict where marked, have a solution, decided for each part the bounds join apart
+    from the constant zero. A negative cycle through zero that visits two parts is two cycles, each within one part, one
+    of them negative, so this is exact; and each part tests alone whether its values are all integers (ADR-0280)."""
+    parent = {}
+
+    def find(x):
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for u, v, _c, _strict in bounds:
+        if u != ZERO and v != ZERO:
+            parent[find(u)] = find(v)
+    parts = {}
+    for b in bounds:
+        parts.setdefault(find(b[1] if b[0] == ZERO else b[0]), []).append(b)
+    return all(cycle_free(part, model) for part in parts.values())
+
+
+def cycle_free(bounds, model):
+    """Difference bounds have no negative cycle (Floyd-Warshall). Over integers a strict bound tightens to the next
+    integer, which is exact there and never used otherwise."""
     if not bounds:
         return True
     nodes = sorted({x for b in bounds for x in b[:2]}, key=repr)
@@ -538,9 +559,50 @@ def consistent(bounds, model):
     return all(dist[i][i][0] > 0 or (dist[i][i][0] == 0 and not dist[i][i][1]) for i in range(size))
 
 
+def reads_of(atom):
+    """What an atom reads: the values it constrains, or an opaque part's key."""
+    if atom[0] == "le":
+        return {("value", x) for x in atom[1:3] if x != ZERO}
+    if atom[0] == "op":
+        return {("part", atom[1])}
+    return {("value", atom[1])}
+
+
+def groups(requirements):
+    """The requirements as groups that share nothing, no value and no opaque part, each in the order of its first: KLEE's
+    constraint independence. Requirements that share nothing cannot constrain each other, so a set can hold exactly when
+    each group can (ADR-0280)."""
+    parent = list(range(len(requirements)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    owner = {}
+    for i, (_name, cases) in enumerate(requirements):
+        for key in {k for case in cases for atom in case for k in reads_of(atom)}:
+            parent[find(i)] = find(owner.setdefault(key, i))
+    out = {}
+    for i, r in enumerate(requirements):
+        out.setdefault(find(i), []).append(r)
+    return list(out.values())
+
+
 def any_satisfiable(requirements, model):
-    """Whether requirements, each (name, the cases that satisfy it), can all hold at once."""
-    return any(satisfiable(case, model) for case in product([cases for _name, cases in requirements]))
+    """Whether requirements, each (name, the cases that satisfy it), can all hold at once, each group of them that shares
+    nothing decided alone: a group that cannot hold decides the set, and otherwise one past the bound leaves it
+    undecided."""
+    too_large = False
+    for group in groups(requirements):
+        try:
+            if not any(satisfiable(case, model) for case in product([cases for _name, cases in group])):
+                return False
+        except TooLarge:
+            too_large = True
+    if too_large:
+        raise TooLarge()
+    return True
 
 
 def implied(case, given):
@@ -565,13 +627,22 @@ def fixed(requirements, given, model):
 
 
 def core(requirements, model):
-    """A smallest set of the requirements, by deletion, that still cannot hold together."""
-    kept = list(requirements)
-    for r in list(kept):
-        trial = [x for x in kept if x is not r]
-        if trial and not any_satisfiable(trial, model):
-            kept = trial
-    return kept
+    """A smallest set of the requirements, by deletion, that still cannot hold together, sought within the first group of
+    them that cannot hold alone: sought over the whole set, a trial would decide a group past the bound, and leave what
+    was proved undecided (ADR-0280). A subset of a group within the bound is within it too."""
+    for group in groups(requirements):
+        try:
+            if any_satisfiable(group, model):
+                continue
+        except TooLarge:
+            continue
+        kept = list(group)
+        for r in list(kept):
+            trial = [x for x in kept if x is not r]
+            if trial and not any_satisfiable(trial, model):
+                kept = trial
+        return kept
+    return list(requirements)
 
 
 def state_invariants(t):
@@ -767,9 +838,14 @@ def self_test():
            "grade": {"type": "Grade"}, "x": {"type": "int", "optional": True}, "eta": {"type": "timestamp"},
            "flag": {"type": "bool", "optional": True}, "a": {"type": "bool"}, "b": {"type": "bool"},
            "items": {"reference": "Item[]"}, "reason": {"type": "string", "optional": True},
-           "item": {"reference": "Item"}, "approvers": {"type": "identity[]"}}
+           "item": {"reference": "Item"}, "approvers": {"type": "identity[]"},
+           **{f"k{i}": {"type": "int", "optional": True} for i in range(1, 7)}}
     mark = [{"call": {"target": "inputs.item", "transition": "mark", "inputs": {}}}]
     once = [{"foreach": {"item": "k", "range": 1, "limit": 1, "steps": [{"assign": {"location": "n", "expr": "1"}}]}}]
+    apart = {f"rule_{i}": f"is_whole(q{i}) or item.f{i}" for i in range(1, 7)}           # issue #98's six, five cases each
+    entangled = {f"rule_{i}": f"is_whole(q{i}) or item.f0" for i in range(1, 7)}         # one group, past the bound alone
+    bounded = {f"rule_{i}": f"k{i} > 0 or item.f{i}" for i in range(1, 7)}             # each bound through zero alone
+    contra = {"pos": "state != DONE or n > 0", "neg": "state != DONE or n < 0"}
     closed = {"OPEN": {"category": "live"}, "CLOSED": {"category": "closed"}, "DONE": {"category": "closed", "final": True}}
     cases = [
         ("two bounds with no number between", {"c1": "amount > 100", "c2": "amount < 50"}, _taking("c1", "c2"), {}, {}, "contradiction"),
@@ -847,6 +923,16 @@ def self_test():
          {"held": "a"}, {"wq": "is_whole(amount)"}, None),
         ("a creation's guard reads the value it supplies, as the invariant after it", {"c1": "not is_whole(amount)"},
          _taking("c1", frm=None, kind="initial", required_inputs=["amount"]), {"whole": "is_whole(amount)"}, {}, "contradiction"),
+        # each group of requirements that share nothing decided alone (ADR-0280)
+        ("six two-part rules sharing nothing, 5^6 cases together", {}, _taking(), apart, {}, None),
+        ("six rules each bounding a number from zero, sharing nothing", {}, _taking(), bounded, {}, None),
+        ("two rules contradicting after one group past the bound", {}, _taking(), dict(entangled, **contra), {}, "contradiction"),
+        ("two rules contradicting, met first, beside one group past the bound", {}, _taking(), dict(contra, **entangled), {},
+         "contradiction"),
+        ("an int strictly between 3 and 4 beside a decimal bound", {"c1": "n > 3", "c2": "n < 4", "c3": "amount > 0"},
+         _taking("c1", "c2", "c3"), {}, {}, "contradiction"),
+        ("an int strictly between 3 and 4 and a decimal bound, in one guard", {"c1": "n > 3 and n < 4 and amount > 0"},
+         _taking("c1"), {}, {}, "contradiction"),
     ]
     ok = True
     for name, conds, transitions, invariants, derived, want in cases:
@@ -857,6 +943,14 @@ def self_test():
         ok &= right
         if not right:
             print(f"  {name}: expected {want or 'nothing'}, found {sorted(codes) or 'nothing'}: {[m for *_x, m in found]}")
+    # a contradiction found after a group past the bound names the rules that cannot hold, sought within their group
+    found, _w, _n = analyse_type("T", _type(num, closed, {}, _taking(), dict(entangled, **contra)), E)
+    named = "no object of T can be in DONE: pos and neg cannot both hold there, and go enters it"
+    right = named in [m for *_x, m in found]
+    ok &= right
+    cases.append("a contradiction after a group past the bound, named")
+    if not right:
+        print(f"  a contradiction after a group past the bound, named: expected {named!r}, found {[m for *_x, m in found]}")
     # a part's cascade on the transition may change another object, so a path through one read after it is its own part
     parted = dict(num, parts={"reference": "Part[]", "cascade": [{"on": ["go"], "transition": "close", "limit": 10}]})
     found, _w, _n = analyse_type("T", _type(parted, closed, {"c1": "not inputs.item.f1"}, _taking("c1", required_inputs=["item"]),

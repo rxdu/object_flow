@@ -20,8 +20,8 @@ use super::doc::{Obj, Path, flag, list, obj, py_str, segs, str_or, strings};
 use super::steps::kind;
 use crate::expr::{BinOp, Expr, Number, parse};
 
-/// The cases a set of conditions may expand to before it is reported
-/// rather than decided.
+/// The cases a group of conditions sharing a value may expand to before it
+/// is reported rather than decided.
 const LIMIT: usize = 4096;
 
 /// Too many cases to decide.
@@ -1192,8 +1192,42 @@ fn satisfiable(case: &Case, model: &TypeModel<'_>) -> bool {
     consistent(&bounds, model)
 }
 
-/// Difference bounds u - v <= c have a solution: no negative cycle.
+/// Difference bounds u - v <= c have a solution, decided for each part the
+/// bounds join apart from the constant zero: a negative cycle through zero
+/// that visits two parts is two cycles, each within one part, one of them
+/// negative, so this is exact, and each part tests alone whether its values
+/// are all integers (ADR-0280).
 fn consistent(bounds: &[(Var, Var, Rat, bool)], model: &TypeModel<'_>) -> bool {
+    fn find<'v>(parent: &mut BTreeMap<&'v Var, &'v Var>, x: &'v Var) -> &'v Var {
+        let mut x = x;
+        loop {
+            let p = *parent.entry(x).or_insert(x);
+            if p == x {
+                return x;
+            }
+            let up = *parent.entry(p).or_insert(p);
+            parent.insert(x, up);
+            x = up;
+        }
+    }
+    let mut parent: BTreeMap<&Var, &Var> = BTreeMap::new();
+    for (u, v, _, _) in bounds {
+        if *u != Var::Zero && *v != Var::Zero {
+            let (a, b) = (find(&mut parent, u), find(&mut parent, v));
+            parent.insert(a, b);
+        }
+    }
+    let mut parts: BTreeMap<&Var, Vec<(Var, Var, Rat, bool)>> = BTreeMap::new();
+    for b in bounds {
+        let root = find(&mut parent, if b.0 == Var::Zero { &b.1 } else { &b.0 });
+        parts.entry(root).or_default().push(b.clone());
+    }
+    parts.values().all(|part| cycle_free(part, model))
+}
+
+/// Difference bounds have no negative cycle (Floyd–Warshall); over integers
+/// a strict bound tightens to the next integer.
+fn cycle_free(bounds: &[(Var, Var, Rat, bool)], model: &TypeModel<'_>) -> bool {
     if bounds.is_empty() {
         return true;
     }
@@ -1248,9 +1282,75 @@ fn consistent(bounds: &[(Var, Var, Rat, bool)], model: &TypeModel<'_>) -> bool {
 
 type Requirement = (String, Vec<Case>);
 
+/// What an atom reads: the values it constrains, or an opaque part's key.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum Read<'a> {
+    Value(&'a Var),
+    Part(&'a str),
+}
+
+fn reads_of(atom: &Atom) -> Vec<Read<'_>> {
+    match atom {
+        Atom::Le(u, v, _, _) => [u, v]
+            .into_iter()
+            .filter(|x| **x != Var::Zero)
+            .map(Read::Value)
+            .collect(),
+        Atom::Op(k, _) => vec![Read::Part(k)],
+        Atom::Null(v) | Atom::Present(v) | Atom::Dom(v, _) | Atom::Eqv(v, _) | Atom::Nev(v, _) => {
+            vec![Read::Value(v)]
+        }
+    }
+}
+
+/// The requirements, by index, as groups that share nothing, no value and
+/// no opaque part, each in the order of its first: KLEE's constraint
+/// independence. Requirements that share nothing cannot constrain each
+/// other, so a set can hold exactly when each group can (ADR-0280).
+fn groups(reqs: &[Requirement]) -> Vec<Vec<usize>> {
+    fn find(parent: &mut [usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    let mut parent: Vec<usize> = (0..reqs.len()).collect();
+    let mut owner: BTreeMap<Read<'_>, usize> = BTreeMap::new();
+    for (i, (_, cases)) in reqs.iter().enumerate() {
+        for key in cases.iter().flatten().flat_map(reads_of) {
+            let j = *owner.entry(key).or_insert(i);
+            let (a, b) = (find(&mut parent, i), find(&mut parent, j));
+            parent[a] = b;
+        }
+    }
+    let mut out: Vec<Vec<usize>> = Vec::new();
+    let mut at: BTreeMap<usize, usize> = BTreeMap::new();
+    for i in 0..reqs.len() {
+        let root = find(&mut parent, i);
+        let g = *at.entry(root).or_insert_with(|| {
+            out.push(Vec::new());
+            out.len() - 1
+        });
+        out[g].push(i);
+    }
+    out
+}
+
+/// Whether requirements can all hold at once, each group of them that shares
+/// nothing decided alone: a group that cannot hold decides the set, and
+/// otherwise one past the bound leaves it undecided.
 fn any_satisfiable(reqs: &[Requirement], model: &TypeModel<'_>) -> Decided<bool> {
-    let lists: Vec<Vec<Case>> = reqs.iter().map(|(_, c)| c.clone()).collect();
-    Ok(product(&lists)?.iter().any(|c| satisfiable(c, model)))
+    let mut too_large = false;
+    for group in groups(reqs) {
+        let lists: Vec<Vec<Case>> = group.iter().map(|&i| reqs[i].1.clone()).collect();
+        match product(&lists) {
+            Ok(cases) if !cases.iter().any(|c| satisfiable(c, model)) => return Ok(false),
+            Ok(_) => {}
+            Err(TooLarge) => too_large = true,
+        }
+    }
+    if too_large { Err(TooLarge) } else { Ok(true) }
 }
 
 /// Whether every atom of a case is given, or a domain within a given one.
@@ -1285,20 +1385,31 @@ fn fixed(reqs: Vec<Requirement>, given: &Case, model: &TypeModel<'_>) -> Vec<Req
         .collect()
 }
 
-/// A smallest set of the requirements, by deletion, that cannot hold.
+/// A smallest set of the requirements, by deletion, that cannot hold,
+/// sought within the first group of them that cannot hold alone: sought over
+/// the whole set, a trial would decide a group past the bound, and leave
+/// what was proved undecided (ADR-0280). A subset of a group within the
+/// bound is within it too.
 fn core(reqs: &[Requirement], model: &TypeModel<'_>) -> Decided<Vec<Requirement>> {
-    let mut kept: Vec<Requirement> = reqs.to_vec();
-    for r in reqs {
-        let Some(at) = kept.iter().position(|k| k.0 == r.0 && k.1 == r.1) else {
+    for group in groups(reqs) {
+        let members: Vec<Requirement> = group.iter().map(|&i| reqs[i].clone()).collect();
+        if !matches!(any_satisfiable(&members, model), Ok(false)) {
             continue;
-        };
-        let mut trial = kept.clone();
-        trial.remove(at);
-        if !trial.is_empty() && !any_satisfiable(&trial, model)? {
-            kept = trial;
         }
+        let mut kept = members.clone();
+        for r in &members {
+            let Some(at) = kept.iter().position(|k| k.0 == r.0 && k.1 == r.1) else {
+                continue;
+            };
+            let mut trial = kept.clone();
+            trial.remove(at);
+            if !trial.is_empty() && !any_satisfiable(&trial, model)? {
+                kept = trial;
+            }
+        }
+        return Ok(kept);
     }
-    Ok(kept)
+    Ok(reqs.to_vec())
 }
 
 /// A type's invariants by name, a state's required attributes among them.
@@ -1799,7 +1910,10 @@ mod tests {
             "grade": {"type": "Grade"}, "x": {"type": "int", "optional": true}, "eta": {"type": "timestamp"},
             "flag": {"type": "bool", "optional": true}, "a": {"type": "bool"}, "b": {"type": "bool"},
             "items": {"reference": "Item[]"}, "reason": {"type": "string", "optional": true},
-            "item": {"reference": "Item"}, "approvers": {"type": "identity[]"}
+            "item": {"reference": "Item"}, "approvers": {"type": "identity[]"},
+            "k1": {"type": "int", "optional": true}, "k2": {"type": "int", "optional": true},
+            "k3": {"type": "int", "optional": true}, "k4": {"type": "int", "optional": true},
+            "k5": {"type": "int", "optional": true}, "k6": {"type": "int", "optional": true}
         });
         let states = json!({"OPEN": {"category": "live"}, "CLOSED": {"category": "closed"}, "DONE": {"category": "closed", "final": true}});
         let cond: serde_json::Map<String, Value> = conditions
@@ -1874,6 +1988,36 @@ mod tests {
         let none = json!({});
         let user = json!({"inputs": {"e": {"reference": "User"}}});
         let mark = json!([{"call": {"target": "inputs.item", "transition": "mark", "inputs": {}}}]);
+        // issue #98's six, five cases each; six in one group, past the bound
+        // alone; six each bounding a number through zero alone
+        let apart: Vec<(&str, &str)> = vec![
+            ("rule_1", "is_whole(q1) or item.f1"),
+            ("rule_2", "is_whole(q2) or item.f2"),
+            ("rule_3", "is_whole(q3) or item.f3"),
+            ("rule_4", "is_whole(q4) or item.f4"),
+            ("rule_5", "is_whole(q5) or item.f5"),
+            ("rule_6", "is_whole(q6) or item.f6"),
+        ];
+        let entangled: Vec<(&str, &str)> = vec![
+            ("rule_1", "is_whole(q1) or item.f0"),
+            ("rule_2", "is_whole(q2) or item.f0"),
+            ("rule_3", "is_whole(q3) or item.f0"),
+            ("rule_4", "is_whole(q4) or item.f0"),
+            ("rule_5", "is_whole(q5) or item.f0"),
+            ("rule_6", "is_whole(q6) or item.f0"),
+        ];
+        let bounded: Vec<(&str, &str)> = vec![
+            ("rule_1", "k1 > 0 or item.f1"),
+            ("rule_2", "k2 > 0 or item.f2"),
+            ("rule_3", "k3 > 0 or item.f3"),
+            ("rule_4", "k4 > 0 or item.f4"),
+            ("rule_5", "k5 > 0 or item.f5"),
+            ("rule_6", "k6 > 0 or item.f6"),
+        ];
+        let contra: Vec<(&str, &str)> = vec![
+            ("pos", "state != DONE or n > 0"),
+            ("neg", "state != DONE or n < 0"),
+        ];
         let once = json!([{"foreach": {"item": "k", "range": 1, "limit": 1, "steps": [{"assign": {"location": "n", "expr": "1"}}]}}]);
         let cases: Vec<SelfTest> = vec![
             (
@@ -2254,6 +2398,56 @@ mod tests {
                 vec![],
                 Some("contradiction"),
             ),
+            // each group of requirements that share nothing decided alone
+            // (ADR-0280)
+            (
+                "six two-part rules sharing nothing, 5^6 cases together",
+                vec![],
+                taking(&[], &[], "OPEN", none.clone()),
+                apart.clone(),
+                vec![],
+                None,
+            ),
+            (
+                "six rules each bounding a number from zero, sharing nothing",
+                vec![],
+                taking(&[], &[], "OPEN", none.clone()),
+                bounded.clone(),
+                vec![],
+                None,
+            ),
+            (
+                "two rules contradicting after one group past the bound",
+                vec![],
+                taking(&[], &[], "OPEN", none.clone()),
+                entangled.iter().chain(&contra).copied().collect(),
+                vec![],
+                Some("contradiction"),
+            ),
+            (
+                "two rules contradicting, met first, beside one group past the bound",
+                vec![],
+                taking(&[], &[], "OPEN", none.clone()),
+                contra.iter().chain(&entangled).copied().collect(),
+                vec![],
+                Some("contradiction"),
+            ),
+            (
+                "an int strictly between 3 and 4 beside a decimal bound",
+                vec![("c1", "n > 3"), ("c2", "n < 4"), ("c3", "amount > 0")],
+                taking(&["c1", "c2", "c3"], &[], "OPEN", none.clone()),
+                vec![],
+                vec![],
+                Some("contradiction"),
+            ),
+            (
+                "an int strictly between 3 and 4 and a decimal bound, in one guard",
+                vec![("c1", "n > 3 and n < 4 and amount > 0")],
+                taking(&["c1"], &[], "OPEN", none.clone()),
+                vec![],
+                vec![],
+                Some("contradiction"),
+            ),
         ];
         let mut wrong = Vec::new();
         for (name, conds, transitions, invariants, derived, want) in &cases {
@@ -2270,6 +2464,24 @@ mod tests {
             if !right {
                 wrong.push(format!("{name}: expected {want:?}, found {codes:?}"));
             }
+        }
+        // a contradiction found after a group past the bound names the rules
+        // that cannot hold, sought within their group
+        let t = small(
+            &[],
+            taking(&[], &[], "OPEN", none.clone()),
+            &entangled.iter().chain(&contra).copied().collect::<Vec<_>>(),
+            &[],
+        );
+        let named =
+            "no object of T can be in DONE: pos and neg cannot both hold there, and go enters it";
+        let messages: Vec<String> = analyse_type("T", &t, &enums)
+            .0
+            .into_iter()
+            .map(|f| f.3)
+            .collect();
+        if !messages.iter().any(|m| m == named) {
+            wrong.push(format!("a contradiction after a group past the bound, named: expected {named:?}, found {messages:?}"));
         }
         // a part's cascade on the transition may change another object, so a
         // path through one read after it is its own part

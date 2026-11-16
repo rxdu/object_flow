@@ -10,22 +10,23 @@ types:
       note_1: { type: string, optional: true, not_blank: true }
       note_2: { type: string, optional: true, not_blank: true }
       note_3: { type: string, optional: true, not_blank: true }
+      flagged: { type: bool, default: false }
     states:
       ACTIVE: { description: In use., category: live }
       RETIRED: { description: Out of use., category: closed, final: true }
     invariants:
       note_0_short:
         description: The note is short.
-        expression: note_0 is null or length(note_0) <= 200
+        expression: note_0 is null or length(note_0) <= 200 or flagged
       note_1_short:
         description: The note is short.
-        expression: note_1 is null or length(note_1) <= 200
+        expression: note_1 is null or length(note_1) <= 200 or flagged
       note_2_short:
         description: The note is short.
-        expression: note_2 is null or length(note_2) <= 200
+        expression: note_2 is null or length(note_2) <= 200 or flagged
       note_3_short:
         description: The note is short.
-        expression: note_3 is null or length(note_3) <= 200
+        expression: note_3 is null or length(note_3) <= 200 or flagged
     transitions:
       add: { kind: initial, to: ACTIVE, required_inputs: [name, note_0], optional_inputs: [note_1, note_2, note_3] }
       edit: { kind: internal, from: [ACTIVE], optional_inputs: [note_0, note_1, note_2, note_3] }

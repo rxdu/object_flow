@@ -34098,21 +34098,21 @@
   "files": [
    [
     "items.yaml",
-    "a79321802ca1bda5"
+    "706eecca065f9e29"
    ]
   ],
   "previous": {},
   "findings": [
    [
     "items.yaml",
-    14,
+    15,
     "notice",
     "undecided",
     "the invariants of Item in ACTIVE expand to more than 4096 cases, so whether they can hold together is not decided; they are still enforced when a request is taken. Each `and`, `or` and `implies` they join, and each value they read that may be absent, multiplies the cases: an attribute the state requires in place of an optional one, or fewer clauses in one invariant, brings them within it"
    ],
    [
     "items.yaml",
-    15,
+    16,
     "notice",
     "undecided",
     "the invariants of Item in RETIRED expand to more than 4096 cases, so whether they can hold together is not decided; they are still enforced when a request is taken. Each `and`, `or` and `implies` they join, and each value they read that may be absent, multiplies the cases: an attribute the state requires in place of an optional one, or fewer clauses in one invariant, brings them within it"

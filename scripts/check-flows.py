@@ -12858,7 +12858,8 @@ def not_blank_step5_plants():
     """Step 5 leaves out an invariant a text's not_blank generates where no other invariant reads its attribute, as it
     does `taken_by`'s (issue #87, ADR-0274): a type with one required and eight optional not_blank texts is decided in
     each state, where it was undecided past the bound; and each kept where another invariant reads its text: four such,
-    their not_blank invariants kept, expand past the bound, where the four other invariants alone would not."""
+    their not_blank invariants kept, expand past the bound, where the four other invariants alone would not, each of those
+    reading one flag too, so that step 5 decides them as one group (ADR-0280)."""
     def module(reads):
         k = 4 if reads else 8
         texts = "".join(f"      note_{i}: {{ type: string, optional: true, not_blank: true }}\n" for i in range(k))
@@ -12866,9 +12867,10 @@ def not_blank_step5_plants():
         names = ", ".join(f"note_{i}" for i in range(k))
         invariants = ("    invariants:\n" + "".join(
             f"      note_{i}_short:\n        description: The note is short.\n"
-            f"        expression: note_{i} is null or length(note_{i}) <= 200\n" for i in range(k))) if reads else ""
+            f"        expression: note_{i} is null or length(note_{i}) <= 200 or flagged\n" for i in range(k))) if reads else ""
+        flag = "      flagged: { type: bool, default: false }\n" if reads else ""
         return ("module: items\ncategories: [live, closed]\ntypes:\n  Item:\n    description: A catalogue item.\n"
-                "    tracking: record\n    attributes:\n      name: { type: string, not_blank: true }\n" + texts +
+                "    tracking: record\n    attributes:\n      name: { type: string, not_blank: true }\n" + texts + flag +
                 "    states:\n      ACTIVE: { description: In use., category: live }\n"
                 "      RETIRED: { description: Out of use., category: closed, final: true }\n" + invariants +
                 f"    transitions:\n      add: {{ kind: initial, to: ACTIVE, required_inputs: [name, note_0], optional_inputs: [{rest}] }}\n"

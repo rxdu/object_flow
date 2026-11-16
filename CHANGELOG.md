@@ -6,6 +6,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ### Changed, and may refuse what 0.27.0 accepted
 
+- Step 5 of the flow checker decides each group of rules that share nothing alone, the bound of 4096 cases applying to each group, so it may refuse a contradiction it left `undecided`: rules reading no common value or part no longer multiply each other's cases, as six invariants `is_whole(q<n>) or item.f<n>` on one type did (issue #98, ADR-0280). It also decides a comparison's bounds for each part they join, so a whole number held between 3 and 4 is refused where a decimal bounded elsewhere in the rules hid it.
 - Step 5 of the flow checker reads a derived attribute through `this` as its expression, and an opaque part as the values it reads, so it finds a contradiction it missed where one value is spelt two ways: `this.big` against a guard on `big`'s expression, or `is_whole(this.q1)` against `not is_whole(q1)` (ADR-0279).
 
 ### Fixed

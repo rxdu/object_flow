@@ -3,7 +3,7 @@
 - **Status:** Accepted by the author, 2026-09-28: "accept all your recommendations", on the five questions put the same day about the checker ADR-0131 decisions 7 to 9 left to design.
 - **Date:** 2026-09-28
 - **Refines:** ADR-0131 (how flows are authored and checked)
-- **Refined by:** ADR-0279 — a part step 5 cannot read is keyed by the values it reads, after a transition's writes the values written, and is a part of its own where those are not exact.
+- **Refined by:** ADR-0279 — a part step 5 cannot read is keyed by the values it reads, after a transition's writes the values written, and is a part of its own where those are not exact. ADR-0280 — each group of rules that share nothing is decided alone, the bound applying to each group, and bounds on numbers for each part they join.
 - **Relates to:** PRD F12, UC-15; `flow-format.md` §7, §7.1; `publish-and-import.md` §1; `DESIGN.md` §5.9; ADR-0132 decision 2; ADR-0136 decision 5
 
 ## Context
