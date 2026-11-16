@@ -37377,6 +37377,253 @@
   "could_violate": {}
  },
  {
+  "label": "qualified_member_plants: an enumeration's value",
+  "files": [
+   [
+    "boxes.yaml",
+    "c2b377a35a0bb849"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Box": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Box.sized": "local"
+  },
+  "could_violate": {
+   "Box.sized": [
+    "Box.open"
+   ]
+  }
+ },
+ {
+  "label": "qualified_member_plants: an owner nothing declares, its member upper case",
+  "files": [
+   [
+    "boxes.yaml",
+    "ae41d66fb8b8ea59"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "boxes.yaml",
+    22,
+    "fatal",
+    "names",
+    "sized names Foo.BAR, and no enumeration or type Foo is declared in this module or imported"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Box.sized": "local"
+  },
+  "could_violate": {
+   "Box.sized": [
+    "Box.open"
+   ]
+  }
+ },
+ {
+  "label": "qualified_member_plants: an owner nothing declares, its member lower case",
+  "files": [
+   [
+    "boxes.yaml",
+    "2d4ebb813f241778"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "boxes.yaml",
+    22,
+    "fatal",
+    "names",
+    "sized names Foo.bar, and no enumeration or type Foo is declared in this module or imported"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Box.sized": "local"
+  },
+  "could_violate": {
+   "Box.sized": [
+    "Box.open"
+   ]
+  }
+ },
+ {
+  "label": "qualified_member_plants: an owner nothing declares, its member mixed case",
+  "files": [
+   [
+    "boxes.yaml",
+    "85ff436350721118"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "boxes.yaml",
+    22,
+    "fatal",
+    "names",
+    "sized names Foo.Bar, and no enumeration or type Foo is declared in this module or imported"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Box.sized": "local"
+  },
+  "could_violate": {
+   "Box.sized": [
+    "Box.open"
+   ]
+  }
+ },
+ {
+  "label": "qualified_member_plants: an enumeration's member in lower case",
+  "files": [
+   [
+    "boxes.yaml",
+    "17443089ca63c6b6"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "boxes.yaml",
+    22,
+    "fatal",
+    "names",
+    "sized names Kind.small, and the enumeration Kind has no small"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Box.sized": "local"
+  },
+  "could_violate": {
+   "Box.sized": [
+    "Box.open"
+   ]
+  }
+ },
+ {
+  "label": "qualified_member_plants: an enumeration's member in mixed case",
+  "files": [
+   [
+    "boxes.yaml",
+    "dac39577c69b0f6f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "boxes.yaml",
+    22,
+    "fatal",
+    "names",
+    "sized names Kind.Small, and the enumeration Kind has no Small"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Box.sized": "local"
+  },
+  "could_violate": {
+   "Box.sized": [
+    "Box.open"
+   ]
+  }
+ },
+ {
+  "label": "qualified_member_plants: a kind of actor",
+  "files": [
+   [
+    "boxes.yaml",
+    "e09c83a00369c24b"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Box": [
+    0,
+    0
+   ]
+  },
+  "forms": {
+   "Box.sized": "local"
+  },
+  "could_violate": {
+   "Box.sized": [
+    "Box.open"
+   ]
+  }
+ },
+ {
+  "label": "qualified_member_plants: a type's lower-case member",
+  "files": [
+   [
+    "boxes.yaml",
+    "d7d6e4f6ac34a327"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "boxes.yaml",
+    22,
+    "fatal",
+    "names",
+    "invariant sized does not type: Box.open names no state of Box (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Box.sized": "local"
+  },
+  "could_violate": {
+   "Box.sized": [
+    "Box.close",
+    "Box.open"
+   ]
+  }
+ },
+ {
+  "label": "qualified_member_plants: a value's lower-case member",
+  "files": [
+   [
+    "boxes.yaml",
+    "07faec21f9d4b8e8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "boxes.yaml",
+    22,
+    "fatal",
+    "names",
+    "sized names Bundle.size, and no enumeration or type Bundle is declared in this module or imported"
+   ]
+  ],
+  "analysed": {},
+  "forms": {
+   "Box.sized": "local"
+  },
+  "could_violate": {
+   "Box.sized": [
+    "Box.open"
+   ]
+  }
+ },
+ {
   "label": "creation_read_plants: a creation's guard reading what it takes",
   "files": [
    [

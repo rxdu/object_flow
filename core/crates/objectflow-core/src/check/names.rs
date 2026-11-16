@@ -218,7 +218,9 @@ fn dataset_rows(source: &str) -> Option<BTreeSet<String>> {
 
 static INTERVALS_OF: LazyLock<Regex> = LazyLock::new(|| re(r"^intervals\(([a-z][a-z0-9_]*)\)$"));
 static QUALIFIED: LazyLock<Regex> =
-    LazyLock::new(|| re(r"\b([A-Z][A-Za-z0-9]*)\.([A-Z][A-Z0-9_]*)\b"));
+    LazyLock::new(|| re(r"\b([A-Z][A-Za-z0-9]*)\.([A-Za-z][A-Za-z0-9_]*)\b"));
+/// A member written as a state or an enumeration's value is: upper case.
+static VALUE_CASE: LazyLock<Regex> = LazyLock::new(|| re(r"^[A-Z][A-Z0-9_]*$"));
 /// A string literal, as the expression lexer reads one.
 static STRING_LITERAL: LazyLock<Regex> = LazyLock::new(|| re(r#""(?:[^"\\]|\\.)*""#));
 
@@ -5613,6 +5615,10 @@ struct Values {
     enums: BTreeMap<String, BTreeSet<String>>,
     own: BTreeMap<String, BTreeSet<String>>,
     imported: BTreeSet<String>,
+    /// The owners a member of another case than a value's may follow: a
+    /// type's member is the typing's, and an import's is left as an
+    /// upper-case one is (ADR-0282).
+    declared: BTreeSet<String>,
 }
 
 impl Values {
@@ -5635,6 +5641,11 @@ impl Values {
                 .map(|(k, v)| (k, keys(v, "states").into_iter().collect()))
                 .collect(),
             imported: imported(doc).into_iter().collect(),
+            declared: types(doc)
+                .into_iter()
+                .map(|(k, _)| k)
+                .chain(imported(doc))
+                .collect(),
         }
     }
 }
@@ -5645,6 +5656,7 @@ fn value_errors(values: &Values, tn: &str, t: &Value) -> Found {
         enums,
         own,
         imported,
+        declared,
     } = values;
     let mut exprs: Vec<(Path, String, String)> = Vec::new();
     for sec in ["conditions", "invariants", "derived_attributes"] {
@@ -5734,6 +5746,28 @@ fn value_errors(values: &Values, tn: &str, t: &Value) -> Found {
         });
         for m in QUALIFIED.captures_iter(&text) {
             let (owner, value) = (&m[1], &m[2]);
+            if !VALUE_CASE.is_match(value) {
+                // a member of another case: an enumeration's is one of its
+                // values, and an owner nothing declares names nothing, where
+                // Foo.bar and Kind.small passed and the core did not run
+                // them; ActorKind.<kind> is the typing's, whatever a module
+                // declares (ADR-0282, ADR-0269)
+                match enums.get(owner).filter(|_| owner != ACTOR_KIND) {
+                    Some(k) if !k.contains(value) => out.push(finding(
+                        p.clone(),
+                        "names",
+                        format!("{name} names {owner}.{value}, and the enumeration {owner} has no {value}"),
+                    )),
+                    // a value's or a machine's name among them
+                    None if owner != ACTOR_KIND && !declared.contains(owner) => out.push(finding(
+                        p.clone(),
+                        "names",
+                        format!("{name} names {owner}.{value}, and no enumeration or type {owner} is declared in this module or imported"),
+                    )),
+                    _ => {}
+                }
+                continue;
+            }
             let known = enums.get(owner).or_else(|| own.get(owner));
             match known {
                 None if !imported.contains(owner) => out.push(finding(

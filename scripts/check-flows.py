@@ -4264,6 +4264,9 @@ def value_errors(doc, tn, t):
     enums = {n: set(m) for n, m in (doc.get("enumerations") or {}).items()}
     own = {k: set(v.get("states") or {}) for k, v in types(doc)}
     imported = {n for names in (doc.get("imports") or {}).values() for n in names}
+    # the owners a member of another case than a value's may follow: a type's member and a kind of actor are the
+    # typing's, and an import's is left as an upper-case one is (ADR-0282)
+    declared = set(own) | imported
     exprs = [(("types", tn, sec, n, "expression"), n, c["expression"])
              for sec in ("conditions", "invariants", "derived_attributes") for n, c in (t.get(sec) or {}).items()]
     exprs += [(("types", tn, "attributes", a, "default"), f"{tn}.{a}'s default", spec["default"])
@@ -4284,8 +4287,20 @@ def value_errors(doc, tn, t):
     for path, name, text in exprs:
         # a string literal's text names nothing, where "EU" read as a state (twelfth production review)
         text = STRING_LITERAL.sub(lambda m: '"' + " " * (len(m.group(0)) - 2) + '"', str(text))
-        for m in re.finditer(r"\b([A-Z][A-Za-z0-9]*)\.([A-Z][A-Z0-9_]*)\b", text):
+        for m in re.finditer(r"\b([A-Z][A-Za-z0-9]*)\.([A-Za-z][A-Za-z0-9_]*)\b", text):
             owner, value = m.groups()
+            if not re.fullmatch(r"[A-Z][A-Z0-9_]*", value):
+                # a member of another case: an enumeration's is one of its values, and an owner nothing declares names
+                # nothing, where Foo.bar and Kind.small passed and the core did not run them; ActorKind.<kind> is the
+                # typing's, whatever a module declares (ADR-0282, ADR-0269)
+                if owner == ACTOR_KIND:
+                    pass
+                elif owner in enums and value not in enums[owner]:
+                    out.append((path, "names", f"{name} names {owner}.{value}, and the enumeration {owner} has no {value}"))
+                elif owner not in enums and owner not in declared:  # a value's or a machine's name among them
+                    out.append((path, "names", f"{name} names {owner}.{value}, and no enumeration or type {owner} is "
+                                               "declared in this module or imported"))
+                continue
             known = enums.get(owner, own.get(owner))
             if known is None and owner not in imported:
                 out.append((path, "names", f"{name} names {owner}.{value}, and no enumeration or type {owner} is "
@@ -13409,6 +13424,45 @@ def whole_plants():
     return ok
 
 
+def qualified_member_plants():
+    """A qualified name read whatever its member's case (ADR-0282): an owner nothing declares is refused with a member
+    in lower or mixed case, as with one in upper case, and so is an enumeration's member it does not have; an
+    enumeration's value and a kind of actor are clean, a type's lower-case member is refused once, by the typing, and
+    a value's, whose name owns nothing, is refused as its upper-case member is."""
+    base = ("module: boxes\ncategories: [live, closed]\nenumerations:\n  Kind: [SMALL, LARGE]\nvalues:\n  Bundle:\n"
+            "    description: A bundle.\n    attributes:\n      size: { type: int }\ntypes:\n  Box:\n"
+            "    description: A box.\n    tracking: record\n    attributes:\n      kind: { type: Kind, optional: true }\n"
+            "      by: { type: actor_kind, optional: true }\n      bundle: { type: Bundle, optional: true }\n"
+            "    states:\n      OPEN: { description: Open., category: live }\n"
+            "      DONE: { description: Done., category: closed, final: true }\n    invariants:\n"
+            "      sized: { description: A box's kind is one it may have., expression: '{expr}' }\n"
+            "    transitions:\n      open: { kind: initial, to: OPEN, optional_inputs: [kind, by, bundle] }\n"
+            "      close: { kind: external, from: OPEN, to: DONE }\n")
+    nothing = "sized names {}, and no enumeration or type {} is declared in this module or imported"
+    cases = [
+        ("an enumeration's value", "kind is null or kind == Kind.SMALL", []),
+        ("an owner nothing declares, its member upper case", "kind is null or kind == Foo.BAR", [nothing.format("Foo.BAR", "Foo")]),
+        ("an owner nothing declares, its member lower case", "kind is null or kind == Foo.bar", [nothing.format("Foo.bar", "Foo")]),
+        ("an owner nothing declares, its member mixed case", "kind is null or kind == Foo.Bar", [nothing.format("Foo.Bar", "Foo")]),
+        ("an enumeration's member in lower case", "kind is null or kind == Kind.small",
+         ["sized names Kind.small, and the enumeration Kind has no small"]),
+        ("an enumeration's member in mixed case", "kind is null or kind == Kind.Small",
+         ["sized names Kind.Small, and the enumeration Kind has no Small"]),
+        ("a kind of actor", "by is null or by != ActorKind.agent", []),
+        ("a type's lower-case member", "state == Box.open",
+         ["invariant sized does not type: Box.open names no state of Box (the model's check 24)"]),
+        ("a value's lower-case member", "bundle is null or Bundle.size > 0", [nothing.format("Bundle.size", "Bundle")]),
+    ]
+    ok = True
+    for name, expr, want in cases:
+        found, notes = check([("boxes.yaml", base.replace("{expr}", expr))])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a qualified name, {name}: {'as expected' if hit else 'NOT: ' + str(got) + ' ' + str([x[4] for x in notes])}")
+    return ok
+
+
 def add_months_plants():
     """`add_months`, a date moved by calendar months (ADR-0276): a guard reading it is clean, as are an invariant of a
     type, of an observation kind and of a value calling it; a timestamp, a fraction or a text given it, or one argument,
@@ -13723,6 +13777,7 @@ def main():
     ok &= trim_plants()
     ok &= add_months_plants()
     ok &= whole_plants()
+    ok &= qualified_member_plants()
     ok &= creation_read_plants()
     ok &= metric_plants(people)
     ok &= range_plant(people)

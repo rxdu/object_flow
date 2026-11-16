@@ -282,4 +282,5 @@
 | [0279](0279-a-part-step-5-cannot-read-is-keyed-by-the-values-it-reads-after-a-write.md) | A part step 5 cannot read is keyed by the values it reads after a write | Decided by the author; built |
 | [0280](0280-step-5-decides-each-group-of-rules-that-share-nothing-apart.md) | Step 5 decides each group of rules that share nothing apart | Decided by the author; built |
 | [0281](0281-the-absent-notice-reads-a-loops-filter-as-it-reads-a-deny-guard.md) | The `absent` notice reads a loop's filter as it reads a deny guard | Decided by the author; built |
+| [0282](0282-a-qualified-name-is-read-whatever-its-members-case.md) | A qualified name is read whatever its member's case | Decided by the author; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

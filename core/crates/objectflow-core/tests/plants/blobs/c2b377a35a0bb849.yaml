@@ -1,0 +1,25 @@
+module: boxes
+categories: [live, closed]
+enumerations:
+  Kind: [SMALL, LARGE]
+values:
+  Bundle:
+    description: A bundle.
+    attributes:
+      size: { type: int }
+types:
+  Box:
+    description: A box.
+    tracking: record
+    attributes:
+      kind: { type: Kind, optional: true }
+      by: { type: actor_kind, optional: true }
+      bundle: { type: Bundle, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    invariants:
+      sized: { description: A box's kind is one it may have., expression: 'kind is null or kind == Kind.SMALL' }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [kind, by, bundle] }
+      close: { kind: external, from: OPEN, to: DONE }

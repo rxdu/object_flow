@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Changed, and may refuse what 0.28.0 accepted
+
+- Step 3 of the flow checker reads a qualified name whatever its member's case, so it refuses `Foo.bar` where nothing declares `Foo`, as it refused `Foo.BAR`; `Kind.small` where the enumeration `Kind` has no `small`; and `Bundle.size`, `Bundle` a value, whose name owns nothing an expression names. Each loaded clean, and the core stopped every request its expression reached as not run (ADR-0282).
+
 ## 0.28.0, 2026-11-16
 
 A release before 1.0.0, as 0.27.0 was (ADR-0214), with issues #98 and #99: step 5 of the flow checker decides each group of rules that share nothing alone (ADR-0280), first keying a part it cannot read by the values it reads after a transition's writes, which closes the paths by which it refused a transition a request can take (ADR-0279); and the `absent` notice reads a loop's `where` as it reads a deny guard (ADR-0281). Step 5 may refuse what 0.27.0 accepted, as its heading lists.
