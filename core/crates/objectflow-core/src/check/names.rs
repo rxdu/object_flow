@@ -5410,7 +5410,13 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
                     .into_iter()
                     .map(|(n, k)| (n, k.map(Ty::Reference)))
                     .collect();
-                for e in step_expressions(&step) {
+                let mut exprs = step_expressions(&step);
+                // a loop's filter reads each item, bound as the loop's own
+                // steps see it, where it typed as nothing
+                let filter = (step.kind == "foreach" && step.body().get("where").is_some())
+                    .then(|| exprs.pop())
+                    .flatten();
+                for e in exprs {
                     check(
                         &mut typing,
                         &mut out,
@@ -5420,6 +5426,29 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
                         &tn,
                         Some(x),
                         &env,
+                        &[],
+                    );
+                }
+                if let Some(e) = filter {
+                    let mut first = step.path.clone();
+                    first.extend([
+                        Seg::Key("foreach".into()),
+                        Seg::Key("steps".into()),
+                        Seg::Index(0),
+                    ]);
+                    let own: TyEnv = binders(&kinds, &tn, x, &first)
+                        .into_iter()
+                        .map(|(n, k)| (n, k.map(Ty::Reference)))
+                        .collect();
+                    check(
+                        &mut typing,
+                        &mut out,
+                        where_.clone(),
+                        &format!("{tn}.{xn}'s effect"),
+                        &e,
+                        &tn,
+                        Some(x),
+                        &own,
                         &[],
                     );
                 }

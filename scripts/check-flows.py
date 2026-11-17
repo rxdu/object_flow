@@ -4060,8 +4060,14 @@ def expression_type_errors(doc, library):
             for st, kind, path, _depth in walk(x.get("effect")):
                 where = base + ("transitions", xn, "effect") + path
                 env = {n: (("reference", k) if k else None) for n, k in binders(kinds, tn, x, path).items()}
-                for e in step_expressions(st, kind):
+                looped = kind == "foreach" and "where" in st["foreach"]
+                for e in step_expressions(st, kind)[:-1] if looped else step_expressions(st, kind):
                     check(where, f"{tn}.{xn}'s effect", e, tn, x, env)
+                if looped:
+                    # a loop's filter reads each item, bound as the loop's own steps see it, where it typed as nothing
+                    inner = binders(kinds, tn, x, path + ("foreach", "steps", 0))
+                    own = {n: (("reference", k) if k else None) for n, k in inner.items()}
+                    check(where, f"{tn}.{xn}'s effect", st["foreach"]["where"], tn, x, own)
                 if kind == "assign":
                     misfit = typed_write_error(typing, t, st["assign"], tn, x, env, kinds, enums)
                     if misfit:
@@ -10488,6 +10494,20 @@ def expression_type_plants(people):
                             "        description: An audit of the account.\n        attributes:\n"
                             "          score: { type: int }\n          grade: { type: Tier }\n    states:\n")
 
+    def looped(where):
+        # the ledger with a set end of entries, shut looping over them with the filter given
+        entry = ("  Entry:\n    description: An entry.\n    tracking: record\n    attributes:\n"
+                 "      account: { reference: Account, opposite: entries }\n      amount:  { type: int }\n"
+                 "    states:\n      BOOKED: { category: closed, final: true }\n"
+                 "    transitions:\n      book: { kind: initial, to: BOOKED, required_inputs: [account, amount] }\n")
+        text = TYPED_LEDGER.replace("      label: { type: string }\n",
+                                    "      label: { type: string }\n      entries: { reference: \"Entry[]\", opposite: account }\n") + entry
+        step = (f'{{ foreach: {{ item: e, array: entries, where: "{where}", limit: 10, '
+                'steps: [ { assign: { location: count, expr: "count + 1" } } ] } }')
+        assert text.count("shut: { kind: external, from: [OPEN], to: SHUT }") == 1
+        return text.replace("shut: { kind: external, from: [OPEN], to: SHUT }",
+                            "shut: { kind: external, from: [OPEN], to: SHUT, effect: [ " + step + " ] }")
+
     def writing(location, expr):
         # a transition writing the value, on the ledger's shut
         return TYPED_LEDGER.replace(
@@ -10715,6 +10735,12 @@ def expression_type_plants(people):
             "count(i in this.intervals where i.state == Account.OPEN and i.duration > span and i.entered_at < since and "
             "i.held(tier) == Tier.GOLD) + count(i in this.intervals(tier) where i.value == Tier.GOLD) + count(t in "
             "this.transitions where t.to_state == Account.SHUT and t.occurred_at > since) >= count"), []),
+        # a loop's filter reads each item, bound as the loop's steps see it, where it typed as nothing
+        ("a loop's filter comparing its item's member with a string", looped("e.amount == label"),
+         [wrong("Account.shut's effect", "it compares an int with a string")]),
+        ("a loop's filter comparing its item's state's category with an int", looped("e.state.category == count"),
+         [wrong("Account.shut's effect", "it compares a category with an int")]),
+        ("a loop's filter that types", looped("e.amount > count and e.state.category != closed"), []),
         ("an observation's members that type", audited(
             "count(o in audits where o.score > count and o.grade == Tier.GOLD and o.subject == this and o.occurred_at > "
             "since and o.recorded_by_kind == ActorKind.human) + sum(o in audits: o.score) >= count"), []),
