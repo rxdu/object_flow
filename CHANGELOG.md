@@ -2,7 +2,9 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
-## Unreleased
+## 0.29.0, 2026-11-17
+
+A release before 1.0.0, as 0.28.0 was (ADR-0214), with four findings where a flow passed the checks and then misbehaved when it ran: step 3 reads a qualified name whatever its member's case (ADR-0282), `date` takes a timestamp or a date (ADR-0283), a condition is typed with each transition guarding with it (ADR-0284), and the core answers a metric's `date(…)` as a date. The first three may refuse what 0.28.0 accepted, the third a module 0.28.0 ran. It fixes four defects besides, a notice, a publish's wording, and two in the Flow Studio's runner backend.
 
 ### Changed, and may refuse what 0.28.0 accepted
 
