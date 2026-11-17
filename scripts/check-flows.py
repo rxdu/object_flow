@@ -554,7 +554,31 @@ def required_input_names(x):
     return set(x.get("required_inputs", [])) | declared
 
 
-INPUT_READ = re.compile(r"\binputs\.([a-z][a-z0-9_]*)")
+def input_reads(text):
+    """The inputs an expression reads, each `inputs.<name>` its tree holds, so a string literal's text names none, where
+    a pattern over the text read `"see inputs.note"` as an input; none where it does not parse, which is step 2's."""
+    try:
+        tree = flowexpr.parse(" ".join(str(text).split()))
+    except flowexpr.ParseError:
+        return set()
+    out = set()
+
+    def walk(e):
+        if isinstance(e, list):
+            for x in e:
+                walk(x)
+            return
+        if not (isinstance(e, tuple) and e and isinstance(e[0], str)):
+            return
+        if e[0] == "path" and e[1] == ("name", "inputs"):
+            out.add(e[2])
+            return
+        if e[0] in ("str", "num", "money", "dur", "bool"):
+            return
+        for x in e[1:]:
+            walk(x)
+    walk(tree)
+    return out
 
 
 def provided_guards(t, x):
@@ -1435,7 +1459,7 @@ def personal_inputs(kinds, tn, x):
             if (attrs.get(n) or {}).get("personal")}
     for st, kind, _path, _depth in walk(x.get("effect")):
         if kind in ("assign", "add") and (attrs.get(st[kind]["location"]) or {}).get("personal"):
-            out |= set(INPUT_READ.findall(str(st[kind]["expr"]))) & taken(x)
+            out |= set(input_reads(str(st[kind]["expr"]))) & taken(x)
     return out
 
 
@@ -1458,7 +1482,7 @@ def personal_errors(doc, library):
     def why(tn, x, text, env, inputs, seen=frozenset()):
         """What personal value an expression carries, or None."""
         text = str(text)
-        for n in sorted(set(INPUT_READ.findall(text)) & inputs):
+        for n in sorted(set(input_reads(text)) & inputs):
             return f"the personal input '{n}'"
         own = kinds.get(tn) or {}
         for n in sorted(reads(text)):
@@ -1510,11 +1534,11 @@ def personal_errors(doc, library):
         if j in list(x.get("required_inputs") or []) + list(x.get("optional_inputs") or []) and j in attrs:
             return f"writes it to {k}.{j}, which is not personal"
         for st, kind, _path, _depth in walk(x.get("effect")):
-            if kind in ("assign", "add") and j in INPUT_READ.findall(str(st[kind]["expr"])) \
+            if kind in ("assign", "add") and j in input_reads(str(st[kind]["expr"])) \
                     and st[kind]["location"] in attrs and not personal(k, st[kind]["location"]):
                 return f"writes it to {k}.{st[kind]['location']}, which is not personal"
         for e, _env, k2, ct2, j2, _where in passes(k, x) + cascades(k, ct):
-            if k2 and j in INPUT_READ.findall(str(e)):
+            if k2 and j in input_reads(str(e)):
                 inner = leak(k2, ct2, j2, seen | {(k, ct, j)})
                 if inner:
                     return f"passes it to {k2}.{ct2}, which {inner}"
@@ -2877,13 +2901,13 @@ def name_errors(doc, library=None, ordered=True):
                 if g not in conds:
                     out.append((base + ("guards", g), "names", f"{tn}.{xn} guards on '{g}', which is not a condition of {tn}"))
                     continue
-                for i in sorted(set(INPUT_READ.findall(conditions[g]["expression"])) - taken(x)):
+                for i in sorted(set(input_reads(conditions[g]["expression"])) - taken(x)):
                     out.append((base + ("guards", g), "names",
                                 f"{tn}.{xn} guards on '{g}', which reads inputs.{i}, and {xn} takes no input '{i}'"))
             for st, kind, path, _depth in walk(x.get("effect")):
                 where = base + ("effect",) + path
                 for e in step_expressions(st, kind):
-                    for i in sorted(set(INPUT_READ.findall(e)) - taken(x)):
+                    for i in sorted(set(input_reads(e)) - taken(x)):
                         out.append((where, "names", f"{tn}.{xn}'s effect reads inputs.{i}, and {xn} takes no input '{i}'"))
                 if kind in ("assign", "add", "remove") and st[kind]["location"] in derived:
                     out.append((where, "names", f"{tn}.{xn} writes '{st[kind]['location']}', a derived attribute, whose value is its expression"))
@@ -3982,7 +4006,7 @@ def expression_type_errors(doc, library):
             check(where, f"condition {cn}", c["expression"], tn, None, want=("bool", "verdict"))
             # one reading inputs is typed with each transition guarding with it, its inputs that transition's, as an
             # effect is with its own; what breaks with none breaks at every use and is said once (ADR-0284)
-            if len(out) == before and INPUT_READ.search(str(c["expression"])):
+            if len(out) == before and input_reads(str(c["expression"])):
                 for xn, x in (t.get("transitions") or {}).items():
                     if cn in (x.get("guards") or {}):
                         check(where, f"condition {cn}, where {xn} guards on it,", c["expression"], tn, x, want=("bool", "verdict"))
@@ -13468,6 +13492,32 @@ def whole_plants():
     return ok
 
 
+def input_text_plants():
+    """An input is read where the expression's tree reads it, not where its text names one: a string literal holding
+    `inputs.note` reads no input, where a guard comparing a title with it was refused on both checkers, and a guard
+    reading an input its transition does not take is still refused."""
+    base = ("module: notes\ncategories: [live, closed]\ntypes:\n  Note:\n    description: A note.\n    tracking: record\n"
+            "    attributes:\n      title: { type: string }\n"
+            "    states:\n      OPEN: { description: Open., category: live }\n"
+            "      DONE: { description: Done., category: closed, final: true }\n    conditions:\n"
+            "      titled: { description: Titled., expression: '{expr}', remedy: unreachable_from_here }\n"
+            "    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [title] }\n"
+            "      close: { kind: external, from: OPEN, to: DONE, guards: { titled: deny } }\n")
+    cases = [
+        ("a string literal holding inputs.note", 'title != "see inputs.note"', []),
+        ("an input read that close does not take", 'title != inputs.note',
+         ["Note.close guards on 'titled', which reads inputs.note, and close takes no input 'note'"]),
+    ]
+    ok = True
+    for name, expr, want in cases:
+        found, notes = check([("notes.yaml", base.replace("{expr}", expr))])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  an input's text, {name}: {'as expected' if hit else 'NOT: ' + str(got) + ' ' + str([x[4] for x in notes])}")
+    return ok
+
+
 def unknown_bare_call_plants():
     """Step 3's unknown notice reads a bare name given a call as it reads this.<name>: length, trim and an evaluator's
     argument of an optional attribute named bare are noticed, as through this; a guard testing it with is null is not;
@@ -13937,6 +13987,7 @@ def main():
     ok &= date_argument_plants()
     ok &= condition_input_plants()
     ok &= unknown_bare_call_plants()
+    ok &= input_text_plants()
     ok &= creation_read_plants()
     ok &= metric_plants(people)
     ok &= range_plant(people)

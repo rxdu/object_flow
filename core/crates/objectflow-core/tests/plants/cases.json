@@ -38543,6 +38543,47 @@
   "could_violate": {}
  },
  {
+  "label": "input_text_plants: a string literal holding inputs.note",
+  "files": [
+   [
+    "notes.yaml",
+    "ac1dac55050b6fe6"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Note": [
+    1,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "input_text_plants: an input read that close does not take",
+  "files": [
+   [
+    "notes.yaml",
+    "389702b7cf810906"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    16,
+    "fatal",
+    "names",
+    "Note.close guards on 'titled', which reads inputs.note, and close takes no input 'note'"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "creation_read_plants: a creation's guard reading what it takes",
   "files": [
    [

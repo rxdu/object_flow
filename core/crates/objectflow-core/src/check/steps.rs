@@ -2,12 +2,11 @@
 //! inputs and the steps of its effect (`check-flows.py`, "reading a module").
 
 use std::collections::BTreeSet;
-use std::sync::LazyLock;
 
-use regex::Regex;
 use serde_json::Value;
 
-use super::doc::{Path, obj, optional, py_str, re, squash, strings, text};
+use super::doc::{Path, obj, optional, py_str, squash, strings, text};
+use crate::expr::{Expr, parse};
 use crate::yaml::Seg;
 
 /// The states a transition leaves, as a list.
@@ -184,14 +183,28 @@ pub fn cleared(x: &Value) -> Vec<String> {
         .collect()
 }
 
-static INPUT_READ: LazyLock<Regex> = LazyLock::new(|| re(r"\binputs\.([a-z][a-z0-9_]*)"));
-
-/// The inputs an expression reads, `inputs.<name>`.
+/// The inputs an expression reads, each `inputs.<name>` its tree holds, so a
+/// string literal's text names none, where a pattern over the text read
+/// `"see inputs.note"` as an input; none where it does not parse
+/// (`check-flows.py`'s `input_reads`).
 pub fn input_reads(text: &str) -> BTreeSet<String> {
-    INPUT_READ
-        .captures_iter(text)
-        .map(|c| c[1].to_string())
-        .collect()
+    fn walk(e: &Expr, out: &mut BTreeSet<String>) {
+        if let Expr::Path(b, m) = e
+            && matches!(b.as_ref(), Expr::Name(n) if n == "inputs")
+        {
+            out.insert(m.clone());
+            return;
+        }
+        for c in e.children() {
+            walk(c, out);
+        }
+    }
+    let mut out = BTreeSet::new();
+    // step 2 refuses what does not parse
+    if let Ok(tree) = parse(&squash(text)) {
+        walk(&tree, &mut out);
+    }
+    out
 }
 
 /// A step body's member as text.
