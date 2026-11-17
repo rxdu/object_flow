@@ -2675,7 +2675,11 @@ async fn load(State(shared): State<Shared>, Body(body): Body) -> Answer {
     })
 }
 
-async fn reset(State(shared): State<Shared>) -> Answer {
+/// The sandbox's store made afresh. Its body, which names no key, is read
+/// and set aside before it answers, whatever it holds, so a client writing
+/// the headers and the body apart is never cut off with the body unwritten,
+/// where it answered first and a client met a broken pipe.
+async fn reset(State(shared): State<Shared>, _body: axum::body::Bytes) -> Answer {
     answering(move || {
         let mut sandbox = locked(&shared)?;
         if sandbox.files.is_empty() {

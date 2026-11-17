@@ -464,6 +464,39 @@ fn a_sandbox_still_answers_its_controls_and_its_health() {
     assert_ne!(status, 404);
 }
 
+/// A route answers only once the body its request declares is read, so a
+/// client writing the headers and the body apart is not cut off with the
+/// body unwritten: `/sandbox/reset`, which takes no key, answered first,
+/// and a client writing so met a broken pipe (`scripts/check-soundness.py`,
+/// 2026-11-17).
+#[test]
+fn a_route_answers_only_once_its_body_is_read() {
+    let s = start(&["--port", "0"]);
+    let mut stream = TcpStream::connect(&s.addr).expect("a connection");
+    write!(
+        stream,
+        "POST /sandbox/reset HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n"
+    )
+    .expect("the headers");
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_millis(500)))
+        .expect("a timeout");
+    let mut early = [0u8; 32];
+    // nothing is answered while the body is owed
+    let got = stream.read(&mut early);
+    assert!(
+        got.is_err(),
+        "answered before its body: {:?}",
+        String::from_utf8_lossy(&early)
+    );
+    stream.set_read_timeout(None).expect("no timeout");
+    write!(stream, "{{}}").expect("the body");
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).expect("the answer");
+    // no modules are loaded
+    assert!(raw.starts_with("HTTP/1.1 409"), "{raw}");
+}
+
 /// A flag that is not a JSON boolean, and inputs that are not an object,
 /// are refused, never read as false or as none: `"dry_run": "true"` read as
 /// false installed a version (production review F6). Each body is valid
