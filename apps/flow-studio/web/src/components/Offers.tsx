@@ -166,6 +166,7 @@ export function Offers({
           {open?.key === key(o) && (
             <InputForm
               schema={o.inputs}
+              clearable={o.clearable ?? []}
               enumerations={decl?.enumerations ?? {}}
               known={known}
               action={open.propose ? "Propose" : "Request"}

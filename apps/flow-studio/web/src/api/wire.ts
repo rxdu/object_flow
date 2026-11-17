@@ -180,6 +180,9 @@ export interface TransitionOffer {
   verdict: Verdict | null;
   /** each input by name, with the type a caller supplies */
   inputs: Record<string, string>;
+  /** the inputs a `null` clears: sent `null`, its attribute is cleared,
+   * and left out, kept (ADR-0262) */
+  clearable?: string[];
   unevaluated: string[];
   flags: Flag[];
   /** it writes who takes it into what an invariant reads, so it may be

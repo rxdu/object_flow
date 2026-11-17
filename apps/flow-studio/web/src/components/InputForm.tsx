@@ -16,12 +16,46 @@ const HINT: Record<string, string> = {
   date: "2026-01-01",
 };
 
+/** The inputs a form sends: each field fitted to its type, a field left
+ * empty not sent, and an input marked cleared sent `null`, which clears its
+ * attribute where the offer names it clearable (ADR-0262). */
+export function inputsOf(
+  schema: Record<string, string>,
+  values: Record<string, string | string[]>,
+  cleared: ReadonlySet<string> = new Set(),
+): Record<string, WireValue> {
+  const out: Record<string, WireValue> = {};
+  for (const [k, typ] of Object.entries(schema)) {
+    if (cleared.has(k)) {
+      out[k] = null;
+      continue;
+    }
+    const v = values[k];
+    if (v === undefined || v === "" || (Array.isArray(v) && v.length === 0))
+      continue;
+    const base = typ.replace(/\[\]$/, "");
+    if (Array.isArray(v)) out[k] = v;
+    else if (typ.endsWith("[]"))
+      out[k] = v
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
+    else if (base === "bool") out[k] = v === "true";
+    else if (base === "int" || base === "counter") out[k] = Number(v);
+    else out[k] = v;
+  }
+  return out;
+}
+
 /** The inputs an offer's schema names, each field fitted to its type: an
  * object chosen from those the session knows, an enumeration's member, or a
  * value in the model's notation (ADR-0150 decision 2). Fields left empty
- * are not sent. */
+ * are not sent, and each input the offer names clearable has a control that
+ * sends it `null`, so a person can clear what a platform's own form clears
+ * (ADR-0262). */
 export function InputForm({
   schema,
+  clearable = [],
   enumerations,
   known,
   onSubmit,
@@ -29,6 +63,8 @@ export function InputForm({
   action = "Request",
 }: {
   schema: Record<string, string>;
+  /** the inputs a `null` clears, as the offer names them */
+  clearable?: string[];
   enumerations: Record<string, string[]>;
   known: Known[];
   onSubmit: (inputs: Record<string, WireValue>) => void;
@@ -37,27 +73,19 @@ export function InputForm({
   action?: string;
 }) {
   const [values, setValues] = useState<Record<string, string | string[]>>({});
+  const [cleared, setCleared] = useState<ReadonlySet<string>>(new Set());
   const set = (k: string, v: string | string[]) =>
     setValues((prev) => ({ ...prev, [k]: v }));
+  const clear = (k: string, on: boolean) =>
+    setCleared((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(k);
+      else next.delete(k);
+      return next;
+    });
 
   function submit() {
-    const out: Record<string, WireValue> = {};
-    for (const [k, typ] of Object.entries(schema)) {
-      const v = values[k];
-      if (v === undefined || v === "" || (Array.isArray(v) && v.length === 0))
-        continue;
-      const base = typ.replace(/\[\]$/, "");
-      if (Array.isArray(v)) out[k] = v;
-      else if (typ.endsWith("[]"))
-        out[k] = v
-          .split(",")
-          .map((x) => x.trim())
-          .filter(Boolean);
-      else if (base === "bool") out[k] = v === "true";
-      else if (base === "int" || base === "counter") out[k] = Number(v);
-      else out[k] = v;
-    }
-    onSubmit(out);
+    onSubmit(inputsOf(schema, values, cleared));
   }
 
   return (
@@ -77,14 +105,27 @@ export function InputForm({
         const exact = known.filter((o) => o.type === base);
         const objects = exact.length > 0 ? exact : known;
         const isObject = !SCALAR.test(base) && !members;
+        const off = cleared.has(k);
         return (
           <label key={k} className="block text-xs">
             <span className="font-mono">{k}</span>{" "}
             <span className="text-slate-500">{typ}</span>
+            {clearable.includes(k) && (
+              <span className="ml-2 inline-flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={off}
+                  aria-label={`clear ${k}`}
+                  onChange={(e) => clear(k, e.target.checked)}
+                />
+                clear
+              </span>
+            )}
             {isObject && many ? (
               <select
                 multiple
                 className="field"
+                disabled={off}
                 onChange={(e) =>
                   set(
                     k,
@@ -101,6 +142,7 @@ export function InputForm({
             ) : isObject || members ? (
               <select
                 className="field"
+                disabled={off}
                 defaultValue=""
                 onChange={(e) => set(k, e.target.value)}
               >
@@ -117,6 +159,7 @@ export function InputForm({
             ) : base === "bool" ? (
               <select
                 className="field"
+                disabled={off}
                 defaultValue=""
                 onChange={(e) => set(k, e.target.value)}
               >
@@ -127,6 +170,7 @@ export function InputForm({
             ) : (
               <input
                 className="field"
+                disabled={off}
                 placeholder={
                   many
                     ? "comma-separated"
