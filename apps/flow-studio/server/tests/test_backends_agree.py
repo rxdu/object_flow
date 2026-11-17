@@ -458,3 +458,63 @@ def test_an_evaluator_a_derivation_asks_is_answered_alike(tee):
     v = tee.post("/v1/request", {"actor": op, "object_id": doc, "transition": "close"})
     assert (v["kind"], v.get("clause"), v.get("remedy"), v.get("unknown")) == ("unsatisfied", "is_clear", "delegable", True), v
     assert tee.found[before:] == [], tee.found[before:]
+
+
+UNWRITTEN = """module: unwritten
+categories: [live, closed]
+types:
+  Owner:
+    description: An owner.
+    tracking: record
+    attributes:
+      name: { type: string }
+    states:
+      ACTIVE: { description: Active., category: live }
+      GONE: { description: Gone., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [name] }
+      drop: { kind: external, from: ACTIVE, to: GONE }
+  Job:
+    description: A job.
+    tracking: record
+    attributes:
+      site: { type: string }
+      owner: { reference: Owner }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [site] }
+      close: { kind: external, from: OPEN, to: DONE }
+"""
+
+
+@pytest.mark.parametrize("case", ["reference", "string", "counter"])
+def test_a_creation_leaving_a_required_attribute_absent_is_refused_alike(tee, case):
+    """A creation that writes no value to a required attribute, a reference
+    check 8 does not yet refuse and, loaded with the checks skipped, a string
+    it does, refuses `value_in_range` naming no object on both backends,
+    where the core's store faulted it 500 (ADR-0201 decision 7); a counter,
+    which starts at 0, is no such attribute, and the creation applies."""
+    tee.module = f"unwritten ({case})"
+    before = len(tee.found)
+    op = {"id": "operator"}
+    text = {
+        "reference": UNWRITTEN,
+        "string": UNWRITTEN.replace("      owner: { reference: Owner }\n",
+                                    "      owner: { reference: Owner, optional: true }\n      code: { type: string }\n"),
+        # a counter is a quantity's (check 31)
+        "counter": UNWRITTEN.replace("      owner: { reference: Owner }\n",
+                                     "      owner: { reference: Owner, optional: true }\n      visits: { type: counter }\n"
+                                     ).replace("  Job:\n    description: A job.\n    tracking: record\n",
+                                               "  Job:\n    description: A job.\n    tracking: quantity\n"),
+    }[case]
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "unwritten.yaml", "text": text}], "unchecked": case == "string"})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+    v = tee.post("/v1/request", {"actor": op, "type": "Job", "transition": "open", "inputs": {"site": "x"}})
+    if case == "counter":
+        assert v["kind"] == "satisfied", v
+    else:
+        assert (v["kind"], v.get("clause"), v.get("objects")) == ("unsatisfied", "value_in_range", []), v
+    assert tee.found[before:] == [], tee.found[before:]

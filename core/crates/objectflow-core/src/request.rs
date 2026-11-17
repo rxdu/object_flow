@@ -1203,6 +1203,21 @@ fn decide_or_stop(
         let existed = ctx.before.get(&id)?.is_some();
         if !existed {
             creating.insert(id.clone());
+            // a creation leaving a required attribute absent, the store's
+            // NOT NULL as `store.rs` declares it, a counter holding 0 from
+            // its creation, refuses as an absent value assigned does, naming
+            // no object, where the store's constraint faulted it 500
+            // (ADR-0201 decision 7)
+            if let Some(t) = ctx.work.lib.type_(&obj.type_)
+                && t.attributes.iter().any(|(a, spec)| {
+                    !spec.optional
+                        && !spec.many
+                        && spec.default.is_none()
+                        && obj.attr(a).is_absent()
+                })
+            {
+                return Err(NotRun::OutOfRange(String::new()).into());
+            }
         }
         // what an object's invariants read is recorded on its last event,
         // for an object the request wrote

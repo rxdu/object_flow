@@ -2629,6 +2629,11 @@ class Runner:
             root = self.take(ctx, tn, xn, oid, inputs, depth=0)
             self.clear_intervals(ctx)
             self.rename_erased_actors(ctx)
+            # a creation leaving a required attribute absent, which the core's store holds NOT NULL, refuses as an absent
+            # value assigned does, naming no object, where it was made (ADR-0201 decision 7)
+            for obj in work.objects.values():
+                if obj.id not in store.objects and lacks_required(self.kinds.get(obj.type) or {}, obj):
+                    raise OutOfRange(obj.id)
             # 7. every invariant the writes could violate, in ascending id order of the object it fails on, except
             # a violation an admission lets stand, which is discharged once the invariant holds again (ADR-0054)
             requested = oid if oid is not None else root
@@ -4707,6 +4712,19 @@ def precision_of(typ):
 
 FILE_HASH = re.compile(r"sha256:[0-9a-f]{64}")
 MEDIA_TOKEN = r"[A-Za-z0-9!#$&^_.+-]+"
+
+
+def lacks_required(t, o):
+    """Whether an object lacks a value of an attribute the core's store holds NOT NULL, which a creation must give it:
+    one not optional, with no default and no set (`store.rs`'s table), a counter holding 0 from its creation."""
+    for a, spec in (t.get("attributes") or {}).items():
+        spec = spec or {}
+        typ, ref = str(spec.get("type", "")), str(spec.get("reference", ""))
+        if spec.get("optional") or "default" in spec or typ.endswith("[]") or ref.endswith("[]"):
+            continue
+        if o.attrs.get(a, ABSENT) is ABSENT:
+            return True
+    return False
 
 
 def file_value(v):
