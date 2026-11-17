@@ -1881,6 +1881,43 @@ fn strict_json(bytes: &[u8]) -> Result<J, String> {
     Ok(v)
 }
 
+/// A request's body, read within the bound every body is read in: one that
+/// does not arrive in it is refused `SlowBody`, and one past axum's default
+/// limit is refused as it refuses it.
+async fn bounded_bytes<S: Send + Sync>(
+    req: axum::extract::Request,
+    state: &S,
+    bound: std::time::Duration,
+) -> Result<axum::body::Bytes, Fault> {
+    let read = <axum::body::Bytes as axum::extract::FromRequest<S>>::from_request(req, state);
+    match tokio::time::timeout(bound, read).await {
+        Ok(Ok(bytes)) => Ok(bytes),
+        Ok(Err(e)) => Err(Fault::Bad(e.body_text())),
+        Err(_) => Err(Fault::SlowBody(format!(
+            "the body did not arrive within {} s",
+            bound.as_secs()
+        ))),
+    }
+}
+
+/// A body read and set aside, whatever it holds, within the bound every body
+/// is read in: a route that takes no key reads its body before it answers, so
+/// a client writing the headers and the body apart is not cut off, and a slow
+/// body is refused as on every route.
+struct Drained;
+
+impl<S: Send + Sync> axum::extract::FromRequest<S> for Drained {
+    type Rejection = Fault;
+
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Fault> {
+        let bound = BODY_READ
+            .get()
+            .copied()
+            .unwrap_or(std::time::Duration::from_secs(30));
+        bounded_bytes(req, state, bound).await.map(|_| Drained)
+    }
+}
+
 impl<S: Send + Sync> axum::extract::FromRequest<S> for Body {
     type Rejection = Fault;
 
@@ -1904,20 +1941,7 @@ impl<S: Send + Sync> axum::extract::FromRequest<S> for Body {
                 "Expected request with `Content-Type: application/json`".to_string(),
             ));
         }
-        let read =
-            match tokio::time::timeout(bound, axum::body::Bytes::from_request(req, state)).await {
-                Ok(read) => read,
-                Err(_) => {
-                    return Err(Fault::SlowBody(format!(
-                        "the body did not arrive within {} s",
-                        bound.as_secs()
-                    )));
-                }
-            };
-        let bytes = match read {
-            Ok(bytes) => bytes,
-            Err(e) => return Err(Fault::Bad(e.body_text())),
-        };
+        let bytes = bounded_bytes(req, state, bound).await?;
         let body = match strict_json(&bytes) {
             Ok(J::Object(m)) => m,
             Ok(_) => return Err(Fault::Bad("the body is a JSON object".to_string())),
@@ -2676,10 +2700,11 @@ async fn load(State(shared): State<Shared>, Body(body): Body) -> Answer {
 }
 
 /// The sandbox's store made afresh. Its body, which names no key, is read
-/// and set aside before it answers, whatever it holds, so a client writing
-/// the headers and the body apart is never cut off with the body unwritten,
-/// where it answered first and a client met a broken pipe.
-async fn reset(State(shared): State<Shared>, _body: axum::body::Bytes) -> Answer {
+/// and set aside before it answers, within the bound every body is read in,
+/// so a client writing the headers and the body apart is never cut off with
+/// the body unwritten, where it answered first and a client met a broken
+/// pipe.
+async fn reset(State(shared): State<Shared>, _body: Drained) -> Answer {
     answering(move || {
         let mut sandbox = locked(&shared)?;
         if sandbox.files.is_empty() {

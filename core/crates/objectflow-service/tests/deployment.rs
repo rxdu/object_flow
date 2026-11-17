@@ -2779,6 +2779,20 @@ fn idle_and_half_sent_connections_are_closed() {
         took < std::time::Duration::from_secs(4),
         "a half-sent body open {took:?}"
     );
+    // and on the route that takes no key, which reads its body as every
+    // route does, in the same bound
+    let mut body = TcpStream::connect(&s.addr).expect("a connection");
+    write!(
+        body,
+        "POST /sandbox/reset HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{{"
+    )
+    .expect("half a body");
+    let (took, said) = closes(body);
+    assert!(said.starts_with("HTTP/1.1 408"), "{said}");
+    assert!(
+        took < std::time::Duration::from_secs(4),
+        "a half-sent body to reset open {took:?}"
+    );
     let said = s.said_within("a connection answering nothing closed to make room: 3 are open");
     assert!(
         said.contains("a connection answering nothing closed to make room: 3 are open"),
