@@ -234,33 +234,6 @@ pub fn path_heads(text: &str) -> Vec<(bool, String, usize, usize)> {
     out
 }
 
-/// Each `(?<![.\w])[A-Z][A-Z0-9_]*(?![\w.])` in a text: an upper-case word
-/// standing alone, with its start and end, by char.
-pub fn bare_upper(text: &str) -> Vec<(String, usize, usize)> {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < chars.len() {
-        let before_ok = i == 0 || !(is_word(chars[i - 1]) || chars[i - 1] == '.');
-        if before_ok && chars[i].is_ascii_uppercase() {
-            let mut end = i + 1;
-            while chars
-                .get(end)
-                .is_some_and(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_')
-            {
-                end += 1;
-            }
-            if !chars.get(end).is_some_and(|c| is_word(*c) || *c == '.') {
-                out.push((chars[i..end].iter().collect(), i, end));
-                i = end;
-                continue;
-            }
-        }
-        i += 1;
-    }
-    out
-}
-
 /// Each `(?<![\w.])([a-z][a-z0-9_]*)\.([a-z][a-z0-9_]*)\(` in a text, with
 /// the char index after its `(`.
 pub fn dotted_calls(text: &str) -> Vec<(String, String, usize)> {
@@ -453,10 +426,6 @@ mod tests {
 
     #[test]
     fn the_scans_find_what_their_patterns_find() {
-        assert_eq!(
-            bare_upper("state == OPEN and USD 5 and Enum.X"),
-            vec![("OPEN".into(), 9, 13), ("USD".into(), 18, 21)]
-        );
         assert_eq!(
             dotted_calls("not risk.check(a, b)"),
             vec![("risk".into(), "check".into(), 15)]

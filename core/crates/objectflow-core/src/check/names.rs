@@ -10,9 +10,9 @@ use regex::Regex;
 use serde_json::Value;
 
 use super::doc::{
-    ACTOR_KINDS, Found, KEYWORDS, Obj, Path, as_obj, bare_upper, dotted_calls, ext, finding, flag,
-    has, held_of, keys, kind_text, list, members_of, obj, optional, py_str, re, read_through,
-    reads, segs, squash, str_or, strings, text,
+    ACTOR_KINDS, Found, KEYWORDS, Obj, Path, as_obj, dotted_calls, ext, finding, flag, has,
+    held_of, keys, kind_text, list, members_of, obj, optional, py_str, re, read_through, reads,
+    segs, squash, str_or, strings, text,
 };
 use super::optional::{Env, OptionalReads};
 use super::raw::{BUILT_IN_TYPES, imported};
@@ -217,12 +217,8 @@ fn dataset_rows(source: &str) -> Option<BTreeSet<String>> {
 }
 
 static INTERVALS_OF: LazyLock<Regex> = LazyLock::new(|| re(r"^intervals\(([a-z][a-z0-9_]*)\)$"));
-static QUALIFIED: LazyLock<Regex> =
-    LazyLock::new(|| re(r"\b([A-Z][A-Za-z0-9]*)\.([A-Za-z][A-Za-z0-9_]*)\b"));
 /// A member written as a state or an enumeration's value is: upper case.
 static VALUE_CASE: LazyLock<Regex> = LazyLock::new(|| re(r"^[A-Z][A-Z0-9_]*$"));
-/// A string literal, as the expression lexer reads one.
-static STRING_LITERAL: LazyLock<Regex> = LazyLock::new(|| re(r#""(?:[^"\\]|\\.)*""#));
 
 /// The categories a module's states may name.
 fn categories(doc: &Value) -> BTreeSet<String> {
@@ -5774,13 +5770,14 @@ fn value_errors(values: &Values, tn: &str, t: &Value) -> Found {
     }
     let mut out = Found::new();
     for (p, name, text) in exprs {
-        // a string literal's text names nothing, where "EU" read as a state
-        // (twelfth production review)
-        let text = STRING_LITERAL.replace_all(&text, |m: &regex::Captures<'_>| {
-            format!("\"{}\"", " ".repeat(m[0].chars().count() - 2))
-        });
-        for m in QUALIFIED.captures_iter(&text) {
-            let (owner, value) = (&m[1], &m[2]);
+        // step 2 refuses what does not parse
+        let Ok(tree) = parse(&squash(&text)) else {
+            continue;
+        };
+        let (mut qualified, mut bare) = (Vec::new(), Vec::new());
+        names_written(&tree, &mut qualified, &mut bare);
+        for (owner, value) in &qualified {
+            let (owner, value) = (owner.as_str(), value.as_str());
             if !VALUE_CASE.is_match(value) {
                 // a member of another case: an enumeration's is one of its
                 // values, and an owner nothing declares names nothing, where
@@ -5817,24 +5814,7 @@ fn value_errors(values: &Values, tn: &str, t: &Value) -> Found {
                 _ => {}
             }
         }
-        let chars: Vec<char> = text.chars().collect();
-        for (word, _, end) in bare_upper(&text) {
-            if word.len() == 3 && word.chars().all(|c| c.is_ascii_uppercase()) {
-                // the text after the word, read where it is, where it was
-                // collected again for each word, quadratic in a long one
-                let mut at = end;
-                while chars.get(at).is_some_and(|c| c.is_whitespace()) {
-                    at += 1;
-                }
-                if at > end {
-                    if chars.get(at) == Some(&'-') {
-                        at += 1;
-                    }
-                    if chars.get(at).is_some_and(|c| c.is_numeric()) {
-                        continue; // a money literal's currency, as in USD 19.99
-                    }
-                }
-            }
+        for word in bare {
             if !states.contains(&word) {
                 out.push(finding(
                     p.clone(),
@@ -5845,6 +5825,33 @@ fn value_errors(values: &Values, tn: &str, t: &Value) -> Found {
         }
     }
     out
+}
+
+/// What a parsed expression names that only its module can resolve, in the
+/// order written: each qualified name, a capitalised owner and its member,
+/// `Kind.SMALL`, and each bare upper-case name, a state. Read from the tree,
+/// where a pattern over the text took a string literal's or a money
+/// literal's word for a name (`check-flows.py`'s `names_written`,
+/// ADR-0282).
+fn names_written(e: &Expr, qualified: &mut Vec<(String, String)>, bare: &mut Vec<String>) {
+    match e {
+        Expr::Path(b, m) => {
+            if let Expr::Name(owner) = b.as_ref()
+                && owner.starts_with(|c: char| c.is_ascii_uppercase())
+            {
+                qualified.push((owner.clone(), m.clone()));
+                return;
+            }
+        }
+        Expr::Name(n) if VALUE_CASE.is_match(n) => {
+            bare.push(n.clone());
+            return;
+        }
+        _ => {}
+    }
+    for c in e.children() {
+        names_written(c, qualified, bare);
+    }
 }
 
 /// Every name an expression reads is a member of the object it is evaluated

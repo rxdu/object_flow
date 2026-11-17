@@ -4299,10 +4299,12 @@ def value_errors(doc, tn, t):
             exprs += [(("types", tn, "metrics", mn) + (k if isinstance(k, tuple) else (k,)), f"metric {mn}", e) for k, e in parts]
     out = []
     for path, name, text in exprs:
-        # a string literal's text names nothing, where "EU" read as a state (twelfth production review)
-        text = STRING_LITERAL.sub(lambda m: '"' + " " * (len(m.group(0)) - 2) + '"', str(text))
-        for m in re.finditer(r"\b([A-Z][A-Za-z0-9]*)\.([A-Za-z][A-Za-z0-9_]*)\b", text):
-            owner, value = m.groups()
+        try:
+            tree = flowexpr.parse(" ".join(str(text).split()))
+        except flowexpr.ParseError:
+            continue                        # step 2 refuses what does not parse
+        qualified, bare = names_written(tree)
+        for owner, value in qualified:
             if not re.fullmatch(r"[A-Z][A-Z0-9_]*", value):
                 # a member of another case: an enumeration's is one of its values, and an owner nothing declares names
                 # nothing, where Foo.bar and Kind.small passed and the core did not run them; ActorKind.<kind> is the
@@ -4322,16 +4324,38 @@ def value_errors(doc, tn, t):
             if known is not None and value not in known:
                 what = "enumeration" if owner in enums else "type"
                 out.append((path, "names", f"{name} names {owner}.{value}, and the {what} {owner} has no {value}"))
-        for m in re.finditer(r"(?<![.\w])[A-Z][A-Z0-9_]*(?![\w.])", text):
-            if re.fullmatch(r"[A-Z]{3}", m.group(0)) and re.match(r"\s+-?\d", text[m.end():]):
-                continue                    # a money literal's currency, as in USD 19.99 (declaration-syntax.md §8)
-            if m.group(0) not in states:
-                out.append((path, "names", f"{name} names {m.group(0)}, which is not a state of {tn}; "
+        for word in bare:
+            if word not in states:
+                out.append((path, "names", f"{name} names {word}, which is not a state of {tn}; "
                                            "write an enumeration value qualified, as <Enumeration>.<VALUE>"))
     return out
 
 
-STRING_LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"')   # as flowexpr.py's lexer reads one
+def names_written(tree):
+    """What a parsed expression names that only its module can resolve, in the order written: each qualified name, a
+    capitalised owner and its member, `Kind.SMALL`, and each bare upper-case name, a state. Read from the tree, where a
+    pattern over the text took a string literal's or a money literal's word for a name (ADR-0282)."""
+    qualified, bare = [], []
+
+    def walk(e):
+        if isinstance(e, list):
+            for x in e:
+                walk(x)
+            return
+        if not (isinstance(e, tuple) and e and isinstance(e[0], str)):
+            return
+        if e[0] == "path" and isinstance(e[1], tuple) and e[1][:1] == ("name",) and e[1][1][:1].isupper():
+            qualified.append((e[1][1], e[2]))
+            return
+        if e[0] == "name" and re.fullmatch(r"[A-Z][A-Z0-9_]*", e[1]):
+            bare.append(e[1])
+            return
+        if e[0] in ("str", "num", "money", "dur", "bool"):
+            return
+        for x in e[1:]:
+            walk(x)
+    walk(tree)
+    return qualified, bare
 
 
 KEYWORDS = {"and", "or", "not", "implies", "is", "null", "in", "where", "if", "then", "else",
