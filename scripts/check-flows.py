@@ -3294,6 +3294,9 @@ def fits(target, value, library):
     return False
 
 
+# an object's own flow data an expression ranges over, as rows: its spans and its events (§6.9); its attempts, which
+# the checks refuse as undeclared, are not among them
+FLOW_ROWS = ("intervals", "transitions")
 MEMBER_TYPES = {"open": ("bool",), "id": ("identity",), "created_at": ("timestamp",), "created_by_kind": ("actor_kind",),
                 "recorded_from": ("timestamp",), "declaration_version": ("int",)}
 SCALARS = ("int", "decimal", "number")
@@ -3340,6 +3343,10 @@ def type_text(k):
         return f"a state of {k[1]}"
     if k[0] == "record":
         return f"a {k[1]}"
+    if k[0] == "rows":
+        return f"{k[1]}'s {k[2]}"
+    if k[0] == "row":
+        return f"a row of {k[1]}'s {k[2]}"
     return {"int": "an int", "identity": "an identity", "actor_kind": "an actor kind"}.get(k[0], f"a {k[0]}")
 
 
@@ -3397,6 +3404,8 @@ class Typing:
             ty = quiet.of(tree, tn, None, {}, seen | {(tn, m)})
             self.known[(tn, m)] = ty
             return ty
+        if m in FLOW_ROWS and derived is None:
+            return ("rows", tn, m)              # its own spans or events, where the type declares no member so named
         return None
 
     def undeclared(self, tn, m):
@@ -3523,6 +3532,9 @@ class Typing:
             if bt is not None and bt[0] == "state":
                 self.fail(f"it reads {m} of a state, which has only category")
                 return None
+            # a member of a row of the object's own flow data, a span or an event, as a metric's row reads it (§6.9)
+            if bt is not None and bt[0] == "row":
+                return row_member_type(bt[1], self.declared(bt[1]) or {}, bt[2], m, self.enums)
             # a file's media type and its size in bytes, which a guard may read (ADR-0239 decision 4)
             if bt is not None and bt[0] == "file" and m in FILE_MEMBERS:
                 return FILE_MEMBERS[m]
@@ -3561,6 +3573,13 @@ class Typing:
             # literal; where each published and the core did not run it (the values audit's K-8)
             bt = self.of(f[1], tn, x, env, seen) if f[0] == "path" else None
             if bt is not None:
+                if f[2] == "held" and bt[0] == "row":
+                    # what a member held as the span began, or before the transition's writes (§6.9)
+                    if len(e[2]) == 1 and e[2][0][0] == "name":
+                        n = e[2][0][1]
+                        attrs = (self.declared(bt[1]) or {}).get("attributes") or {}
+                        return ("state", bt[1]) if n == "state" else attribute_type(attrs.get(n), self.enums)
+                    return None
                 if f[2] == "held":
                     self.fail(f"held is a row's, of intervals or transitions, and it is called on {type_text(bt)}")
                     return None
@@ -3572,6 +3591,8 @@ class Typing:
                     if ot is not None and e[2][0][1] not in tracked_attributes(ot, self.kinds):
                         self.fail(f"intervals({e[2][0][1]}) names neither the state nor a member {bt[1]} tracks")
                         return None
+                if f[2] == "intervals" and len(e[2]) == 1 and e[2][0][0] == "name":
+                    return ("rows", bt[1], f"intervals({e[2][0][1]})")     # the spans of one tracked member
             called = f[1] if f[0] == "name" else f[2] if f[0] == "path" else None
             if called in ("time_in", "entered_at") and len(e[2]) == 1 and e[2][0][0] in ("str", "num", "bool", "money", "dur"):
                 at = self.of(e[2][0], tn, x, env, seen)
@@ -3678,7 +3699,9 @@ class Typing:
                 element = self.value_set_element(tn, coll, env)
                 if element is None and ct is not None and ct[0] == "values":
                     element = ct[1]                 # a set of values a path or an input names
-                if ct is not None and ct[0] == "objects":
+                if ct is not None and ct[0] == "rows":
+                    inner[var] = ("row", ct[1], ct[2])     # one span or event of the object's own (§6.9)
+                elif ct is not None and ct[0] == "objects":
                     inner[var] = ("reference", ct[1])
                 elif element is not None:
                     inner[var] = element          # a set of values, its item of their type (K-10)
@@ -3732,7 +3755,7 @@ class Typing:
             else:
                 # membership in a collection, where one in a single value was not run (the values audit's K-6)
                 rt = self.of(right, tn, x, env, seen)
-                if rt is not None and rt[0] not in ("objects", "values"):
+                if rt is not None and rt[0] not in ("objects", "values", "rows"):
                     self.fail(f"it asks for membership in {type_text(rt)}, which is no collection")
             return ("bool",)
         if k == "if":
@@ -10674,6 +10697,24 @@ def expression_type_plants(people):
          [wrong("derived attribute probe", "it compares an actor kind with an int")]),
         ("an observation's field its kind does not declare", audited("any(o in this.audits where o.points > 1)"),
          [wrong("derived attribute probe", "it reads points of Audit, which Audit does not declare")]),
+        # a binder over an object's spans or events reads a row's members, as a metric's row does (§6.9), where each
+        # typed as nothing
+        ("a span's state compared with a member of an enumeration", ledger("count(i in this.intervals where i.state == Tier.GOLD) > 0"),
+         [wrong("derived attribute probe", "it compares a state of Account with a member of Tier")]),
+        ("a span's duration compared with a time", ledger("sum(i in this.intervals: i.duration) > since"),
+         [wrong("derived attribute probe", "it compares a duration with a timestamp")]),
+        ("a tracked member's span value compared with an int", ledger("any(i in this.intervals(tier) where i.value == count)"),
+         [wrong("derived attribute probe", "it compares a member of Tier with an int")]),
+        ("what a member held on a span compared with an int", ledger("any(i in this.intervals where i.held(tier) == count)"),
+         [wrong("derived attribute probe", "it compares a member of Tier with an int")]),
+        ("a transition's target compared with a string", ledger("any(t in this.transitions where t.to_state == label)"),
+         [wrong("derived attribute probe", "it compares a state of Account with a string")]),
+        ("an object's function called on a span", ledger("any(i in this.intervals where i.time_in(OPEN) > span)"),
+         [wrong("derived attribute probe", "time_in is an object's, and it is called on a row of Account's intervals")]),
+        ("a span's and an event's members that type", ledger(
+            "count(i in this.intervals where i.state == Account.OPEN and i.duration > span and i.entered_at < since and "
+            "i.held(tier) == Tier.GOLD) + count(i in this.intervals(tier) where i.value == Tier.GOLD) + count(t in "
+            "this.transitions where t.to_state == Account.SHUT and t.occurred_at > since) >= count"), []),
         ("an observation's members that type", audited(
             "count(o in audits where o.score > count and o.grade == Tier.GOLD and o.subject == this and o.occurred_at > "
             "since and o.recorded_by_kind == ActorKind.human) + sum(o in audits: o.score) >= count"), []),

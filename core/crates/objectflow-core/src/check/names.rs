@@ -3269,6 +3269,12 @@ enum Ty {
     /// type stays as small as the others, which the typing's recursion
     /// holds in every frame.
     Record(Box<(String, super::doc::Obj)>),
+    /// An object's own flow data an expression ranges over, its spans or its
+    /// events (§6.9): its type, and its source, `intervals`,
+    /// `intervals(<member>)` or `transitions`; boxed as a record is.
+    Rows(Box<(String, String)>),
+    /// One row of them, a span or an event.
+    Row(Box<(String, String)>),
 }
 
 impl Ty {
@@ -3295,6 +3301,8 @@ impl Ty {
             Ty::State(_) => "state",
             Ty::Values(_) => "values",
             Ty::Record(..) => "value",
+            Ty::Rows(_) => "rows",
+            Ty::Row(_) => "row",
         }
     }
 
@@ -3318,6 +3326,8 @@ impl Ty {
             Ty::State(t) => format!("a state of {t}"),
             Ty::Int => "an int".into(),
             Ty::Record(r) => format!("a {}", r.0),
+            Ty::Rows(r) => format!("{}'s {}", r.0, r.1),
+            Ty::Row(r) => format!("a row of {}'s {}", r.0, r.1),
             Ty::Identity => "an identity".into(),
             Ty::ActorKind => "an actor kind".into(),
             other => format!("a {}", other.tag()),
@@ -3383,6 +3393,24 @@ fn attribute_type(spec: Option<&Value>, enums: &BTreeSet<String>) -> Option<Ty> 
 }
 
 /// What every object has, by its type (§8.1).
+/// An object's own flow data an expression ranges over, as rows: its spans
+/// and its events (§6.9); its attempts, which the checks refuse as
+/// undeclared, are not among them (`check-flows.py`'s `FLOW_ROWS`).
+const FLOW_ROWS: &[&str] = &["intervals", "transitions"];
+
+/// The spans of one tracked member of an object of `on`, `intervals(<m>)`,
+/// made apart from `Typing::of` for its frame's sake (`docs/LESSONS.md`).
+#[inline(never)]
+fn spans_of(on: &str, m: &str) -> Option<Ty> {
+    Some(Ty::Rows(Box::new((
+        on.to_string(),
+        format!("intervals({m})"),
+    ))))
+}
+
+/// What a type nothing declares reads as: no attributes, no members.
+static NO_TYPE: Value = Value::Null;
+
 fn object_member_type(m: &str) -> Option<Ty> {
     Some(match m {
         "open" => Ty::Bool,
@@ -3545,7 +3573,39 @@ impl Typing<'_> {
             self.known.borrow_mut().insert(pair, ty.clone());
             return ty;
         }
+        // its own spans or events, where the type declares no member so named
+        if FLOW_ROWS.contains(&m) && !obj(t, "derived_attributes").contains_key(m) {
+            return Some(Ty::Rows(Box::new((tn.to_string(), m.to_string()))));
+        }
         None
+    }
+
+    /// The type a member of a row holds, typed here, apart from [`Self::of`],
+    /// whose recursion holds each local of its arms in every frame
+    /// (`docs/LESSONS.md`).
+    #[inline(never)]
+    fn row_member(&self, row: &(String, String), m: &str) -> Option<Ty> {
+        row_member_type(
+            &row.0,
+            self.declared(&row.0).unwrap_or(&NO_TYPE),
+            &row.1,
+            m,
+            self.enums,
+        )
+    }
+
+    /// What `row.held(<member>)` holds: what a member held as the span
+    /// began, or before the transition's writes (§6.9).
+    #[inline(never)]
+    fn held(&self, row: &(String, String), args: &[Expr]) -> Option<Ty> {
+        let [Expr::Name(n)] = args else {
+            return None;
+        };
+        if n == "state" {
+            return Some(Ty::State(row.0.clone()));
+        }
+        let t = self.declared(&row.0).unwrap_or(&NO_TYPE);
+        attribute_type(obj(t, "attributes").get(n), self.enums)
     }
 
     /// The type of a call of `length`, `trim`, `date`, `add_months`, `whole`
@@ -3944,6 +4004,9 @@ impl Typing<'_> {
                         self.fail(format!("it reads {m} of a state, which has only category"));
                         None
                     }
+                    // a member of a row of the object's own flow data, a span
+                    // or an event, as a metric's row reads it (§6.9)
+                    Some(Ty::Row(r)) => self.row_member(&r, m),
                     // a file's media type and its size in bytes (ADR-0239)
                     Some(Ty::File) => match m.as_str() {
                         "media_type" => Some(Ty::Str),
@@ -4031,6 +4094,9 @@ impl Typing<'_> {
                     && let Some(bt) = self.of(base, tn, x, env, seen)
                 {
                     if name == "held" {
+                        if let Ty::Row(r) = &bt {
+                            return self.held(r, args);
+                        }
                         self.fail(format!(
                             "held is a row's, of intervals or transitions, and it is called on {}",
                             bt.text()
@@ -4054,6 +4120,12 @@ impl Typing<'_> {
                             "intervals({m}) names neither the state nor a member {on} tracks"
                         ));
                         return None;
+                    }
+                    // the spans of one tracked member
+                    if name == "intervals"
+                        && let [Expr::Name(m)] = args.as_slice()
+                    {
+                        return spans_of(on, m);
                     }
                 }
                 let called = match &**f {
@@ -4182,6 +4254,8 @@ impl Typing<'_> {
                         self.of(coll, tn, x, env, seen)
                     };
                     let element = match ct {
+                        // one span or event of the object's own (§6.9)
+                        Some(Ty::Rows(r)) => Some(Ty::Row(r)),
                         Some(Ty::Objects(t)) => Some(Ty::Reference(t)),
                         // a set of values a path or an input names
                         Some(Ty::Values(e)) => {
@@ -4294,7 +4368,7 @@ impl Typing<'_> {
                     // was not run (the values audit's K-6)
                     _ => {
                         if let Some(rt) = self.of(r, tn, x, env, seen)
-                            && !matches!(rt, Ty::Objects(_) | Ty::Values(_))
+                            && !matches!(rt, Ty::Objects(_) | Ty::Values(_) | Ty::Rows(_))
                         {
                             self.fail(format!(
                                 "it asks for membership in {}, which is no collection",

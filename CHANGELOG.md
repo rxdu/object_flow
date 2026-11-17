@@ -7,6 +7,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 ### Changed, and may refuse what 0.30.0 accepted
 
 - Check 24 types a binder over an object's observations, `o` in `any(o in approvals where o.approver == a)`, as an observation of its kind, reading the kind's fields, `subject`, `corrects`, `occurred_at`, `recorded_at` and `recorded_by_kind`. So it refuses a field compared across types, as `o.score == label` with `score` an `int`, and a field the kind does not declare. Such a binder typed as nothing, and the module loaded clean: the core answered such an `==` false on every observation, and did not run such an ordering.
+- Check 24 types a binder over an object's spans and events, `i` in `count(i in this.intervals where i.state == WorkItem.IN_REVIEW)`, `this.intervals(<member>)` or `this.transitions`, as one row, reading its members as a metric's rows read them, `held` among them. So it refuses a member compared across types, as `i.state == Tier.GOLD`, and an object's function called on a row, as `i.time_in(OPEN)`. Such a binder typed as nothing, and the module loaded clean.
 
 ## 0.30.0, 2026-11-17
 
