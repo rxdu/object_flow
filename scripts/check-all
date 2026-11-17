@@ -51,8 +51,11 @@ LANES=(core postgres studio checks scenarios)
 PLAIN="$ROOT/core/target/plain"
 # the tests a load on the machine can fail, run alone once the lanes end:
 # three requests not counted in flight within 20 s under the suite's load
-# (TODO.md, `a_connection_at_the_cap_makes_room_or_is_told_busy`)
-ALONE=(a_connection_at_the_cap_makes_room_or_is_told_busy)
+# (TODO.md, `a_connection_at_the_cap_makes_room_or_is_told_busy`); and a
+# dry run's time at 800 new types against 50, bound to eight times, which
+# the other lanes beside it took past (TODO.md, its timing under the gate)
+ALONE=(a_connection_at_the_cap_makes_room_or_is_told_busy
+  publish::tests::a_dry_runs_impact_does_not_walk_every_type_for_each_object)
 SKIP_ALONE=()
 for t in "${ALONE[@]}"; do SKIP_ALONE+=(--skip "$t"); done
 OUT="$(mktemp -d)"
