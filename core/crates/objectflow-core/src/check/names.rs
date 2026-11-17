@@ -4040,6 +4040,15 @@ impl Typing<'_> {
                         self.fail(format!("it reads {m} of {t}, which has no members"));
                         None
                     }
+                    // a state's category, of whatever object the state is
+                    // read, where that object's type cannot be told, as a
+                    // referrer's: both runners answer `x.state` with a state
+                    // of x's own type (§8.3)
+                    None if m == "category"
+                        && matches!(&**base, Expr::Path(_, s) if s == "state") =>
+                    {
+                        Some(Ty::Category)
+                    }
                     _ => None,
                 }
             }

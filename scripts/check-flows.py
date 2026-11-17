@@ -3529,6 +3529,10 @@ class Typing:
                 return self.member(bt[1], m, seen)
             if bt is not None and bt[0] == "state" and m == "category":
                 return ("category",)
+            # a state's category, of whatever object the state is read, where that object's type cannot be told, as a
+            # referrer's: both runners answer `x.state` with a state of x's own type (§8.3)
+            if bt is None and m == "category" and base[0] == "path" and base[2] == "state":
+                return ("category",)
             if bt is not None and bt[0] == "state":
                 self.fail(f"it reads {m} of a state, which has only category")
                 return None
@@ -10741,6 +10745,11 @@ def expression_type_plants(people):
         ("a loop's filter comparing its item's state's category with an int", looped("e.state.category == count"),
          [wrong("Account.shut's effect", "it compares a category with an int")]),
         ("a loop's filter that types", looped("e.amount > count and e.state.category != closed"), []),
+        # a state's category, of whatever object it is read, where that object's type cannot be told
+        ("a referrer's state's category compared with an int",
+         ledger(probe, condition="none(r in referrers where r.state.category == count)"),
+         [wrong("condition ready", "it compares a category with an int")]),
+        ("a referrer's state's category that types", ledger(probe, condition="none(r in referrers where r.state.category != closed)"), []),
         ("an observation's members that type", audited(
             "count(o in audits where o.score > count and o.grade == Tier.GOLD and o.subject == this and o.occurred_at > "
             "since and o.recorded_by_kind == ActorKind.human) + sum(o in audits: o.score) >= count"), []),
