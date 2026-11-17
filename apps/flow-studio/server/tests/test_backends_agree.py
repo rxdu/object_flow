@@ -407,3 +407,54 @@ def test_derived_sets_and_chains_are_served_and_taken_alike(tee):
     assert recorded["attributes"]["to_whom"] == "Cy", recorded
     assert recorded["attributes"]["tags"] == [], recorded
     assert tee.found[before:] == [], tee.found[before:]
+
+
+LEDGER = """module: docs
+categories: [live, closed]
+evaluators:
+  ledger:
+    description: A ledger that clears references.
+    functions:
+      cleared:
+        description: Whether the ledger has cleared this reference.
+        arguments:
+          ref: { type: string }
+types:
+  Doc:
+    description: A document.
+    tracking: record
+    attributes:
+      ref: { type: string }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    derived_attributes:
+      clear: { description: Whether the ledger cleared it., expression: 'ledger.cleared(ref)' }
+    conditions:
+      is_clear: { description: The ledger cleared it., expression: 'clear', remedy: delegable }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [ref] }
+      close: { kind: external, from: OPEN, to: DONE, guards: { is_clear: deny } }
+"""
+
+
+def test_an_evaluator_a_derivation_asks_is_answered_alike(tee):
+    """A guard reading a derived attribute that asks an evaluator, loaded with
+    the checks skipped since step 3 lets only a guard ask one, refuses as
+    unknown with its own remedy where the evaluator does not answer, the
+    derivation absent, and its offer lists nothing unevaluated, on both
+    backends alike (ADR-0138, ADR-0146)."""
+    tee.module = "docs (an evaluator a derivation asks)"
+    before = len(tee.found)
+    op = {"id": "operator"}
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "docs.yaml", "text": LEDGER}], "unchecked": True})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+    tee.post("/sandbox/evaluators", {"answers": {"ledger.cleared": "unanswered"}})
+    doc = tee.post("/v1/request", {"actor": op, "type": "Doc", "transition": "open",
+                                   "inputs": {"ref": "R-1"}})["object_id"]
+    [close] = [o for o in tee.post("/v1/availability", {"actor": op, "id": doc}) if o["transition"] == "close"]
+    assert close["unevaluated"] == [], close
+    v = tee.post("/v1/request", {"actor": op, "object_id": doc, "transition": "close"})
+    assert (v["kind"], v.get("clause"), v.get("remedy"), v.get("unknown")) == ("unsatisfied", "is_clear", "delegable", True), v
+    assert tee.found[before:] == [], tee.found[before:]
