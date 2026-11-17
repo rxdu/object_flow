@@ -36555,6 +36555,46 @@
   }
  },
  {
+  "label": "value_plants: an invariant testing its text and reading its dates' parts",
+  "files": [
+   [
+    "bookings.yaml",
+    "b33c0a9c208704c9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "bookings.yaml",
+    31,
+    "notice",
+    "absent",
+    "accept assigns days a value that can be absent, through proposed (Booking.proposed is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
+   ]
+  ],
+  "analysed": {
+   "Booking": [
+    0,
+    1
+   ]
+  },
+  "forms": {
+   "Booking.days_in_order": "local",
+   "Booking.proposed_in_order": "local"
+  },
+  "could_violate": {
+   "Booking.days_in_order": [
+    "Booking.accept",
+    "Booking.book"
+   ],
+   "Booking.proposed_in_order": [
+    "Booking.accept",
+    "Booking.book",
+    "Booking.propose"
+   ]
+  }
+ },
+ {
   "label": "value_plants: an invariant calling a metric",
   "files": [
    [
@@ -36569,21 +36609,21 @@
     11,
     "fatal",
     "names",
-    "invariant days_in_order does not type: max is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+    "invariant days_in_order does not type: max is no function the language has: it has length, trim, date, add_months, whole, is_whole, contains, starts_with, ends_with, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
    ],
    [
     "bookings.yaml",
     11,
     "fatal",
     "names",
-    "invariant proposed_in_order does not type: max is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+    "invariant proposed_in_order does not type: max is no function the language has: it has length, trim, date, add_months, whole, is_whole, contains, starts_with, ends_with, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
    ],
    [
     "bookings.yaml",
     11,
     "fatal",
     "names",
-    "the invariant DayRange.in_order calls max; a value's invariant reads its own fields, calling length, trim, add_months, whole or is_whole alone (ADR-0255, ADR-0276, ADR-0278)"
+    "the invariant DayRange.in_order calls max; a value's invariant reads its own fields, calling length, trim, add_months, whole, is_whole, contains, starts_with or ends_with alone (ADR-0255, ADR-0276, ADR-0278, ADR-0285)"
    ],
    [
     "bookings.yaml",
@@ -36873,6 +36913,501 @@
     "notice",
     "unknown",
     "said can be unknown when close is requested, through inputs.reason (the input reason is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "text_and_date_plants: a guard testing texts",
+  "files": [
+   [
+    "cards.yaml",
+    "bbf0b8d2bed12237"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cards.yaml",
+    12,
+    "notice",
+    "unwritten",
+    "Card.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    13,
+    "notice",
+    "unwritten",
+    "Card.opened is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    21,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through inputs.reason (the input reason is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {
+   "Card": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "text_and_date_plants: a text tested against a number",
+  "files": [
+   [
+    "cards.yaml",
+    "e9a7f892fae4ec0a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cards.yaml",
+    12,
+    "notice",
+    "unwritten",
+    "Card.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    13,
+    "notice",
+    "unwritten",
+    "Card.opened is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    18,
+    "fatal",
+    "names",
+    "condition said does not type: contains takes two strings, and is given an int (the model's check 24)"
+   ],
+   [
+    "cards.yaml",
+    21,
+    "notice",
+    "before",
+    "said reads count, which close takes as an input: a guard runs before the transition writes it, so it reads the value count had before the request; inputs.count is the value supplied"
+   ],
+   [
+    "cards.yaml",
+    21,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through count (Card.count is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "text_and_date_plants: a number tested for a text",
+  "files": [
+   [
+    "cards.yaml",
+    "cdd12430bb196b55"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cards.yaml",
+    12,
+    "notice",
+    "unwritten",
+    "Card.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    13,
+    "notice",
+    "unwritten",
+    "Card.opened is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    18,
+    "fatal",
+    "names",
+    "condition said does not type: ends_with takes two strings, and is given an int (the model's check 24)"
+   ],
+   [
+    "cards.yaml",
+    21,
+    "notice",
+    "before",
+    "said reads count, which close takes as an input: a guard runs before the transition writes it, so it reads the value count had before the request; inputs.count is the value supplied"
+   ],
+   [
+    "cards.yaml",
+    21,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through count (Card.count is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "text_and_date_plants: a text test given one argument",
+  "files": [
+   [
+    "cards.yaml",
+    "2e1be0b2b3695b3a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cards.yaml",
+    12,
+    "notice",
+    "unwritten",
+    "Card.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    13,
+    "notice",
+    "unwritten",
+    "Card.opened is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    18,
+    "fatal",
+    "names",
+    "condition said does not type: starts_with takes two arguments, and is given 1 (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "text_and_date_plants: a guard reading a date's parts",
+  "files": [
+   [
+    "cards.yaml",
+    "1f6adc9f860983b2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cards.yaml",
+    12,
+    "notice",
+    "unwritten",
+    "Card.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    13,
+    "notice",
+    "unwritten",
+    "Card.opened is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    21,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through due (Card.due is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {
+   "Card": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "text_and_date_plants: a date's member it has not",
+  "files": [
+   [
+    "cards.yaml",
+    "34e497f2db2e7911"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cards.yaml",
+    12,
+    "notice",
+    "unwritten",
+    "Card.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    13,
+    "notice",
+    "unwritten",
+    "Card.opened is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    18,
+    "fatal",
+    "names",
+    "condition said does not type: it reads hour of a date, which has only year, month, day and weekday (the model's check 24)"
+   ],
+   [
+    "cards.yaml",
+    21,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through due (Card.due is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "text_and_date_plants: a time's part read without date",
+  "files": [
+   [
+    "cards.yaml",
+    "6ba00f1f80e3fff2"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cards.yaml",
+    12,
+    "notice",
+    "unwritten",
+    "Card.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    13,
+    "notice",
+    "unwritten",
+    "Card.opened is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    18,
+    "fatal",
+    "names",
+    "condition said does not type: it reads year of a timestamp, which has no members (the model's check 24)"
+   ],
+   [
+    "cards.yaml",
+    21,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through opened (Card.opened is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "text_and_date_plants: a date's part compared with a string",
+  "files": [
+   [
+    "cards.yaml",
+    "d84dfee78278a3f3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cards.yaml",
+    12,
+    "notice",
+    "unwritten",
+    "Card.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    13,
+    "notice",
+    "unwritten",
+    "Card.opened is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    18,
+    "fatal",
+    "names",
+    "condition said does not type: it compares an int with a string (the model's check 24)"
+   ],
+   [
+    "cards.yaml",
+    21,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through due (Card.due is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "text_and_date_plants: an indexed derivation calling a text test",
+  "files": [
+   [
+    "cards.yaml",
+    "c54b0db99abbd094"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cards.yaml",
+    12,
+    "notice",
+    "unwritten",
+    "Card.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    13,
+    "notice",
+    "unwritten",
+    "Card.opened is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    18,
+    "fatal",
+    "names",
+    "derived attribute 'coded' is indexed and calls starts_with, which its generated column's SQL does not compute alike"
+   ],
+   [
+    "cards.yaml",
+    23,
+    "notice",
+    "before",
+    "said reads count, which close takes as an input: a guard runs before the transition writes it, so it reads the value count had before the request; inputs.count is the value supplied"
+   ],
+   [
+    "cards.yaml",
+    23,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through count (Card.count is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "text_and_date_plants: an observation's invariant testing its text",
+  "files": [
+   [
+    "cards.yaml",
+    "66f6aab1e538c151"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cards.yaml",
+    12,
+    "notice",
+    "unwritten",
+    "Card.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    13,
+    "notice",
+    "unwritten",
+    "Card.opened is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    29,
+    "notice",
+    "before",
+    "said reads count, which close takes as an input: a guard runs before the transition writes it, so it reads the value count had before the request; inputs.count is the value supplied"
+   ],
+   [
+    "cards.yaml",
+    29,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through count (Card.count is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {
+   "Card": [
+    1,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "text_and_date_plants: an indexed derivation reading a date's part",
+  "files": [
+   [
+    "cards.yaml",
+    "6309cba9a54be117"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "cards.yaml",
+    12,
+    "notice",
+    "unwritten",
+    "Card.due is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    13,
+    "notice",
+    "unwritten",
+    "Card.opened is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "cards.yaml",
+    18,
+    "fatal",
+    "names",
+    "derived attribute 'due_year' is indexed and reads a date's year, which its generated column's SQL does not compute alike"
+   ],
+   [
+    "cards.yaml",
+    23,
+    "notice",
+    "before",
+    "said reads count, which close takes as an input: a guard runs before the transition writes it, so it reads the value count had before the request; inputs.count is the value supplied"
+   ],
+   [
+    "cards.yaml",
+    23,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through count (Card.count is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -37173,7 +37708,7 @@
     25,
     "fatal",
     "names",
-    "condition said does not type: abs is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+    "condition said does not type: abs is no function the language has: it has length, trim, date, add_months, whole, is_whole, contains, starts_with, ends_with, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
    ]
   ],
   "analysed": {},
@@ -48892,7 +49427,7 @@
     24,
     "fatal",
     "names",
-    "derived attribute probe does not type: abs is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+    "derived attribute probe does not type: abs is no function the language has: it has length, trim, date, add_months, whole, is_whole, contains, starts_with, ends_with, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
    ]
   ],
   "analysed": {},
@@ -48959,7 +49494,7 @@
     24,
     "fatal",
     "names",
-    "derived attribute probe does not type: max is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
+    "derived attribute probe does not type: max is no function the language has: it has length, trim, date, add_months, whole, is_whole, contains, starts_with, ends_with, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year (the model's check 24)"
    ]
   ],
   "analysed": {},

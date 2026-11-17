@@ -370,6 +370,21 @@ pub fn in_calendar(day: i64) -> bool {
 /// day where it does not, so 2026-01-31 plus a month is 2026-02-28. None
 /// where it leaves the calendar, as a date moved by days has no value there
 /// (ADR-0276, ADR-0190).
+/// A date's part, `year`, `month`, `day` or `weekday`, its weekday ISO
+/// 8601's, 1 for Monday to 7 for Sunday; none for any other name
+/// (ADR-0285 decision 2).
+pub fn date_part(day: i64, part: &str) -> Option<i64> {
+    let (y, m, d) = civil_from_days(day);
+    Some(match part {
+        "year" => y,
+        "month" => i64::from(m),
+        "day" => i64::from(d),
+        // 1970-01-01, day 0, was a Thursday, ISO's 4
+        "weekday" => (day.rem_euclid(7) + 3) % 7 + 1,
+        _ => return None,
+    })
+}
+
 pub fn add_months(day: i64, months: i64) -> Option<i64> {
     if !in_calendar(day) {
         return None;
@@ -616,6 +631,25 @@ impl Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A date's parts, its weekday ISO 8601's, across 1970's first day, a
+    /// leap day, a Sunday and the Monday after, a day before 1970 and the
+    /// calendar's first day (ADR-0285 decision 2).
+    #[test]
+    fn a_dates_parts_are_its_calendars() {
+        let leap = days_from_civil(2024, 2, 29);
+        assert_eq!(date_part(0, "weekday"), Some(4));
+        assert_eq!(date_part(leap, "year"), Some(2024));
+        assert_eq!(date_part(leap, "month"), Some(2));
+        assert_eq!(date_part(leap, "day"), Some(29));
+        assert_eq!(date_part(leap, "weekday"), Some(4));
+        assert_eq!(date_part(days_from_civil(2026, 11, 22), "weekday"), Some(7));
+        assert_eq!(date_part(days_from_civil(2026, 11, 23), "weekday"), Some(1));
+        assert_eq!(date_part(-1, "year"), Some(1969));
+        assert_eq!(date_part(-1, "weekday"), Some(3));
+        assert_eq!(date_part(days_from_civil(1, 1, 1), "weekday"), Some(1));
+        assert_eq!(date_part(0, "hour"), None);
+    }
 
     fn d(text: &str) -> Decimal {
         Decimal::parse(text).unwrap()

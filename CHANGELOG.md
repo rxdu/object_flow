@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Added
+
+- A text's `contains(<string>, <string>)`, `starts_with(<string>, <string>)` and `ends_with(<string>, <string>)`, each a `bool`, exact by code points, an empty part held by every text; and a date's members `year`, `month`, `day` and `weekday`, each an `int`, the weekday ISO 8601's, 1 for Monday, a timestamp's read through `date(<timestamp>)`. Check 24 types each, and an `indexed` derivation may not use them (ADR-0285).
+
 ### Changed, and may refuse what 0.30.0 accepted
 
 - Check 24 types a binder over an object's observations, `o` in `any(o in approvals where o.approver == a)`, as an observation of its kind, reading the kind's fields, `subject`, `corrects`, `occurred_at`, `recorded_at` and `recorded_by_kind`. So it refuses a field compared across types, as `o.score == label` with `score` an `int`, and a field the kind does not declare. Such a binder typed as nothing, and the module loaded clean: the core answered such an `==` false on every observation, and did not run such an ordering.

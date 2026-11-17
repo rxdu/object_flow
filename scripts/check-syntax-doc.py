@@ -626,8 +626,8 @@ def stores(d, spec, by_name):
 def beyond_own_fields(expr):
     """Whether a kind's invariant, parsed, reads more than its own fields: an
     aggregate, a type it scans, a metric, or a call but `length`, `trim`,
-    `add_months`, `whole` or `is_whole`, which read their arguments alone
-    (check 54, ADR-0164, ADR-0276, ADR-0278). One that does not parse is left to the checks that say so."""
+    `add_months`, `whole`, `is_whole`, `contains`, `starts_with` or `ends_with`, which read their arguments alone
+    (check 54, ADR-0164, ADR-0276, ADR-0278, ADR-0285). One that does not parse is left to the checks that say so."""
     try:
         tree = flowexpr.parse(expr.strip())
     except flowexpr.ParseError:
@@ -641,7 +641,8 @@ def beyond_own_fields(expr):
         if node[0] in ("agg", "metric"):
             return True
         if node[0] == "call" and node[1] not in (("name", "length"), ("name", "trim"), ("name", "add_months"),
-                                                 ("name", "whole"), ("name", "is_whole")):
+                                                 ("name", "whole"), ("name", "is_whole"), ("name", "contains"),
+                                                 ("name", "starts_with"), ("name", "ends_with")):
             return True
         return any(reaches(n) for n in node[1:])
     return reaches(tree)

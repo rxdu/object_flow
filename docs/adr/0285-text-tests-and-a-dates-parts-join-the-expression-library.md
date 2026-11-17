@@ -1,6 +1,6 @@
 # ADR-0285: Text tests and a date's parts join the expression library
 
-- **Status:** **Decided** by the author 2026-11-17 ("go with your recommendations"), on the point put the same day with a recommendation to accept it, since both standards define these and each is exact. Proposed the same day at the author's word ("go with your recommendations"), on the point put with a recommendation: whether to propose, as one ADR, a text's contains, starts and ends with, and a date's year, month, day and weekday. To be built after the typer is taught its four constructs (`TODO.md`, *Issues filed on GitHub*).
+- **Status:** **Decided** by the author 2026-11-17 ("go with your recommendations"), on the point put the same day with a recommendation to accept it, since both standards define these and each is exact. Proposed the same day at the author's word ("go with your recommendations"), on the point put with a recommendation: whether to propose, as one ADR, a text's contains, starts and ends with, and a date's year, month, day and weekday. Built 2026-11-18, after the typer was taught its four constructs.
 - **Date:** 2026-11-17
 - **Refines:** `declaration-syntax.md` §8.3 (*These are all the functions*)
 - **Relates to:** `docs/research/growing-the-expression-library.md`; ADR-0249 (`trim`); ADR-0283 (`date`)

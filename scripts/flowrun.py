@@ -80,6 +80,10 @@ BUCKETS = {"day", "week", "month", "quarter", "year"}
 OBJECT_MEMBERS = ("id", "open", "created_at", "created_by_kind", "recorded_from", "declaration_version")
 YIELDING_MEMBERS = ("type", "recorded_by_kind", "actor_id", "intervals", "transitions", "attempts", "labels")
 ROW_AGGREGATES = {"count", "sum", "min", "max", "avg", "median", "percentile"}
+# whether a text holds another, anywhere, at its start or at its end, by code points alone (ADR-0285 decision 1)
+TEXT_TESTS = {"contains", "starts_with", "ends_with"}
+# a date's parts, each an int, its weekday ISO 8601's, 1 for Monday (ADR-0285 decision 2)
+DATE_PARTS = {"year", "month", "day", "weekday"}
 AVERAGE_SCALE = 6                               # an average of integers is a decimal to six places (ADR-0139)
 # each currency's minor unit, the scale its amounts are rounded to (ISO 4217; declaration-syntax.md §8.3)
 MINOR_UNITS = {"USD": 2, "EUR": 2, "GBP": 2, "SGD": 2, "AUD": 2, "CAD": 2, "CHF": 2, "CNY": 2, "HKD": 2, "NZD": 2,
@@ -1001,6 +1005,11 @@ class Evaluator:
         # a file's media type and its size in bytes, the members it has (ADR-0239 decision 4)
         if isinstance(base, tuple) and len(base) == 4 and base[0] == "file" and m in ("media_type", "size"):
             return base[3] if m == "media_type" else base[2]
+        # a date's parts (ADR-0285 decision 2); a date has no other member
+        if is_date(base):
+            if m in DATE_PARTS:
+                return {"year": base.year, "month": base.month, "day": base.day, "weekday": base.isoweekday()}[m]
+            raise NotRunnable(f"the member `{m}` of a date")
         if not isinstance(base, str) or base not in self.s.objects:
             raise NotRunnable(f"a member `{m}` of a value that is not an object")
         o = self.s.objects[base]
@@ -1550,6 +1559,14 @@ class Evaluator:
                 # arithmetic past its bound does (ADR-0278, ADR-0205 decision 2)
                 raise OutOfRange(self.this)
             return int(v)
+        if fn[0] == "name" and fn[1] in TEXT_TESTS and len(args) == 2:
+            # exact, by code points, an empty part held by every text; unknown where either is absent (ADR-0285)
+            a, b = self.value(args[0], env), self.value(args[1], env)
+            if a is ABSENT or b is ABSENT:
+                return ABSENT
+            if not isinstance(a, str) or not isinstance(b, str):
+                raise NotRunnable(f"{fn[1]} of a value that is not a text")
+            return b in a if fn[1] == "contains" else a.startswith(b) if fn[1] == "starts_with" else a.endswith(b)
         if fn == ("name", "length") and len(args) == 1:
             v = self.value(args[0], env)
             return ABSENT if v is ABSENT else len(v)
@@ -2237,7 +2254,8 @@ class Evaluator:
                 if fn[1] in ROW_AGGREGATES:
                     return self.aggregate_kind(fn[1], args[-1], env)
                 return {"entered_at": ("timestamp",), "time_in": ("duration",), "date": ("date",),
-                        "add_months": ("date",), "whole": ("int",), "is_whole": ("bool",)}.get(fn[1], ("other",))
+                        "add_months": ("date",), "whole": ("int",), "is_whole": ("bool",),
+                        **dict.fromkeys(TEXT_TESTS, ("bool",))}.get(fn[1], ("other",))
             base = self.kind(fn[1], env)
             if fn[2] in ("entered_at", "time_in"):
                 return ("timestamp",) if fn[2] == "entered_at" else ("duration",)
@@ -2261,6 +2279,8 @@ class Evaluator:
         raise NotRunnable("an average of values that have no scale")
 
     def member_kind(self, base, m):
+        if base[0] == "date":
+            return ("int",) if m in DATE_PARTS else ("other",)     # a date's parts (ADR-0285 decision 2)
         if base[0] == "interval":
             return {"entered_at": ("timestamp",), "left_at": ("timestamp",), "duration": ("duration",),
                     "piece_start": ("timestamp",), "piece_end": ("timestamp",), "object": ("object", base[1])}.get(m, ("other",))

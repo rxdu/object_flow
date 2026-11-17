@@ -299,15 +299,16 @@ static BACKDATABLE: LazyLock<Regex> =
 static FROM: LazyLock<Regex> =
     LazyLock::new(|| re(r"^(\w+)\s+in\s+(\w+)(?:\.(\w+)(?:\((\w+)\))?)?"));
 /// Whether a kind's invariant, parsed, reads more than its own fields: an
-/// aggregate, a type it scans, a metric, or a call but `length`, `trim` or
-/// `add_months`, which read their arguments alone (check 54, ADR-0164,
-/// ADR-0276). One that does not parse is left to the checks that say so.
+/// aggregate, a type it scans, a metric, or a call but `length`, `trim`,
+/// `add_months`, `whole`, `is_whole`, `contains`, `starts_with` or
+/// `ends_with`, which read their arguments alone (check 54, ADR-0164,
+/// ADR-0276, ADR-0278, ADR-0285). One that does not parse is left to the checks that say so.
 fn beyond_own_fields(expr: &str) -> bool {
     fn reaches(e: &crate::expr::Expr) -> bool {
         use crate::expr::Expr;
         match e {
             Expr::Agg { .. } | Expr::Metric { .. } => true,
-            Expr::Call(f, _) if !matches!(f.as_ref(), Expr::Name(n) if ["length", "trim", "add_months", "whole", "is_whole"].contains(&n.as_str())) => {
+            Expr::Call(f, _) if !matches!(f.as_ref(), Expr::Name(n) if ["length", "trim", "add_months", "whole", "is_whole", "contains", "starts_with", "ends_with"].contains(&n.as_str())) => {
                 true
             }
             _ => e.children().into_iter().any(reaches),

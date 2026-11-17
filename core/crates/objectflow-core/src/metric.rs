@@ -1521,6 +1521,10 @@ impl<'w> Reader<'w> {
                 // (ADR-0278)
                 Expr::Name(f) if f == "whole" => Kind::Int,
                 Expr::Name(f) if f == "is_whole" => Kind::Bool,
+                // whether a text holds another (ADR-0285)
+                Expr::Name(f) if matches!(f.as_str(), "contains" | "starts_with" | "ends_with") => {
+                    Kind::Bool
+                }
                 Expr::Name(_) => Kind::Other,
                 Expr::Path(base, m) => {
                     let base = self.kind(base, env, this)?;
@@ -1563,6 +1567,8 @@ impl<'w> Reader<'w> {
 
     fn member_kind(&self, base: &Kind, m: &str) -> Result<Kind, NotRun> {
         Ok(match base {
+            // a date's parts (ADR-0285 decision 2)
+            Kind::Date if matches!(m, "year" | "month" | "day" | "weekday") => Kind::Int,
             Kind::Interval(t) => match m {
                 "entered_at" | "left_at" | "piece_start" | "piece_end" => Kind::Timestamp,
                 "duration" => Kind::Duration,

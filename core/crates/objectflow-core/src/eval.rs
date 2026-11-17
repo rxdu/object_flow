@@ -927,6 +927,14 @@ impl<'a> Evaluator<'a> {
                     None => not_run(format!("the field `{m}` of a {value_type}")),
                 };
             }
+            // a date's parts, each an int (ADR-0285 decision 2); a date has
+            // no other member
+            Term::Value(Value::Date(d)) => {
+                return match crate::value::date_part(*d, m) {
+                    Some(v) => Ok(Term::Value(Value::Int(v))),
+                    None => not_run(format!("the member `{m}` of a date")),
+                };
+            }
             // a file's media type and its size in bytes (ADR-0239)
             Term::Value(Value::File { media_type, .. }) if m == "media_type" => {
                 return Ok(Term::Value(Value::Text(media_type.clone())));
@@ -1780,6 +1788,20 @@ impl<'a> Evaluator<'a> {
                 Value::Decimal(d) => Value::Bool(d.is_whole()),
                 other => return not_run(format!("is_whole of {}", other.kind())),
             }),
+            // whether a text holds another, anywhere, at its start or at its
+            // end, by code points alone, an empty part held by every text;
+            // unknown where either is absent (ADR-0285 decision 1)
+            ("contains" | "starts_with" | "ends_with", [a, b]) => {
+                Ok(match (self.value(a, env)?, self.value(b, env)?) {
+                    (Value::Absent, _) | (_, Value::Absent) => Value::Absent,
+                    (Value::Text(a), Value::Text(b)) => Value::Bool(match name {
+                        "contains" => a.contains(b.as_str()),
+                        "starts_with" => a.starts_with(b.as_str()),
+                        _ => a.ends_with(b.as_str()),
+                    }),
+                    (a, b) => return not_run(format!("{name} of {} and {}", a.kind(), b.kind())),
+                })
+            }
             ("entered_at" | "time_in", [Expr::Name(arg)]) => match self.this {
                 Some(id) => self.flow_function(id, name, arg),
                 None => Ok(Value::Absent),

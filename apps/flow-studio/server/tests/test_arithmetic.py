@@ -1098,3 +1098,88 @@ def test_a_values_invariant_holds_on_each_holder_alike(tee):
     took(tee, b, "propose", proposed={"first": "2026-11-09", "last": "2026-11-12"})
     alike(tee)
 
+
+TICKETS = """module: tickets
+categories: [live, closed]
+types:
+  Ticket:
+    description: A ticket with a code and a day it is due.
+    tracking: record
+    attributes:
+      code: { type: string }
+      due: { type: date, optional: true }
+      year_due: { type: int, optional: true }
+      weekday_due: { type: int, optional: true }
+      flagged: { type: bool, optional: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    conditions:
+      a_ticket: { description: The code is a ticket's., expression: 'starts_with(code, "TK-")', remedy: self_serviceable }
+      marked: { description: The code is marked., expression: 'contains(code, "!") or ends_with(code, "?")', remedy: self_serviceable }
+      every_code: { description: Every code holds the empty text., expression: 'contains(code, "") and starts_with(code, "") and ends_with(code, "")', remedy: self_serviceable }
+      a_weekday: { description: Due on a weekday., expression: 'due.weekday <= 5', remedy: self_serviceable }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [code], optional_inputs: [due] }
+      stamp:
+        kind: internal
+        from: [OPEN]
+        effect:
+          - assign: { location: year_due, expr: due.year }
+          - assign: { location: weekday_due, expr: due.weekday }
+          - assign: { location: flagged, expr: 'contains(code, "!")' }
+      take_ticket: { kind: internal, from: [OPEN], guards: { a_ticket: deny } }
+      mark: { kind: internal, from: [OPEN], guards: { marked: deny } }
+      blank_part: { kind: internal, from: [OPEN], guards: { every_code: deny } }
+      plan: { kind: internal, from: [OPEN], guards: { a_weekday: deny } }
+      close: { kind: external, from: [OPEN], to: DONE }
+    metrics:
+      tickets:
+        description: The tickets whose code is a ticket's.
+        source: objects
+        item: c
+        expression: count(where starts_with(c.code, "TK-"))
+      latest_year:
+        description: The latest year a ticket is due.
+        source: objects
+        item: c
+        expression: max(c.due.year)
+"""
+
+
+def test_a_texts_tests_and_a_dates_parts_are_read_alike(tee):
+    """A text's `contains`, `starts_with` and `ends_with`, and a date's
+    `year` and `weekday`, on both runners alike: a guard on each test holding
+    and refusing, an empty part held by every text, a weekday by ISO 8601's
+    numbers across a Sunday and the Monday after, an absent date's part
+    unknown, an effect writing a date's parts and a test's answer, and a
+    metric of each (ADR-0285)."""
+    tee.found.clear()
+    load(tee, "tickets", TICKETS)
+    wednesday = made(tee, "Ticket", "add", code="TK-42!", due="2026-11-18")
+    took(tee, wednesday, "stamp")
+    held = tee.post("/v1/get", {"id": wednesday})["attributes"]
+    assert (held["year_due"], held["weekday_due"], held["flagged"]) == (2026, 3, True), held
+    for xn in ("take_ticket", "mark", "blank_part", "plan"):
+        took(tee, wednesday, xn)
+    sunday = made(tee, "Ticket", "add", code="ab", due="2026-11-22")
+    monday = made(tee, "Ticket", "add", code="x?", due="2026-11-23")
+    # a part held inside a text, but not at its start or at its end
+    inside = made(tee, "Ticket", "add", code="?aTK-", due="2026-11-23")
+    for card, xn, holds in [(sunday, "plan", False), (monday, "plan", True), (sunday, "take_ticket", False),
+                            (sunday, "mark", False), (monday, "mark", True), (sunday, "blank_part", True),
+                            (inside, "take_ticket", False), (inside, "mark", False)]:
+        v = tee.post("/v1/request", {"transition": xn, "actor": OP, "object_id": card, "inputs": {}})
+        assert (v["kind"] == "satisfied") == holds, (xn, v)
+    took(tee, sunday, "stamp")
+    held = tee.post("/v1/get", {"id": sunday})["attributes"]
+    assert (held["weekday_due"], held["flagged"]) == (7, False), held
+    # an absent date's weekday is unknown, which a deny guard does not pass
+    undated = made(tee, "Ticket", "add", code="TK-1")
+    v = tee.post("/v1/request", {"transition": "plan", "actor": OP, "object_id": undated, "inputs": {}})
+    assert v["kind"] != "satisfied", v
+    m = tee.post("/v1/metric", {"actor": OP, "name": "Ticket.tickets"})
+    assert [r["value"] for r in m["rows"]] == [2], m
+    m = tee.post("/v1/metric", {"actor": OP, "name": "Ticket.latest_year"})
+    assert [r["value"] for r in m["rows"]] == [2026], m
+    alike(tee)

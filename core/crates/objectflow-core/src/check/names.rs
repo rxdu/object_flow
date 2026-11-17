@@ -3624,6 +3624,9 @@ impl Typing<'_> {
     ) -> Option<Ty> {
         match name {
             "add_months" => self.months_moved(args, tn, x, env, seen),
+            "contains" | "starts_with" | "ends_with" => {
+                self.text_tested(name, args, tn, x, env, seen)
+            }
             "whole" | "is_whole" => self.made_whole(name, args, tn, x, env, seen),
             _ => {
                 let arg = if args.len() == 1 {
@@ -3664,6 +3667,46 @@ impl Typing<'_> {
                 }
             }
         }
+    }
+
+    /// A text test's type: two texts, whether the second is in the first, at
+    /// its start or at its end (ADR-0285 decision 3).
+    #[inline(never)]
+    fn text_tested(
+        &mut self,
+        name: &str,
+        args: &[Expr],
+        tn: &str,
+        x: Option<&Value>,
+        env: &TyEnv,
+        seen: &BTreeSet<(String, String)>,
+    ) -> Option<Ty> {
+        for a in args {
+            if let Some(at) = self.of(a, tn, x, env, seen)
+                && at != Ty::Str
+            {
+                self.fail(format!(
+                    "{name} takes two strings, and is given {}",
+                    at.text()
+                ));
+                break;
+            }
+        }
+        Some(Ty::Bool)
+    }
+
+    /// A member of a date: its parts, each an int, and no other member
+    /// (ADR-0285 decision 3), typed apart from [`Self::of`] for its frame's
+    /// sake (`docs/LESSONS.md`).
+    #[inline(never)]
+    fn date_member(&mut self, m: &str) -> Option<Ty> {
+        if DATE_PARTS.contains(&m) {
+            return Some(Ty::Int);
+        }
+        self.fail(format!(
+            "it reads {m} of a date, which has only year, month, day and weekday"
+        ));
+        None
     }
 
     /// `add_months`'s type: a date and a whole number of months, a date
@@ -4007,6 +4050,9 @@ impl Typing<'_> {
                     // a member of a row of the object's own flow data, a span
                     // or an event, as a metric's row reads it (§6.9)
                     Some(Ty::Row(r)) => self.row_member(&r, m),
+                    // a date's parts, each an int, and no other member
+                    // (ADR-0285 decision 3)
+                    Some(Ty::Date) => self.date_member(m),
                     // a file's media type and its size in bytes (ADR-0239)
                     Some(Ty::File) => match m.as_str() {
                         "media_type" => Some(Ty::Str),
@@ -4071,7 +4117,7 @@ impl Typing<'_> {
                         if !FUNCTIONS.contains(&name.as_str())
                             && !METRIC_ONLY_FUNCTIONS.contains(&name.as_str()) =>
                     {
-                        self.fail(format!("{name} is no function the language has: it has length, trim, date, add_months, whole, is_whole, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year"));
+                        self.fail(format!("{name} is no function the language has: it has length, trim, date, add_months, whole, is_whole, contains, starts_with, ends_with, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year"));
                         return None;
                     }
                     Expr::Name(name)
@@ -4163,7 +4209,8 @@ impl Typing<'_> {
                     return None;
                 };
                 match name.as_str() {
-                    "length" | "trim" | "date" | "add_months" | "whole" | "is_whole" => {
+                    "length" | "trim" | "date" | "add_months" | "whole" | "is_whole"
+                    | "contains" | "starts_with" | "ends_with" => {
                         self.typed_function(name, args, tn, x, env, seen)
                     }
                     "entered_at" => Some(Ty::Timestamp),
@@ -6449,6 +6496,43 @@ static FLOW_DATA_READ: LazyLock<Regex> =
 static TRIM_CALL: LazyLock<Regex> = LazyLock::new(|| re(r"\btrim\("));
 static ADD_MONTHS_CALL: LazyLock<Regex> = LazyLock::new(|| re(r"\badd_months\("));
 static WHOLE_CALL: LazyLock<Regex> = LazyLock::new(|| re(r"\b(is_whole|whole)\("));
+static TEXT_TEST_CALL: LazyLock<Regex> =
+    LazyLock::new(|| re(r"\b(contains|starts_with|ends_with)\("));
+
+/// Each part of a date an expression reads of a date attribute, `due` or
+/// `this.due`, or of `date(…)`, in reading order (ADR-0285 decision 2); a
+/// member of anything else is not a date's part (`check-flows.py`'s
+/// `date_parts_read`).
+fn date_parts_read(text: &str, attrs: &Obj) -> Vec<String> {
+    fn dated(b: &Expr, attrs: &Obj) -> bool {
+        let name = match b {
+            Expr::Call(f, _) => return matches!(&**f, Expr::Name(n) if n == "date"),
+            Expr::Name(n) => n,
+            Expr::Path(base, n) if matches!(&**base, Expr::Name(t) if t == "this") => n,
+            _ => return false,
+        };
+        attrs
+            .get(name)
+            .is_some_and(|a| str_or(a, "type", "") == "date")
+    }
+    fn walk(e: &Expr, attrs: &Obj, out: &mut Vec<String>) {
+        if let Expr::Path(base, part) = e
+            && DATE_PARTS.contains(&part.as_str())
+            && dated(base, attrs)
+            && !out.contains(part)
+        {
+            out.push(part.clone());
+        }
+        for c in e.children() {
+            walk(c, attrs, out);
+        }
+    }
+    let mut out = Vec::new();
+    if let Ok(tree) = parse(text) {
+        walk(&tree, attrs, &mut out);
+    }
+    out
+}
 
 /// An indexed derived attribute reads only this object's stored, indexed
 /// values (the model's check 46).
@@ -6509,6 +6593,22 @@ fn indexed_errors(tn: &str, t: &Value, library: &Obj) -> Found {
         {
             why.push(format!(
                 "calls {f}, which its generated column's SQL does not compute alike"
+            ));
+        }
+        // its generated column's SQL would compute a text's tests and a
+        // date's parts, each as each backend has them (ADR-0285 decision 4)
+        for f in TEXT_TEST_CALL
+            .captures_iter(&text)
+            .map(|c| c[1].to_string())
+            .collect::<BTreeSet<_>>()
+        {
+            why.push(format!(
+                "calls {f}, which its generated column's SQL does not compute alike"
+            ));
+        }
+        for part in date_parts_read(&text, attrs) {
+            why.push(format!(
+                "reads a date's {part}, which its generated column's SQL does not compute alike"
             ));
         }
         for w in why {
@@ -7869,20 +7969,32 @@ fn evaluator_errors(doc: &Value, tn: &str, t: &Value) -> Found {
 
 /// The functions an expression may call, and the member functions
 /// (`declaration-syntax.md` §8.3).
-const FUNCTIONS: [&str; 8] = [
+const FUNCTIONS: [&str; 11] = [
     "length",
     "trim",
     "date",
     "add_months",
     "whole",
     "is_whole",
+    "contains",
+    "starts_with",
+    "ends_with",
     "entered_at",
     "time_in",
 ];
+/// Whether a text holds another, anywhere, at its start or at its end
+/// (ADR-0285 decision 1).
+const TEXT_TESTS: [&str; 3] = ["contains", "starts_with", "ends_with"];
+/// A date's parts, each an int (ADR-0285 decision 2).
+const DATE_PARTS: [&str; 4] = ["year", "month", "day", "weekday"];
 /// The number of arguments a function takes: `add_months` a date and a
 /// count of months (ADR-0276), each other one.
 fn arity(function: &str) -> usize {
-    if function == "add_months" { 2 } else { 1 }
+    if function == "add_months" || TEXT_TESTS.contains(&function) {
+        2
+    } else {
+        1
+    }
 }
 /// The functions a metric alone calls, which check 56 refuses elsewhere.
 const METRIC_ONLY_FUNCTIONS: [&str; 8] = [
