@@ -3446,23 +3446,35 @@ struct Typing<'a> {
     /// 2^n times, forty holding the dry run's slot past six minutes
     /// (eleventh production review).
     known: &'a std::cell::RefCell<BTreeMap<(String, String), Option<Ty>>>,
+    /// Each observation kind as the checks see one, whose objects a member
+    /// of its subject's type names (§6.8), so that a binder over them reads
+    /// its fields, where each typed as nothing.
+    observed: &'a Obj,
 }
 
 type TyEnv = BTreeMap<String, Option<Ty>>;
 
 impl Typing<'_> {
+    /// What declares `tn`: a type, or an observation kind.
+    fn declared(&self, tn: &str) -> Option<&Value> {
+        self.kinds.get(tn).or_else(|| self.observed.get(tn))
+    }
+
     /// Why a member read through a reference is none its type has: an
     /// attribute, a derived attribute, an observation kind, what every object
     /// has, its flow data among it, its state or its referrers; none where it
     /// is one, or where nothing declares the type (D695, `check-flows.py`'s
     /// `undeclared`).
     fn undeclared(&self, tn: &str, m: &str) -> Option<String> {
-        let t = self.kinds.get(tn)?;
+        let t = self.declared(tn)?;
         if m == "state"
             || m == "referrers"
             || object_member_type(m).is_some()
             || super::optional::BUILT_IN.contains(&m)
         {
+            return None;
+        }
+        if m == "recorded_by_kind" && !self.kinds.contains_key(tn) {
             return None;
         }
         if obj(t, "attributes").contains_key(m)
@@ -3482,15 +3494,25 @@ impl Typing<'_> {
     fn member(&self, tn: &str, m: &str, seen: &BTreeSet<(String, String)>) -> Option<Ty> {
         // the type read where it is, where each member cloned it whole
         static NONE: Value = Value::Null;
-        let t = self.kinds.get(tn).unwrap_or(&NONE);
+        let t = self.declared(tn).unwrap_or(&NONE);
         if m == "state" {
             return Some(Ty::State(tn.to_string()));
         }
         if let Some(k) = object_member_type(m) {
             return Some(k);
         }
+        // who recorded an observation (§6.9)
+        if m == "recorded_by_kind" && !self.kinds.contains_key(tn) && self.observed.contains_key(tn)
+        {
+            return Some(Ty::ActorKind);
+        }
         if let Some(spec) = obj(t, "attributes").get(m) {
             return attribute_type(Some(spec), self.enums);
+        }
+        // its observations of the kind, as the runners read them
+        if let Some(Value::String(kind)) = obj(t, "observations").get(m).and_then(|o| o.get("kind"))
+        {
+            return Some(Ty::Objects(kind.clone()));
         }
         let pair = (tn.to_string(), m.to_string());
         if let Some(known) = self.known.borrow().get(&pair) {
@@ -3515,6 +3537,7 @@ impl Typing<'_> {
                 broken: Vec::new(),
                 flow_names: false,
                 known: self.known,
+                observed: self.observed,
             };
             let mut deeper = seen.clone();
             deeper.insert(pair.clone());
@@ -5162,6 +5185,7 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
     let cats = categories(doc);
     let evaluators = evaluator_names(doc);
     let known = std::cell::RefCell::new(BTreeMap::new());
+    let observed = observation_kinds(&kinds);
     let mut typing = Typing {
         kinds: &kinds,
         enums: &enums,
@@ -5170,6 +5194,7 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
         broken: Vec::new(),
         flow_names: false,
         known: &known,
+        observed: &observed,
     };
     let mut out = Found::new();
     #[allow(clippy::too_many_arguments)]
@@ -5460,6 +5485,7 @@ fn argument_type_errors(doc: &Value, library: &Obj) -> Found {
     let cats = categories(doc);
     let evaluators = evaluator_names(doc);
     let known = std::cell::RefCell::new(BTreeMap::new());
+    let observed = observation_kinds(&kinds);
     let mut typing = Typing {
         kinds: &kinds,
         enums: &typing_enums,
@@ -5468,6 +5494,7 @@ fn argument_type_errors(doc: &Value, library: &Obj) -> Found {
         broken: Vec::new(),
         flow_names: false,
         known: &known,
+        observed: &observed,
     };
     let mut out = Found::new();
     for (tn, t) in types(doc) {

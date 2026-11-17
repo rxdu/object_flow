@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Changed, and may refuse what 0.30.0 accepted
+
+- Check 24 types a binder over an object's observations, `o` in `any(o in approvals where o.approver == a)`, as an observation of its kind, reading the kind's fields, `subject`, `corrects`, `occurred_at`, `recorded_at` and `recorded_by_kind`. So it refuses a field compared across types, as `o.score == label` with `score` an `int`, and a field the kind does not declare. Such a binder typed as nothing, and the module loaded clean: the core answered such an `==` false on every observation, and did not run such an ordering.
+
 ## 0.30.0, 2026-11-17
 
 A release before 1.0.0, as 0.29.0 was (ADR-0214), with the two gaps a check of the checks against the engine found, each decided by the author: check 8 reads a required reference no creation writes, and check 24 reads an amount's currency anywhere in a metric's value. Each may refuse what 0.29.0 accepted, a module whose creation or metric could never succeed. It fixes three defects besides: a creation leaving a required attribute absent is refused, not faulted; the sandbox's reset reads its body first; and step 3 reads an input where the expression's tree reads it. It changes neither the store's own tables nor its built-ins.

@@ -3350,7 +3350,7 @@ class Typing:
     wherever it cannot be told; a rule is decided only where every operand it reads is known, so nothing is refused for
     what the inference does not reach."""
 
-    def __init__(self, kinds, enums, categories, evaluators, known=None):
+    def __init__(self, kinds, enums, categories, evaluators, known=None, observed=None):
         self.kinds, self.enums, self.categories, self.evaluators = kinds, enums, categories, evaluators
         self.broken = []
         # whether a flow function's argument is checked here: in the places check 58 does not reach through a
@@ -3360,16 +3360,28 @@ class Typing:
         # before twice typed each 2^n times, forty holding the dry run's slot past six minutes (eleventh production
         # review)
         self.known = {} if known is None else known
+        # each observation kind as the checks see one, whose objects a member of its subject's type names (§6.8), so
+        # that a binder over them reads its fields, where each typed as nothing
+        self.observed = observation_kinds(kinds) if observed is None else observed
+
+    def declared(self, tn):
+        """What declares tn: a type, or an observation kind."""
+        return self.kinds.get(tn) or self.observed.get(tn)
 
     def member(self, tn, m, seen):
-        t = self.kinds.get(tn) or {}
+        t = self.declared(tn) or {}
         if m == "state":
             return ("state", tn)
         if m in MEMBER_TYPES:
             return MEMBER_TYPES[m]
+        if m == "recorded_by_kind" and tn not in self.kinds and tn in self.observed:
+            return ("actor_kind",)              # who recorded an observation (§6.9)
         spec = (t.get("attributes") or {}).get(m)
         if spec is not None:
             return attribute_type(spec, self.enums)
+        observed = (t.get("observations") or {}).get(m)
+        if isinstance(observed, dict) and isinstance(observed.get("kind"), str):
+            return ("objects", observed["kind"])    # its observations of the kind, as the runners read them
         derived = (t.get("derived_attributes") or {}).get(m)
         # a derived attribute typed through at most TYPING_DEPTH others, past which its type is unknown: each typed the
         # whole chain below it again, a chain of 1,000 taking minutes and one of 3,000 deeper than a stack (tenth
@@ -3381,7 +3393,7 @@ class Typing:
                 tree = flowexpr.parse(" ".join(str((derived or {}).get("expression", "")).split()))
             except flowexpr.ParseError:
                 return None
-            quiet = Typing(self.kinds, self.enums, self.categories, self.evaluators, self.known)
+            quiet = Typing(self.kinds, self.enums, self.categories, self.evaluators, self.known, self.observed)
             ty = quiet.of(tree, tn, None, {}, seen | {(tn, m)})
             self.known[(tn, m)] = ty
             return ty
@@ -3391,8 +3403,10 @@ class Typing:
         """Why a member read through a reference is none its type has: an attribute, a derived attribute, an
         observation kind, what every object has, its flow data among it, its state or its referrers; none where it is
         one, or where nothing declares the type (D695)."""
-        t = self.kinds.get(tn)
+        t = self.declared(tn)
         if t is None or m in ("state", "referrers") or m in MEMBER_TYPES or m in OptionalReads.BUILT_IN:
+            return None
+        if m == "recorded_by_kind" and tn not in self.kinds:
             return None
         if m in (t.get("attributes") or {}) or m in (t.get("derived_attributes") or {}) or m in (t.get("observations") or {}):
             return None
@@ -10443,6 +10457,14 @@ def expression_type_plants(people):
         assert text.count("      span:  { type: duration }\n") == 1
         return text.replace("      span:  { type: duration }\n", "      span:  { type: duration }\n      due:   { type: date, optional: true }\n")
 
+    def audited(expr):
+        # the ledger with an observation kind of its own, whose objects `audits` names (§6.8)
+        text = ledger(expr)
+        assert text.count("    states:\n") == 1
+        return text.replace("    states:\n", "    observations:\n      audits:\n        kind: Audit\n"
+                            "        description: An audit of the account.\n        attributes:\n"
+                            "          score: { type: int }\n          grade: { type: Tier }\n    states:\n")
+
     def writing(location, expr):
         # a transition writing the value, on the ledger's shut
         return TYPED_LEDGER.replace(
@@ -10640,6 +10662,21 @@ def expression_type_plants(people):
         ("a date moved by an hour", dated("due + 1 h == due"),
          [wrong("derived attribute probe", "it moves a date by 1 h, which is no whole number of days")]),
         ("a date moved by days", dated("due + 2 days == due"), []),
+        # a binder over an object's observations reads the kind's fields and what every observation has, where each
+        # typed as nothing and a comparison of two types published
+        ("an observation's field compared with a string", audited("count(o in audits where o.score == label) > 0"),
+         [wrong("derived attribute probe", "it compares an int with a string")]),
+        ("an observation's member of an enumeration compared with an int", audited("any(o in audits where o.grade == count)"),
+         [wrong("derived attribute probe", "it compares a member of Tier with an int")]),
+        ("an observation's time compared with a duration", audited("max(o in audits: o.occurred_at) < span"),
+         [wrong("derived attribute probe", "it compares a timestamp with a duration")]),
+        ("an observation's recorder compared with an int", audited("any(o in audits where o.recorded_by_kind == count)"),
+         [wrong("derived attribute probe", "it compares an actor kind with an int")]),
+        ("an observation's field its kind does not declare", audited("any(o in this.audits where o.points > 1)"),
+         [wrong("derived attribute probe", "it reads points of Audit, which Audit does not declare")]),
+        ("an observation's members that type", audited(
+            "count(o in audits where o.score > count and o.grade == Tier.GOLD and o.subject == this and o.occurred_at > "
+            "since and o.recorded_by_kind == ActorKind.human) + sum(o in audits: o.score) >= count"), []),
         ("a decimal written to an int", writing("count", "rate * 2"),
          [misfit("rate * 2", "a decimal of scale 2, to count, which holds int: a write's value must fit its target")]),
         ("a literal with places written to an int", writing("count", "2.5"),
