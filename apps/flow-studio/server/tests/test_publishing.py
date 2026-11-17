@@ -5391,3 +5391,42 @@ def test_a_move_giving_what_its_target_cannot_hold_is_worded_alike(tee):
     for report in (tee.post("/v1/publish", body)["report"], raw(tee.runner, "POST", "/v1/publish", body)[1]["report"]):
         assert [(f["code"], f["message"]) for f in report["findings"] if f["severity"] == "fatal"] == want, report
     alike(tee)
+
+
+RENAMED_MEMOS = """module: memos
+categories: [live, closed]
+types:
+  Memo:
+    description: A memo.
+    tracking: record
+    attributes:
+      name: { type: string, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      FILED: { description: Filed., category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: OPEN, optional_inputs: [name], description: Writes a memo. }
+      file: { kind: external, from: OPEN, to: FILED, description: Files it. }
+"""
+
+
+def test_a_rename_of_what_the_installed_version_lacks_carries_nothing_alike(tee):
+    """A version renaming an attribute an earlier version removed renames
+    nothing: the dry run notices the entry, and the approval leaves the new
+    attribute absent and the removed value unwritten, through both backends
+    alike, where the reference carried the removed value to it (F2)."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "memos.yaml", "text": RENAMED_MEMOS}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    memo = made(tee, "Memo", "write", name="x")
+    tee.found.clear()
+    v2 = RENAMED_MEMOS.replace("      name: { type: string, optional: true }\n", "      title: { type: string, optional: true }\n"
+                       ).replace("optional_inputs: [name]", "optional_inputs: [title]")
+    approved(tee, change(tee, "draft", source={"memos": v2}, source_ref="git:memos@2")["object_id"])
+    v3 = v2.replace("      title: { type: string, optional: true }\n",
+                    "      title: { type: string, optional: true }\n      alias: { type: string, optional: true }\n")
+    v3 += "migration:\n  description: The name is an alias.\n  renamed_attributes:\n    Memo: { name: alias }\n"
+    c, codes = dry_run(tee, {"memos": v3})
+    assert "migration_not_applicable:renamed_attributes:Memo.name" in codes, codes
+    approved(tee, c)
+    assert tee.post("/v1/get", {"id": memo})["attributes"].get("alias") is None
+    alike(tee)

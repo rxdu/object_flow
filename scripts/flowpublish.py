@@ -900,6 +900,10 @@ def impact(store, new, found, actor, change_id, ran=None, reads=None):
         for tn, maps in m["renamed_attributes"].items():
             if is_a(kinds, o.type, tn) and oid not in moving:
                 for frm, to in maps.items():
+                    if frm not in (ot.get("attributes") or {}):
+                        # the installed type lacks it, so the entry renames nothing, as the core's reads the installed
+                        # type, where a value an earlier version removed was carried to the new name (F2)
+                        continue
                     if frm in o.attrs:
                         o.attrs[to] = o.attrs.pop(frm)
                     if frm in o.spans:
