@@ -773,7 +773,6 @@ types:
       counts_units: { description: It sells units., expression: not by_time, remedy: self_serviceable }
       few: { description: At most ten., expression: 'whole(quantity) <= 10', remedy: self_serviceable }
       either: { description: Time or a unit at least., expression: 'by_time or whole(quantity) >= 1', remedy: self_serviceable }
-      counted_n: { description: A count no checker types., expression: 'whole(inputs.n) >= 0', remedy: self_serviceable }
     transitions:
       take: { kind: initial, to: OPEN, required_inputs: [quantity, by_time] }
       open_units:
@@ -789,12 +788,6 @@ types:
       count_millions: { kind: internal, from: [OPEN], effect: [ { assign: { location: counted, expr: 'whole(quantity * 1000000)' } } ] }
       check_few: { kind: internal, from: [OPEN], guards: { few: deny } }
       either_way: { kind: internal, from: [OPEN], guards: { either: deny } }
-      counted_by:
-        kind: internal
-        from: [OPEN]
-        inputs:
-          n: { type: int }
-        guards: { counted_n: deny }
       close: { kind: external, from: [OPEN], to: DONE }
     metrics:
       units_sold:
@@ -842,9 +835,6 @@ def test_a_whole_decimal_counts_units_and_a_fraction_refuses_alike(tee):
     for xn in ("check_few", "spread"):
         refused(tee, hours, xn)
     took(tee, hours, "either_way")
-    # an int an input gives, which check 24 cannot tell in a condition, stops the request as not run
-    with pytest.raises(NotRun, match="whole of an int"):
-        tee.post("/v1/request", {"transition": "counted_by", "actor": OP, "object_id": three, "inputs": {"n": 2}})
     vast = made(tee, "Line", "take", quantity="10000000000000.00", by_time=False)
     refused(tee, vast, "count_millions")
     took(tee, three, "count_millions")
@@ -853,6 +843,36 @@ def test_a_whole_decimal_counts_units_and_a_fraction_refuses_alike(tee):
     m = tee.post("/v1/metric", {"actor": OP, "name": "Line.units_sold"})
     assert "rows" not in m, m
     alike(tee)
+
+COUNTED = """module: counted
+categories: [live, closed]
+types:
+  Tally:
+    description: A tally.
+    tracking: record
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    conditions:
+      counted_n: { description: Whole of an int., expression: 'whole(inputs.n) >= 0', remedy: self_serviceable }
+    transitions:
+      open: { kind: initial, to: OPEN }
+      counted_by: { kind: internal, from: [OPEN], inputs: { n: { type: int } }, guards: { counted_n: deny } }
+"""
+
+
+def test_whole_of_an_int_is_not_run_alike(tee):
+    """`whole` of an int, loaded with the checks skipped since check 24
+    refuses it where a transition guarding with it gives the int (ADR-0284),
+    stops the request as not run on both runners alike (ADR-0278)."""
+    tee.found.clear()
+    assert tee.post("/sandbox/load", {"files": [{"name": "counted.yaml", "text": COUNTED}], "unchecked": True})["loaded"]
+    tee.post("/sandbox/reset", {})
+    tally = made(tee, "Tally", "open")
+    with pytest.raises(NotRun, match="whole of an int"):
+        tee.post("/v1/request", {"transition": "counted_by", "actor": OP, "object_id": tally, "inputs": {"n": 2}})
+    alike(tee)
+
 
 NOTES = """module: notes
 categories: [live, closed]

@@ -3978,7 +3978,14 @@ def expression_type_errors(doc, library):
     for tn, t in types(doc):
         base = ("types", tn)
         for cn, c in (t.get("conditions") or {}).items():
-            check(base + ("conditions", cn, "expression"), f"condition {cn}", c["expression"], tn, None, want=("bool", "verdict"))
+            where, before = base + ("conditions", cn, "expression"), len(out)
+            check(where, f"condition {cn}", c["expression"], tn, None, want=("bool", "verdict"))
+            # one reading inputs is typed with each transition guarding with it, its inputs that transition's, as an
+            # effect is with its own; what breaks with none breaks at every use and is said once (ADR-0284)
+            if len(out) == before and INPUT_READ.search(str(c["expression"])):
+                for xn, x in (t.get("transitions") or {}).items():
+                    if cn in (x.get("guards") or {}):
+                        check(where, f"condition {cn}, where {xn} guards on it,", c["expression"], tn, x, want=("bool", "verdict"))
         for i, spec in (t.get("invariants") or {}).items():
             if not inherited(t, "invariants", i):
                 check(base + ("invariants", i, "expression"), f"invariant {i}", spec["expression"], tn, None, want=("bool",))
@@ -13431,6 +13438,50 @@ def whole_plants():
     return ok
 
 
+def condition_input_plants():
+    """A condition reading inputs typed with each transition guarding with it (ADR-0284): an int input compared with a
+    string, a file input's member other than media_type and size, and an int input against a decimal are refused,
+    naming the transition; a condition two transitions guard with is refused naming the one whose input breaks it;
+    inputs that fit every transition guarding with it, and a file input's size, are clean; and what breaks with no
+    transition is said once, naming none."""
+    base = ("module: lines\ncategories: [live, closed]\ntypes:\n  Line:\n    description: A line.\n    tracking: record\n"
+            "    attributes:\n      quantity: { type: \"decimal(9,2)\" }\n      delivered: { type: int, optional: true }\n"
+            "    states:\n      OPEN: { description: Open., category: live }\n"
+            "      DONE: { description: Done., category: closed, final: true }\n    conditions:\n"
+            "      word: { description: The count is fine., expression: '{expr}', remedy: self_serviceable }\n"
+            "    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [quantity] }\n"
+            "      deliver:\n        kind: external\n        from: [OPEN]\n        to: DONE\n        description: Delivers it.\n"
+            "        inputs:\n          count: { type: int }\n          snap: { type: file, optional: true }\n"
+            "        guards: { word: deny }\n"
+            "      recount:\n        kind: internal\n        from: [OPEN]\n        description: Counts it again.\n"
+            "        inputs:\n          count: { type: \"decimal(9,2)\" }\n{recount}")
+    def module(expr, both=False):
+        return base.replace("{expr}", expr).replace("{recount}", "        guards: { word: deny }\n" if both else "")
+    where = "condition word, where {} guards on it, does not type: {} (the model's check 24)"
+    cases = [
+        ("an int input compared with a string", module('inputs.count == \"three\"'),
+         [where.format("deliver", "it compares an int with a string")]),
+        ("a file input's member other than media_type and size", module('inputs.snap.hash == \"x\"'),
+         [where.format("deliver", "it reads hash of a file, which has only media_type and size")]),
+        ("an int input against a decimal", module("inputs.count <= this.quantity"),
+         [where.format("deliver", "it compares an int with a decimal of scale 2")]),
+        ("a condition two transitions guard with, one breaking it", module("inputs.count <= this.quantity", both=True),
+         [where.format("deliver", "it compares an int with a decimal of scale 2")]),
+        ("inputs that fit every transition guarding with it", module("inputs.count >= 0", both=True), []),
+        ("a file input's size", module("inputs.snap is null or inputs.snap.size > 10"), []),
+        ("a break with no transition, said once", module('this.delivered == \"x\" and inputs.count >= 0', both=True),
+         ["condition word does not type: it compares an int with a string (the model's check 24)"]),
+    ]
+    ok = True
+    for name, text, want in cases:
+        found, notes = check([("lines.yaml", text)])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a condition's inputs, {name}: {'as expected' if hit else 'NOT: ' + str(got) + ' ' + str([x[4] for x in notes])}")
+    return ok
+
+
 def date_argument_plants():
     """`date` of a timestamp or a date (ADR-0283): of now, of a timestamp member and of a date it is clean; of a string,
     a number, an int and a bool it is refused, where each typed and the core did not run the date of a text."""
@@ -13817,6 +13868,7 @@ def main():
     ok &= whole_plants()
     ok &= qualified_member_plants()
     ok &= date_argument_plants()
+    ok &= condition_input_plants()
     ok &= creation_read_plants()
     ok &= metric_plants(people)
     ok &= range_plant(people)

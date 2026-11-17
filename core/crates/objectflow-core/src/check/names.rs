@@ -5214,10 +5214,12 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
     for (tn, t) in types(doc) {
         for (cn, c) in obj(t, "conditions") {
             let text = c.get("expression").map(py_str).unwrap_or_default();
+            let where_ = segs!["types", &tn, "conditions", cn, "expression"];
+            let before = out.len();
             check(
                 &mut typing,
                 &mut out,
-                segs!["types", &tn, "conditions", cn, "expression"],
+                where_.clone(),
                 &format!("condition {cn}"),
                 &text,
                 &tn,
@@ -5225,6 +5227,27 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
                 &TyEnv::new(),
                 &["bool", "verdict"],
             );
+            // one reading inputs is typed with each transition guarding with
+            // it, its inputs that transition's, as an effect is with its own;
+            // what breaks with none breaks at every use and is said once
+            // (ADR-0284)
+            if out.len() == before && !input_reads(&text).is_empty() {
+                for (xn, x) in obj(t, "transitions") {
+                    if obj(x, "guards").contains_key(cn) {
+                        check(
+                            &mut typing,
+                            &mut out,
+                            where_.clone(),
+                            &format!("condition {cn}, where {xn} guards on it,"),
+                            &text,
+                            &tn,
+                            Some(x),
+                            &TyEnv::new(),
+                            &["bool", "verdict"],
+                        );
+                    }
+                }
+            }
         }
         for (i, spec) in obj(t, "invariants") {
             if !inherited(t, "invariants", i) {

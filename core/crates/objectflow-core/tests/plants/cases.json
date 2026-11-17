@@ -37850,6 +37850,226 @@
   "could_violate": {}
  },
  {
+  "label": "condition_input_plants: an int input compared with a string",
+  "files": [
+   [
+    "lines.yaml",
+    "b03b0f4734703e65"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Line.delivered is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "lines.yaml",
+    14,
+    "fatal",
+    "names",
+    "condition word, where deliver guards on it, does not type: it compares an int with a string (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "condition_input_plants: a file input's member other than media_type and size",
+  "files": [
+   [
+    "lines.yaml",
+    "b4509f4e091b19de"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Line.delivered is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "lines.yaml",
+    14,
+    "fatal",
+    "names",
+    "condition word, where deliver guards on it, does not type: it reads hash of a file, which has only media_type and size (the model's check 24)"
+   ],
+   [
+    "lines.yaml",
+    25,
+    "notice",
+    "unknown",
+    "word can be unknown when deliver is requested, through inputs.snap (the input snap is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "condition_input_plants: an int input against a decimal",
+  "files": [
+   [
+    "lines.yaml",
+    "dd6f3e834e532d98"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Line.delivered is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "lines.yaml",
+    14,
+    "fatal",
+    "names",
+    "condition word, where deliver guards on it, does not type: it compares an int with a decimal of scale 2 (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "condition_input_plants: a condition two transitions guard with, one breaking it",
+  "files": [
+   [
+    "lines.yaml",
+    "6a7c5121be09b94e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Line.delivered is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "lines.yaml",
+    14,
+    "fatal",
+    "names",
+    "condition word, where deliver guards on it, does not type: it compares an int with a decimal of scale 2 (the model's check 24)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "condition_input_plants: inputs that fit every transition guarding with it",
+  "files": [
+   [
+    "lines.yaml",
+    "f37d1843c11a4e8b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Line.delivered is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    2,
+    2
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "condition_input_plants: a file input's size",
+  "files": [
+   [
+    "lines.yaml",
+    "d279d2c59dbaa198"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Line.delivered is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "condition_input_plants: a break with no transition, said once",
+  "files": [
+   [
+    "lines.yaml",
+    "7af86cbbd6d91e24"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "lines.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Line.delivered is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "lines.yaml",
+    14,
+    "fatal",
+    "names",
+    "condition word does not type: it compares an int with a string (the model's check 24)"
+   ],
+   [
+    "lines.yaml",
+    25,
+    "notice",
+    "unknown",
+    "word can be unknown when deliver is requested, through delivered (Line.delivered is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ],
+   [
+    "lines.yaml",
+    32,
+    "notice",
+    "unknown",
+    "word can be unknown when recount is requested, through delivered (Line.delivered is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "creation_read_plants: a creation's guard reading what it takes",
   "files": [
    [
@@ -38128,6 +38348,13 @@
    ],
    [
     "delivery.yaml",
+    66,
+    "fatal",
+    "names",
+    "condition unit_reserved, where open guards on it, does not type: it compares a state of InventoryItem with a member of InventoryItem (the model's check 24)"
+   ],
+   [
+    "delivery.yaml",
     96,
     "fatal",
     "names",
@@ -38216,6 +38443,13 @@
    ],
    [
     "delivery.yaml",
+    66,
+    "fatal",
+    "names",
+    "condition unit_reserved, where open guards on it, does not type: it compares a state of InventoryItem with a member of InventoryItem (the model's check 24)"
+   ],
+   [
+    "delivery.yaml",
     96,
     "fatal",
     "names",
@@ -38301,38 +38535,16 @@
     "notice",
     "unbounded_reach",
     "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    66,
+    "fatal",
+    "names",
+    "condition unit_reserved, where open guards on it, does not type: it compares a state of InventoryItem with a member of InventoryItem (the model's check 24)"
    ]
   ],
-  "analysed": {
-   "Agent": [
-    0,
-    0
-   ],
-   "Approval": [
-    0,
-    0
-   ],
-   "ChecklistItem": [
-    0,
-    0
-   ],
-   "Courier": [
-    0,
-    0
-   ],
-   "Delivery": [
-    3,
-    4
-   ],
-   "Service": [
-    0,
-    0
-   ],
-   "User": [
-    0,
-    0
-   ]
-  },
+  "analysed": {},
   "forms": {
    "Agent.issue_taken_by": "local",
    "Agent.revoke_taken_by": "local",
@@ -38730,6 +38942,13 @@
     "notice",
     "unbounded_reach",
     "Delivery.approvals's cascade on cancel takes at most 50 of it, and no invariant of Delivery holds it to 50: past 50, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in approvals) <= 50 (ADR-0201)"
+   ],
+   [
+    "delivery.yaml",
+    66,
+    "fatal",
+    "names",
+    "condition unit_reserved, where open guards on it, does not type: it compares a state of InventoryItem with a member of InventoryItem (the model's check 24)"
    ],
    [
     "delivery.yaml",
