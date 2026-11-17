@@ -232,3 +232,45 @@ def test_a_historys_row_not_finished_or_undated_is_refused_alike(tee):
         assert report["refused_types"] == [], report
         assert why in ((report.get("refusal") or {}).get("reason") or ""), report
     alike(tee)
+
+
+SCANS = """module: scans
+categories: [live]
+types:
+  Scan:
+    description: A scan, the legacy system's.
+    mirror: true
+    tracking: record
+    attributes:
+      code: { type: string, external: erp }
+      image: { type: file, optional: true }
+    states:
+      ACTIVE: { category: live }
+"""
+
+
+def test_an_imported_file_is_held_as_a_written_one_alike(tee):
+    """A file an import gives a mirror's object is held as one a request
+    writes, so the object is read alike through both backends, where the
+    reference sandbox held the file's wire form and its read faulted,
+    "cannot encode a value of type ('file',)"."""
+    for w in (tee.core, tee.runner):
+        assert raw(w, "POST", "/sandbox/load", {"files": [
+            {"name": "scans.yaml", "text": SCANS}]})[1]["loaded"]
+        raw(w, "POST", "/sandbox/reset", {})
+    image = {"hash": "sha256:" + "a" * 64, "size": 3, "media_type": "image/png"}
+    batch = {"objects": [{"type": "Scan", "legacy_key": "s1", "state": "ACTIVE",
+                          "attributes": {"code": "S1", "image": image}},
+                         {"type": "Scan", "legacy_key": "s2", "state": "ACTIVE",
+                          "attributes": {"code": "S2", "image": None}}]}
+    got = {}
+    for w in (tee.core, tee.runner):
+        status, answer = raw(w, "POST", "/v1/import_batch", {"actor": OP, "batch": batch})
+        assert status == 200 and answer["written"] == 2, (w, answer)
+        assert answer["created"] == ["Scan:s1", "Scan:s2"], (w, answer)
+        for key in ("Scan:s1", "Scan:s2"):
+            status, got[w, key] = raw(w, "POST", "/v1/lookup", {"source": "legacy", "value": key})
+            assert status == 200 and "id" in got[w, key], (w, status, got[w, key])
+            assert raw(w, "POST", "/v1/get", {"actor": OP, "id": got[w, key]["id"]})[1] == got[w, key], w
+    assert got[tee.core, "Scan:s1"]["attributes"]["image"] == got[tee.runner, "Scan:s1"]["attributes"]["image"] == image
+    assert got[tee.core, "Scan:s2"]["attributes"]["image"] is got[tee.runner, "Scan:s2"]["attributes"]["image"] is None

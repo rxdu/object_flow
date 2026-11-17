@@ -743,6 +743,12 @@ class Sandbox:
                         # sandbox held it (the differential battery)
                         raise not_run(f"an imported {tn}.{k} not of its "
                                       "type, whose class the core decides")
+                    # a file held as the runner holds one written, where its
+                    # wire form was kept and a read of it faulted
+                    if str(spec.get("type", "")).removesuffix("[]") == "file" \
+                            and given[k] is not None and given[k] is not flowrun.ABSENT:
+                        given[k] = tuple(flowrun.file_value(x) for x in held_as) \
+                            if isinstance(given[k], list) else flowrun.file_value(given[k])
             held = self.legacy.get(qualified)
             position = self.store.position
             try:

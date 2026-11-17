@@ -16,6 +16,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 - Step 3's `unknown` notice reads an optional attribute given a call by its bare name, as `length(reason)` or an evaluator's `ledger.knows(reason)`, as it reads `this.reason`: such a guard went unnoticed. A state or a tracked member named to `entered_at` or `time_in` is no value read and draws none. It is a notice, so no module is newly refused; the design's `customers.yaml` now draws one on `invoice_valid_in_xero`, which passes the optional `invoice_number` to Xero.
 - A publish refused by a value its mapping cannot hold named the value's kind with a doubled article and the declared type in the core's own notation, `a a member of an enumeration where Scalar("Binding") is held`. It now writes `a member of an enumeration where Binding is held`, the type as a module writes it, and the reference publish words it alike.
 - The Flow Studio's runner backend, and the reference publish behind it, carried a rename of an attribute an earlier version had removed, writing the removed value under the new name, where the core renames nothing (F2). It now carries a rename only where the installed type declares the old name, as the core does.
+- The Flow Studio's sandbox held a file an import gave a mirror's object in its wire form, so a read of the object faulted `500`, "cannot encode a value … of type ('file',)". It now holds the file as one a request writes, as the core does.
 
 ## 0.28.0, 2026-11-16
 
