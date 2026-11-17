@@ -23,6 +23,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -63,8 +64,9 @@ class Service:
 
     def __init__(self, binary):
         self.dir = tempfile.mkdtemp(prefix="soundness-")
+        self.log = pathlib.Path(self.dir, "service.log")
         self.proc = subprocess.Popen([str(binary), "--socket", "s.sock"], cwd=self.dir,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                     stdout=self.log.open("w"), stderr=subprocess.STDOUT)
         sock = pathlib.Path(self.dir, "s.sock")
         for _ in range(200):
             if sock.exists():
@@ -79,12 +81,19 @@ class Service:
             r = c.getresponse()
             raw = r.read()
             return r.status, json.loads(raw) if raw else None
+        except (BrokenPipeError, ConnectionError) as e:
+            # the service gone: its exit and its log's last lines say why, which the check reports as it fails
+            code = self.proc.poll()
+            tail = self.log.read_text(errors="replace").splitlines()[-15:]
+            raise SystemExit(f"check-soundness: the service stopped answering {route} ({e}), its exit {code}:\n  "
+                             + "\n  ".join(tail))
         finally:
             c.close()
 
     def stop(self):
         self.proc.terminate()
         self.proc.wait(timeout=30)
+        shutil.rmtree(self.dir, ignore_errors=True)     # its socket and its log, kept no longer than its run
 
 
 def module_sets():
