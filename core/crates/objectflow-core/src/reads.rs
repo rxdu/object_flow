@@ -2402,7 +2402,9 @@ fn offer_told(objects: Vec<String>, unknown: bool, proposable: bool) -> Told {
     }
 }
 
-fn written(declared: &Declared, many: bool) -> String {
+/// A declared type as a module writes it: an input schema's type, and a
+/// value a write cannot hold's (`request.rs`'s `fit_value`).
+pub(crate) fn written(declared: &Declared, many: bool) -> String {
     let base = match declared {
         Declared::Scalar(t) | Declared::Reference(t) | Declared::Value(t) => t.clone(),
     };

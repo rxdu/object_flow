@@ -5334,3 +5334,60 @@ def test_a_retired_type_takes_no_import_alike(tee):
     assert refused["written"] == 0 and refused["refused_types"] == ["Team"], refused
     assert "Team is retired" in refused["refusal"]["reason"], refused
     alike(tee)
+
+
+BINDINGS = """module: catalog
+categories: [live, closed]
+enumerations:
+  Format: [HARDCOVER, PAPERBACK]
+  Binding: [SEWN, GLUED]
+types:
+  Genre:
+    description: A genre.
+    tracking: record
+    attributes:
+      name: { type: string }
+      format: { type: Format, optional: true }
+    states:
+      LISTED: { description: Listed., category: live }
+      DROPPED: { description: Dropped., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LISTED, required_inputs: [name], optional_inputs: [format], description: Adds a genre. }
+      drop: { kind: external, from: LISTED, to: DROPPED, description: Drops it. }
+  Category:
+    description: A category.
+    tracking: record
+    attributes:
+      name: { type: string }
+      binding: { type: Binding, optional: true }
+    states:
+      LISTED: { description: Listed., category: live }
+      DROPPED: { description: Dropped., category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: LISTED, required_inputs: [name], optional_inputs: [binding], description: Adds a category. }
+      drop: { kind: external, from: LISTED, to: DROPPED, description: Drops it. }
+"""
+
+
+def test_a_move_giving_what_its_target_cannot_hold_is_worded_alike(tee):
+    """A move giving an attribute a member of another enumeration refuses
+    the publish, its message naming the value's kind and the declared type as
+    the flow format writes them, through both backends alike, where the core
+    wrote `a a member of an enumeration where Scalar("Binding") is held` and
+    the reference `a value of another kind where Binding is held`."""
+    assert tee.post("/sandbox/load", {"files": [{"name": "catalog.yaml", "text": BINDINGS}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    made(tee, "Genre", "add", name="Fiction", format="Format.PAPERBACK")
+    tee.found.clear()
+    v2 = BINDINGS.replace(
+        "  Genre:\n    description: A genre.\n    tracking: record\n    attributes:\n      name: { type: string }\n      format: { type: Format, optional: true }\n    states:\n      LISTED: { description: Listed., category: live }\n      DROPPED: { description: Dropped., category: closed, final: true }\n    transitions:\n      add: { kind: initial, to: LISTED, required_inputs: [name], optional_inputs: [format], description: Adds a genre. }\n      drop: { kind: external, from: LISTED, to: DROPPED, description: Drops it. }\n", "")
+    v2 += ("migration:\n  description: A genre is a category.\n"
+           "  moved_types:\n    Genre:\n      - to: Category\n        attributes: { binding: format }\n")
+    c = change(tee, "draft", source={"catalog": v2}, source_ref="git:case@2")["object_id"]
+    # the tee answers as the core does and compares no message, so the runner's report is read from its own server
+    body = {"actor": OP, "change": c, "dry_run": True}
+    want = [("mapping:moved_types:Genre.Category.binding", "the move of Genre to Category gives binding what it "
+             "cannot hold: a member of an enumeration where Binding is held")]
+    for report in (tee.post("/v1/publish", body)["report"], raw(tee.runner, "POST", "/v1/publish", body)[1]["report"]):
+        assert [(f["code"], f["message"]) for f in report["findings"] if f["severity"] == "fatal"] == want, report
+    alike(tee)

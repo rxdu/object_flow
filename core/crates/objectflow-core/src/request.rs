@@ -535,7 +535,7 @@ pub(crate) fn fit_value(declared: &Declared, many: bool, v: Value) -> Result<Val
     }
     if many {
         let Value::Set(items) = v else {
-            return Err(format!("a {} where a set is held", v.kind()));
+            return Err(format!("{} where a set is held", v.kind()));
         };
         return items
             .into_iter()
@@ -544,7 +544,15 @@ pub(crate) fn fit_value(declared: &Declared, many: bool, v: Value) -> Result<Val
             .map(Value::Set);
     }
     let kind = v.kind();
-    let wrong = || Err(format!("a {kind} where {declared:?} is held"));
+    // the kind carries its article, and the type is written as a module
+    // writes it, where both read `a a member of an enumeration where
+    // Scalar("Binding") is held`
+    let wrong = || {
+        Err(format!(
+            "{kind} where {} is held",
+            crate::reads::written(declared, false)
+        ))
+    };
     let digits = |d: Decimal| -> Result<Decimal, String> {
         if d.units().abs() <= 999_999_999_999_999_999 {
             Ok(d)

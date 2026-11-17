@@ -543,6 +543,31 @@ def renamed_member(m, v):
     return v
 
 
+def kind_words(v, held):
+    """A value's kind as the core's `Value::kind` words it, its article with it, as far as the runner's value tells it:
+    an amount, a duration, a time and a decimal are each a Fraction here, told apart by the kind `held` names."""
+    import flowrun
+    if isinstance(v, tuple) and v[:1] == ("enum",):
+        return "a member of an enumeration"
+    if isinstance(v, tuple) and v[:1] == ("file",):
+        return "a file"
+    if isinstance(v, flowrun.Record):
+        return "a value of several fields"
+    if isinstance(v, bool):
+        return "a boolean"
+    if isinstance(v, str):
+        return "a text"
+    if flowrun.is_date(v):
+        return "a date"
+    if isinstance(v, int):
+        return "an int"
+    if isinstance(v, Fraction):
+        return {"money": "an amount of money", "duration": "a duration", "timestamp": "a timestamp"}.get(held, "a decimal")
+    if flowrun.is_set(v):
+        return "a set"
+    return "a value of another kind"
+
+
 def fitted(spec, v, kind=None):
     """A mapping's value as its attribute holds it, as the core's `fit_value` fits one: its kind and scale as a
     request's write fits them (`flowrun.at_declared_scale`), a decimal within its digits and the 18 a value holds, an
@@ -558,10 +583,12 @@ def fitted(spec, v, kind=None):
     one = typ.removesuffix("[]")
     held = (kind or ("other",))[0]
     if held != "other" and not typ.endswith("[]"):
-        if one.startswith("money(") and tuple(kind) != ("money", one[len("money("):-1]):
-            return None, f"a {held} where {typ} is held"
+        if one.startswith("money(") and held == "money" and kind[1] != one[len("money("):-1]:
+            return None, f"an amount in {kind[1]} where {one[len('money('):-1]} is held"
+        if one.startswith("money(") and held != "money":
+            return None, f"{kind_words(v, held)} where {typ} is held"
         if one in ("duration", "timestamp") and held != one:
-            return None, f"a {held} where {typ} is held"
+            return None, f"{kind_words(v, held)} where {typ} is held"
     # a file only of a media type its attribute takes, as a request's write is held to it (ADR-0239 decision 2)
     if one == "file":
         refused = next((f[3] for f in (v if flowrun.is_set(v) else (v,)) if not flowrun.takes_media(spec, f)), None)
@@ -570,7 +597,7 @@ def fitted(spec, v, kind=None):
     try:
         v = flowrun.at_declared_scale(spec, v)
     except flowrun.Refused:
-        return None, f"a value of another kind where {typ} is held"
+        return None, f"{kind_words(v, held)} where {typ} is held"
     out = []
     for x in v if typ.endswith("[]") else (v,):
         digits = flowrun.precision_of(one)
