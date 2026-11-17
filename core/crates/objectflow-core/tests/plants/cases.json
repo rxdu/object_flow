@@ -1172,6 +1172,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {
@@ -5890,6 +5897,13 @@
     "fatal",
     "names",
     "Customer.correct_state's reason is not an enumeration; an assertion's reasons are counted, so they are declared values"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -5972,6 +5986,13 @@
     "fatal",
     "names",
     "Customer.correct_state may admit 'active_rule', which is not an invariant of Customer"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -6054,6 +6075,13 @@
     "fatal",
     "names",
     "Customer.forget erases Customer and does not call an erasure of its parts in 'contacts', which hold personal attributes"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -6136,6 +6164,13 @@
     "fatal",
     "names",
     "Customer.correct_email writes 'name', which it does not list in corrects; a correction writes exactly what it corrects"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -6218,6 +6253,13 @@
     "fatal",
     "names",
     "Customer.name is personal and required; erasure writes absence, so a personal attribute is optional"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -8729,6 +8771,13 @@
     "fatal",
     "names",
     "condition contact_in_xero calls xero.contact_known, which xero does not declare"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -8811,6 +8860,13 @@
     "fatal",
     "names",
     "condition contact_in_xero calls an evaluator inside a larger expression; a verdict is the whole condition or its negation (check 24)"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -8900,6 +8956,13 @@
     "fatal",
     "names",
     "in_xero calls xero.contact_exists; only a guard asks an evaluator"
+   ],
+   [
+    "customers.yaml",
+    264,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -8982,6 +9045,13 @@
     "fatal",
     "names",
     "Customer.merged_into enters the superseding state MERGED and names no successor with supersede"
+   ],
+   [
+    "customers.yaml",
+    257,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9064,6 +9134,13 @@
     "fatal",
     "names",
     "Customer.merged_into supersedes the object with itself"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9146,6 +9223,13 @@
     "fatal",
     "names",
     "metric overrides compares t.transition with \"corect_state\", which is not a transition of Customer"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9228,6 +9312,13 @@
     "fatal",
     "names",
     "Customer.close writes OverrideReason.MIS_KEYED, enumeration OverrideReason, to note_kind, which holds string: a write's value must fit its target (the model's check 17)"
+   ],
+   [
+    "customers.yaml",
+    262,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9317,6 +9408,13 @@
     "notice",
     "unwritten",
     "Customer.note_kind is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ],
+   [
+    "customers.yaml",
+    260,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9399,6 +9497,13 @@
     "fatal",
     "names",
     "Customer.close writes actor.kind, actor_kind, to note_kind, which holds string: a write's value must fit its target (the model's check 17)"
+   ],
+   [
+    "customers.yaml",
+    262,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9559,6 +9664,13 @@
     "fatal",
     "names",
     "Customer.correct_state enters the final state CLOSED, and Customer.contacts neither cascades on it nor survives it"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9641,6 +9753,13 @@
     "fatal",
     "names",
     "'not_erased' is the name of a guard the engine generates, so a refusal naming it would not say which it was; choose another name"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9723,6 +9842,13 @@
     "fatal",
     "names",
     "Customer.merged_into supersedes with inputs.successor, which is optional, so a request leaving it out would name no successor"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9812,6 +9938,13 @@
     "fatal",
     "names",
     "Customer.merged_into supersedes inside a foreach, which may name no successor or several"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9894,6 +10027,13 @@
     "fatal",
     "names",
     "Customer.merged_into names more than one successor, and an object has one"
+   ],
+   [
+    "customers.yaml",
+    260,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9983,6 +10123,13 @@
     "fatal",
     "names",
     "merged_into reads 'survivor', which Customer does not declare"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -10065,6 +10212,13 @@
     "fatal",
     "names",
     "Customer.lapse supersedes, and does not enter a superseding state"
+   ],
+   [
+    "customers.yaml",
+    263,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -10147,6 +10301,13 @@
     "fatal",
     "names",
     "Customer holds personal data and declares no erasure, and takes part in supersession, through which a superseded chain is erased (check 60)"
+   ],
+   [
+    "customers.yaml",
+    260,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -11867,6 +12028,13 @@
     "fatal",
     "names",
     "Customer.merge_in calls Customer.correct_state, an assertion, which only a request takes; an override is requested, never caused (ADR-0163)"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -11949,6 +12117,13 @@
     "fatal",
     "names",
     "Customer.contacts cascades to Contact.discard, an assertion, which only a request takes; an override is requested, never caused (ADR-0163)"
+   ],
+   [
+    "customers.yaml",
+    260,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -19606,6 +19781,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "module.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {
@@ -20920,6 +21102,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -27468,6 +27657,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (9), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
+    258,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {
@@ -28523,6 +28719,13 @@
     "fatal",
     "names",
     "Customer.forget calls Contact.forget without the input 'ticket', which it requires"
+   ],
+   [
+    "customers.yaml",
+    260,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -28619,6 +28822,13 @@
     "fatal",
     "names",
     "Customer.forget passes inputs.reason, string, to Contact.forget's input 'reason', which takes enumeration OverrideReason: an argument must fit its input (the model's check 2)"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -28715,6 +28925,13 @@
     "fatal",
     "names",
     "forget reads 'c', which Customer does not declare"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -29079,6 +29296,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ],
    [
     "customers.yaml",
@@ -36662,6 +36886,13 @@
     "notice",
     "before",
     "said reads count, which close takes as an input: a guard runs before the transition writes it, so it reads the value count had before the request; inputs.count is the value supplied"
+   ],
+   [
+    "cards.yaml",
+    19,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through count (Card.count is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -36805,6 +37036,13 @@
     "fatal",
     "names",
     "condition said does not type: add_months moves a date, and is given a timestamp (the model's check 24)"
+   ],
+   [
+    "plans.yaml",
+    27,
+    "notice",
+    "unknown",
+    "said can be unknown when open is requested, through at (Plan.at is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -38070,6 +38308,241 @@
   "could_violate": {}
  },
  {
+  "label": "unknown_bare_call_plants: length of a bare optional",
+  "files": [
+   [
+    "notes.yaml",
+    "18a11e831194917c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    27,
+    "notice",
+    "before",
+    "said reads reason, which close takes as an input: a guard runs before the transition writes it, so it reads the value reason had before the request; inputs.reason is the value supplied"
+   ],
+   [
+    "notes.yaml",
+    27,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through reason (Note.reason is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {
+   "Note": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unknown_bare_call_plants: length of one through this",
+  "files": [
+   [
+    "notes.yaml",
+    "60f7cda97e4fe43e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    27,
+    "notice",
+    "before",
+    "said reads reason, which close takes as an input: a guard runs before the transition writes it, so it reads the value reason had before the request; inputs.reason is the value supplied"
+   ],
+   [
+    "notes.yaml",
+    27,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through reason (Note.reason is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {
+   "Note": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unknown_bare_call_plants: trim of a bare optional",
+  "files": [
+   [
+    "notes.yaml",
+    "10a5cf04294dd9ab"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    27,
+    "notice",
+    "before",
+    "said reads reason, which close takes as an input: a guard runs before the transition writes it, so it reads the value reason had before the request; inputs.reason is the value supplied"
+   ],
+   [
+    "notes.yaml",
+    27,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through reason (Note.reason is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {
+   "Note": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unknown_bare_call_plants: a bare optional tested first",
+  "files": [
+   [
+    "notes.yaml",
+    "def7c378586fcc0e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    27,
+    "notice",
+    "before",
+    "said reads reason, which close takes as an input: a guard runs before the transition writes it, so it reads the value reason had before the request; inputs.reason is the value supplied"
+   ]
+  ],
+  "analysed": {
+   "Note": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unknown_bare_call_plants: an evaluator given a bare optional",
+  "files": [
+   [
+    "notes.yaml",
+    "386dd08db7270876"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    27,
+    "notice",
+    "before",
+    "said reads reason, which close takes as an input: a guard runs before the transition writes it, so it reads the value reason had before the request; inputs.reason is the value supplied"
+   ],
+   [
+    "notes.yaml",
+    27,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through reason (Note.reason is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {
+   "Note": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unknown_bare_call_plants: an evaluator given one through this",
+  "files": [
+   [
+    "notes.yaml",
+    "0b8ed1ec632cc480"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "notes.yaml",
+    27,
+    "notice",
+    "before",
+    "said reads reason, which close takes as an input: a guard runs before the transition writes it, so it reads the value reason had before the request; inputs.reason is the value supplied"
+   ],
+   [
+    "notes.yaml",
+    27,
+    "notice",
+    "unknown",
+    "said can be unknown when close is requested, through reason (Note.reason is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+   ]
+  ],
+  "analysed": {
+   "Note": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unknown_bare_call_plants: a state named to entered_at",
+  "files": [
+   [
+    "notes.yaml",
+    "947a47c3508288a9"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Note": [
+    1,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "unknown_bare_call_plants: a tracked member named to entered_at",
+  "files": [
+   [
+    "notes.yaml",
+    "e2134efd620ad239"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Note": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "creation_read_plants: a creation's guard reading what it takes",
   "files": [
    [
@@ -38623,6 +39096,13 @@
     "fatal",
     "names",
     "Customer declares the erasures purge, forget; a type declares at most one, which a group's erasure takes (ADR-0147)"
+   ],
+   [
+    "customers.yaml",
+    262,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -38712,6 +39192,13 @@
     "fatal",
     "names",
     "Customer.correct_state asserts a superseding state, which would name no successor; a merge is a declared transition (the model's check 26, ADR-0147)"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -38846,6 +39333,13 @@
     "fatal",
     "names",
     "forget reads 'c', which Customer does not declare"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -40035,6 +40529,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (8), Order (4), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "customers.yaml",
+    260,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {
@@ -40142,6 +40643,13 @@
     "fatal",
     "names",
     "'redact' cannot name a transition: the engine's own events carry that name (ADR-0148)"
+   ],
+   [
+    "customers.yaml",
+    259,
+    "notice",
+    "unknown",
+    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -41779,6 +42287,13 @@
    ],
    [
     "crm.yaml",
+    23,
+    "notice",
+    "absent",
+    "leave assigns size a value that can be absent, through name (Customer.name is optional), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
+   ],
+   [
+    "crm.yaml",
     30,
     "notice",
     "unwritten",
@@ -41864,6 +42379,13 @@
     "fatal",
     "names",
     "Customer.leave writes the personal value in the derived Customer.called to 'size', which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ],
+   [
+    "crm.yaml",
+    23,
+    "notice",
+    "absent",
+    "leave assigns size a value that can be absent, through called (Customer.called can be unknown through name), which neither it, a deny guard nor the filter of a loop around it tests with `is null`; an absent value refuses the request value_in_range"
    ],
    [
     "crm.yaml",
@@ -45955,6 +46477,13 @@
     "notice",
     "agent_open",
     "an agent may take on the wire the transitions here that name no taken_by: Customer (6), Visit (3), since the version declares an agent kind of actor (Agent.key_id); an agent's generated tools offer them only for proposing, where they may be proposed (ADR-0189)"
+   ],
+   [
+    "crm.yaml",
+    29,
+    "notice",
+    "unknown",
+    "known can be unknown when tag is requested, through label (Customer.label is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ],
    [
     "crm.yaml",

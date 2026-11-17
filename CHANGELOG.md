@@ -13,6 +13,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 ### Fixed
 
 - The core answered a metric whose value is the date of an instant, such as `min(date(p.created_at))`, as a count of seconds, `1767225600`, where the reference runner answered the date, `2026-01-01`. It now answers the date, as it does a metric over `add_months`; a deployment reading such a metric gets a date where it got a number (ADR-0145).
+- Step 3's `unknown` notice reads an optional attribute given a call by its bare name, as `length(reason)` or an evaluator's `ledger.knows(reason)`, as it reads `this.reason`: such a guard went unnoticed. A state or a tracked member named to `entered_at` or `time_in` is no value read and draws none. It is a notice, so no module is newly refused; the design's `customers.yaml` now draws one on `invoice_valid_in_xero`, which passes the optional `invoice_number` to Xero.
 
 ## 0.28.0, 2026-11-16
 

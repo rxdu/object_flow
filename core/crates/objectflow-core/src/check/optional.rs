@@ -11,6 +11,11 @@ use super::doc::{Obj, flag, obj, py_str, text};
 use super::steps::{kind, sources};
 use crate::expr::{Expr, parse};
 
+/// The flow functions whose argument names a state, a tracked member or a
+/// row's field, not a value it reads, called bare and on an object or row.
+const NAMING_FUNCTIONS: [&str; 2] = ["entered_at", "time_in"];
+const NAMING_MEMBERS: [&str; 4] = ["entered_at", "time_in", "intervals", "held"];
+
 /// The members every object or row has, which no declaration makes optional.
 pub(super) const BUILT_IN: &[&str] = &[
     "id",
@@ -349,8 +354,17 @@ impl<'l> OptionalReads<'l> {
                 None
             }
             Expr::Call(f, args) => {
+                // a call reads a bare name as it reads this.<name>, where
+                // length(reason) went unnoticed, an evaluator's argument
+                // among it, which is unknown absent (ADR-0146); a flow
+                // function names a state, a member or a field
+                let names = match &**f {
+                    Expr::Name(n) => NAMING_FUNCTIONS.contains(&n.as_str()),
+                    Expr::Path(_, m) => NAMING_MEMBERS.contains(&m.as_str()),
+                    _ => false,
+                };
                 for a in args {
-                    if !matches!(a, Expr::Name(_)) {
+                    if !matches!(a, Expr::Name(_)) || !names {
                         self.walk(a, env);
                     }
                 }

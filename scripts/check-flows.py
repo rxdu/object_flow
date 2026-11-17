@@ -4344,6 +4344,9 @@ ACTOR_KINDS = set(json.loads((FORMAT / "flow.schema.json").read_text())
                   ["definitions"]["attribute"]["properties"]["actor_kind"]["enum"])
 # what exists only while a request is being made: not readable by a derivation or a uniqueness condition
 REQUEST_ONLY = {"inputs", "this_event"}
+# the flow functions whose argument names a state, a tracked member or a row's field, not a value it reads
+NAMING_FUNCTIONS = {"entered_at", "time_in"}
+NAMING_MEMBERS = {"entered_at", "time_in", "intervals", "held"}
 OBSERVATION_MEMBERS = {"now", "subject", "corrects", "occurred_at", "recorded_at", "recorded_by_kind",
                        "declaration_version"}
 
@@ -5861,8 +5864,11 @@ class OptionalReads:
             self.walk(e[2], env)
             return None
         if k == "call":
+            # a call reads a bare name as it reads this.<name>, where length(reason) went unnoticed, an evaluator's
+            # argument among it, which is unknown absent (ADR-0146); a flow function names a state, a member or a field
+            names = e[1][0] == "name" and e[1][1] in NAMING_FUNCTIONS or e[1][0] == "path" and e[1][2] in NAMING_MEMBERS
             for a in e[2]:
-                if a[0] != "name":
+                if a[0] != "name" or not names:
                     self.walk(a, env)
             if e[1][0] == "path":
                 self.walk(e[1][1], env)
@@ -13438,6 +13444,43 @@ def whole_plants():
     return ok
 
 
+def unknown_bare_call_plants():
+    """Step 3's unknown notice reads a bare name given a call as it reads this.<name>: length, trim and an evaluator's
+    argument of an optional attribute named bare are noticed, as through this; a guard testing it with is null is not;
+    and a state or a tracked member named to entered_at, no value read, draws none."""
+    base = ("module: notes\ncategories: [live, closed]\nenumerations:\n  Mood: [CALM, CROSS]\n"
+            "evaluators:\n  ledger:\n    description: A ledger.\n"
+            "    functions:\n      knows:\n        description: Whether the ledger knows the reason.\n"
+            "        arguments:\n          why: { type: string }\n"
+            "types:\n  Note:\n    description: A note.\n    tracking: record\n"
+            "    attributes:\n      reason: { type: string, optional: true }\n      mood: { type: Mood, optional: true }\n"
+            "    states:\n      OPEN: { description: Open., category: live }\n"
+            "      DONE: { description: Done., category: closed, final: true }\n    conditions:\n"
+            "      said: { description: A reason is said., expression: '{expr}', remedy: self_serviceable }\n"
+            "    transitions:\n      open: { kind: initial, to: OPEN, optional_inputs: [reason, mood] }\n"
+            "      close: { kind: external, from: OPEN, to: DONE, optional_inputs: [reason], guards: { said: deny } }\n")
+    unknown = ("said can be unknown when close is requested, through reason (Note.reason is optional), which it never "
+               "tests with `is null`; a deny guard that is unknown refuses")
+    cases = [
+        ("length of a bare optional", "length(reason) > 0", [unknown]),
+        ("length of one through this", "length(this.reason) > 0", [unknown]),
+        ("trim of a bare optional", 'trim(reason) != \"\"', [unknown]),
+        ("a bare optional tested first", "reason is null or length(reason) > 0", []),
+        ("an evaluator given a bare optional", "ledger.knows(reason)", [unknown]),
+        ("an evaluator given one through this", "ledger.knows(this.reason)", [unknown]),
+        ("a state named to entered_at", "entered_at(OPEN) <= now", []),
+        ("a tracked member named to entered_at", "entered_at(mood) <= now", []),
+    ]
+    ok = True
+    for name, expr, want in cases:
+        found, notes = check([("notes.yaml", base.replace("{expr}", expr))])
+        got = sorted(x[4] for x in notes if "can be unknown" in x[4])
+        hit = got == sorted(want) and not found
+        ok &= hit
+        print(f"  the unknown notice, {name}: {'as expected' if hit else 'NOT: ' + str(got) + ' ' + str([x[4] for x in found])}")
+    return ok
+
+
 def condition_input_plants():
     """A condition reading inputs typed with each transition guarding with it (ADR-0284): an int input compared with a
     string, a file input's member other than media_type and size, and an int input against a decimal are refused,
@@ -13869,6 +13912,7 @@ def main():
     ok &= qualified_member_plants()
     ok &= date_argument_plants()
     ok &= condition_input_plants()
+    ok &= unknown_bare_call_plants()
     ok &= creation_read_plants()
     ok &= metric_plants(people)
     ok &= range_plant(people)

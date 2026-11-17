@@ -1,0 +1,27 @@
+module: notes
+categories: [live, closed]
+enumerations:
+  Mood: [CALM, CROSS]
+evaluators:
+  ledger:
+    description: A ledger.
+    functions:
+      knows:
+        description: Whether the ledger knows the reason.
+        arguments:
+          why: { type: string }
+types:
+  Note:
+    description: A note.
+    tracking: record
+    attributes:
+      reason: { type: string, optional: true }
+      mood: { type: Mood, optional: true }
+    states:
+      OPEN: { description: Open., category: live }
+      DONE: { description: Done., category: closed, final: true }
+    conditions:
+      said: { description: A reason is said., expression: 'length(this.reason) > 0', remedy: self_serviceable }
+    transitions:
+      open: { kind: initial, to: OPEN, optional_inputs: [reason, mood] }
+      close: { kind: external, from: OPEN, to: DONE, optional_inputs: [reason], guards: { said: deny } }
