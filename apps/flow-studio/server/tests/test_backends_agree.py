@@ -491,9 +491,9 @@ types:
 
 @pytest.mark.parametrize("case", ["reference", "string", "counter"])
 def test_a_creation_leaving_a_required_attribute_absent_is_refused_alike(tee, case):
-    """A creation that writes no value to a required attribute, a reference
-    check 8 does not yet refuse and, loaded with the checks skipped, a string
-    it does, refuses `value_in_range` naming no object on both backends,
+    """A creation that writes no value to a required attribute, a reference or
+    a string, each of which check 8 refuses and so loaded with the checks
+    skipped, refuses `value_in_range` naming no object on both backends,
     where the core's store faulted it 500 (ADR-0201 decision 7); a counter,
     which starts at 0, is no such attribute, and the creation applies."""
     tee.module = f"unwritten ({case})"
@@ -509,7 +509,7 @@ def test_a_creation_leaving_a_required_attribute_absent_is_refused_alike(tee, ca
                                      ).replace("  Job:\n    description: A job.\n    tracking: record\n",
                                                "  Job:\n    description: A job.\n    tracking: quantity\n"),
     }[case]
-    loaded = tee.post("/sandbox/load", {"files": [{"name": "unwritten.yaml", "text": text}], "unchecked": case == "string"})
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "unwritten.yaml", "text": text}], "unchecked": case != "counter"})
     assert loaded["loaded"], loaded
     tee.post("/sandbox/reset", {})
     v = tee.post("/v1/request", {"actor": op, "type": "Job", "transition": "open", "inputs": {"site": "x"}})

@@ -4134,11 +4134,22 @@ def metric_arith(op, a, b):
     return None
 
 
+def unknown_currency(e):
+    """The first amount, in reading order, in a currency the engine has no minor unit for, which no runner holds (the
+    values audit's L1)."""
+    if isinstance(e, tuple) and e[:1] == ("money",) and e[1] not in flowrun.MINOR_UNITS:
+        return e[1]
+    if isinstance(e, (tuple, list)):
+        return next((c for x in e if (c := unknown_currency(x)) is not None), None)
+    return None
+
+
 def metric_type_errors(typing, tn, t, enums):
     """What a metric's value breaks that the core's metric evaluator does not compute, where the types it combines can
     be told: an aggregate over its rows of what it does not compute over, a text, a bool, a member, an identity or a
-    state, and a sum of times; and a sum or a difference of two types, a decimal and an int or two scales, whose
-    fractional value the core cannot place (the values audit's M2, the model's check 24)."""
+    state, and a sum of times; a sum or a difference of two types, a decimal and an int or two scales, whose
+    fractional value the core cannot place (the values audit's M2, the model's check 24); and an amount anywhere in it
+    in a currency whose minor unit the engine does not know, as every other expression refuses it (L1)."""
     out = []
     for mn, m in (t.get("metrics") or {}).items():
         if inherited(t, "metrics", mn):
@@ -4149,6 +4160,8 @@ def metric_type_errors(typing, tn, t, enums):
             continue                            # step 2 refuses what does not parse
         source, item = str(m.get("source", "")), m.get("item")
         problems = []
+        if (c := unknown_currency(tree)) is not None:
+            problems.append(f"{c} is a currency whose minor unit the engine does not know")
 
         def body(b):
             if source == "objects":
@@ -8738,6 +8751,8 @@ def syntax_plants():
     AGENT = "      agent: { reference: Agent, optional: true, assignee: true }\n"
     planted = [
         ("a creation that never writes a required attribute", "check 8", p(MINI, NOTE, NOTE + "      owner: { type: string }\n")),
+        # a reference the store holds NOT NULL, where every creation faulted 500 (check-soundness.py, 2026-11-17)
+        ("a creation that never writes a required reference", "check 8", p(MINI, NOTE, NOTE + "      boss: { reference: Job }\n")),
         ("a state with no way out", "check 15", p(p(MINI, DONE, DONE + "      STUCK: { category: live }\n"), FINISH,
                                                   FINISH + "      stick: { kind: external, from: [OPEN], to: STUCK }\n")),
         ("a state nothing reaches", "check 15", p(p(MINI, DONE, DONE + "      LOST: { category: live }\n"), FINISH,
@@ -8806,6 +8821,14 @@ def syntax_plants():
         ("a metric's percentile of a text", "names", p(METRIC, "expression: count()", "expression: percentile(0.5, t.held(title))")),
         ("a metric subtracting an int from a decimal", "names", p(METRIC, "expression: count()", "expression: count() * 1.5 - count()")),
         ("a metric multiplying a time", "names", p(METRIC, "expression: count()", "expression: max(t.occurred_at) * 2")),
+        # an amount no runner holds, which a metric answered 501 (check-soundness.py, 2026-11-17), in its value and in an
+        # aggregate's body over objects, which is typed as an expression is
+        ("a metric's amount in a currency the engine does not know", "names",
+         p(METRIC, "expression: count()", "expression: count() * PHP 1.00")),
+        ("a metric summing an amount in a currency the engine does not know", "names",
+         p(METRIC, "        source: transitions\n        item: t\n        filter: t.to_state == Job.DONE\n        dimensions:\n"
+                   "          month: month(t.occurred_at)\n        time_dimension: t.occurred_at\n        expression: count()\n",
+           "        source: objects\n        item: j\n        expression: sum(PHP 1.00)\n")),
         ("a metric averaging a text over objects", "names",
          p(METRIC, "        source: transitions\n        item: t\n        filter: t.to_state == Job.DONE\n        dimensions:\n"
                    "          month: month(t.occurred_at)\n        time_dimension: t.occurred_at\n        expression: count()\n",
@@ -9097,8 +9120,8 @@ def logic_plants(people, service):
 
 def runner_plants(people, service, examples):
     """Step 6 shown on the service example: an expectation the rules contradict fails, a guard reading a metric is
-    decided over the example's own history, and a construct the runner does not yet execute is reported as not run,
-    never passed."""
+    decided over the example's own history, and an example the runner cannot run is reported as not run, never
+    passed."""
     ok = True
 
     def guarded(line, guard, expression, remedy):
@@ -9122,13 +9145,6 @@ def runner_plants(people, service, examples):
                  "metric(inspection_pass_rate, engineer := engineer, over last 30 days) >= 0.900", "dependent"), None),
         ("a guard reading a metric that has no rows yet, and so is unknown", "example",
          guarded("        backdating_limit: 2 days\n", "quick", "metric(time_working) < 30 days", "dependent"), None),
-        # a guard reading a metric whose value is an amount in a currency whose minor unit neither the runner nor the
-        # core knows, so neither can round it (declaration-syntax.md §8.3); the guard names no amount itself, which
-        # the typing refuses in such a currency (the audit's values L6), and a metric's expression is not yet typed
-        ("an example the runner cannot yet run", "notrun",
-         guarded("        backdating_limit: 2 days\n", "calm", "metric(priced) <= metric(priced)", "dependent").replace(
-             "    metrics:\n", "    metrics:\n      priced:\n        description: Jobs priced in pesos.\n"
-                           "        source: objects\n        item: o\n        expression: count() * PHP 1.00\n", 1), None),
     ]
     for name, code, module, edit in plants:
         found, notes = check([("people.yaml", people), ("service.yaml", module or service),
@@ -9141,6 +9157,14 @@ def runner_plants(people, service, examples):
             alone = [x[4].split(":")[0] for x in found] == ["a_repeated_check_lets_the_job_finish"]
             ok &= alone
             print(f"  the pass-rate guard fails that example alone, and passes the one whose failure was corrected: {'yes' if alone else 'NO ' + str([x[4][:60] for x in found])}")
+    # an example a runner cannot run, its `publish` step's files not given, in a module every check passes, which both
+    # runners report alike (ADR-0166 decision 3); `name` labels what the export records
+    name = "an example the runner cannot run"
+    migration = (EXAMPLES / "service-migration.examples.yaml").read_text()
+    found, notes = check([("people.yaml", people), ("service.yaml", service), ("service-migration.examples.yaml", migration)])
+    hit = [x for x in notes if x[3] == "notrun"]
+    ok &= bool(hit) and not found
+    print(f"  planted {name}: {'reported not run, ' + hit[0][4][:70] if hit and not found else 'MISSED ' + str((found + notes)[:2])}")
     return ok
 
 

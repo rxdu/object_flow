@@ -446,6 +446,11 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                     if spec and not spec.split()[0].endswith("?") and "[]" not in spec.split()[0] \
                        and "default" not in spec and "identifier" not in spec and an not in written:
                         add(8, f"{d.name}.{tn} never writes required attribute '{an}'", ln)
+                for rn, (rk, rspec, _rln) in rels.items():
+                    # a required reference this end stores, which the store holds NOT NULL
+                    if rk != "ref" or not rspec.split() or rspec.split()[0].endswith("?") \
+                       or not stores(d, rspec, by_name) or rn in written: continue
+                    add(8, f"{d.name}.{tn} never writes required reference '{rn}'", ln)
             if kind == "assert":
                 if not re.search(r"input\s+reason\b", body): add(29, f"{d.name}.{tn} asserts with no reason input", ln)
                 rm = re.search(r"input\s+reason\s*:\s*(\w+)", body)
@@ -946,7 +951,8 @@ FIXTURES = {
   2:  "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go S -> D { create B.mk2() }\n}\ntype B version 1 {\n tracking serial\n states T category live, U category closed terminal\n create mk2 -> T { input amount : int\n }\n do take T -> U { }\n}",
   7:  "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref m : M indexed\n create mk -> S { }\n do go S -> D { }\n}",
   8:  ["type W version 1 {\n tracking serial\n states S category live, D category closed terminal\n part p : C inverse w\n create mk -> S { }\n do go S -> D { }\n}",
-       "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr name string\n create mk -> S { }\n do go S -> D { }\n}"],
+       "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n attr name string\n create mk -> S { }\n do go S -> D { }\n}",
+       "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n ref boss : A\n create mk -> S { }\n do go S -> D { }\n}"],
   11: "type P version 1 {\n tracking serial\n states S category live, D category closed terminal\n owner w : W inverse parts\n create mk -> S { set w := inputs.w }\n do go S -> D { }\n}",
   15: ["type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n do go D -> S { }\n}",
        "type A version 1 {\n tracking serial\n states S category live, D category closed terminal\n create mk -> S { }\n act poke at S { }\n}",

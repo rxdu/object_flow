@@ -39,9 +39,7 @@ PLANTS = ROOT / "core/crates/objectflow-core/tests/plants"
 OP = {"id": "operator"}
 ROUNDS = 2                  # transitions taken on each object, so a state one transition reaches is tried too
 # a gap found and recorded: what its answer says, to the TODO.md entry recording it, kept while it answers so
-KNOWN = {
-    "501 not run: an amount in PHP": "a metric's amount in a currency the engine does not know passes check 24",
-}
+KNOWN: dict[str, str] = {}
 # each value is tried as itself and as its zero, which reaches a division and an empty text
 FLAVOURS = ("one", "zero")
 

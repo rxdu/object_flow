@@ -581,26 +581,21 @@ def fleet_examples(expect: str) -> str:
             f"    expect: {expect}\n")
 
 
-def metered(text: str, currency: str = "USD",
-            guards: str = "graded: deny, settled: deny",
+def metered(text: str, guards: str = "graded: deny, settled: deny",
             settled: str = "metric(priced) < USD 3.00") -> str:
-    """A version whose `retire` also guards on a metric, robots priced in a
-    currency, which a dry run consults no more than an evaluator
-    (`publish-and-import.md` §1 step 3). Neither backend knows a peso's minor
-    unit, so a request reading the metric in pesos is not run; the core
-    cannot hold a literal in pesos either, which the runner can, so the
-    peso's case reads only whether the metric has a value."""
+    """A version whose `retire` also guards on a metric, robots priced, which
+    a dry run consults no more than an evaluator (`publish-and-import.md` §1
+    step 3)."""
     return text.replace(
         "migration:\n",
-        "    metrics:\n      priced: { description: Robots priced in pesos., "
-        "source: objects, item: o, expression: count() * PHP 1.00 }\n"
+        "    metrics:\n      priced: { description: Robots priced., "
+        "source: objects, item: o, expression: count() * USD 1.00 }\n"
         "migration:\n", 1).replace(
         "remedy: self_serviceable }\n",
         "remedy: self_serviceable }\n      settled: { description: Few "
         f"robots priced., expression: \"{settled}\", "
         "remedy: dependent }\n", 1).replace(
-        "guards: { graded: deny }", f"guards: {{ {guards} }}").replace(
-        "PHP", currency)
+        "guards: { graded: deny }", f"guards: {{ {guards} }}")
 
 
 def load(tee, name: str, text: str) -> None:
@@ -713,11 +708,15 @@ CASES = {
         tee, metered(fleet_v2(True, True, True),
                      guards="graded: deny, settled: audit")),
         "gained:Robot.retire"),
+    # an example whose `publish` step names a file the change does not
+    # carry, which neither backend can run (ADR-0232 decision 1)
     "example_not_run": (lambda tee: fleet_case(
-        tee, metered(fleet_v2(True, True, True), "PHP",
-                     settled="metric(priced) is not null"),
+        tee, fleet_v2(True, True, True),
         {"fleet.examples": fleet_examples(
-            "{ verdict: applied, state: RETIRED }")}), "example_not_run"),
+            "{ verdict: applied, state: RETIRED }").replace(
+            "    steps:\n",
+            "    steps:\n      - publish: { source: [fleet-v0.yaml] }\n")}),
+        "example_not_run"),
     "type_changed_and_dropped_type": (
         lambda tee: shop_case(tee, shop_v2()), "type_changed:Customer.size"),
     "possible_rename": (lambda tee: shop_case(tee, shop_v2(rename=False)),

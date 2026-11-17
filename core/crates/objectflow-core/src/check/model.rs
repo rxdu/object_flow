@@ -822,6 +822,19 @@ fn body_checks(d: &Decl, world: &BTreeMap<&str, &Decl>, all: &[Decl], out: &mut 
                     );
                 }
             }
+            // a required reference this end stores, which the store holds NOT NULL
+            for r in m.rels.iter().filter(|r| r.kind == RelKind::Ref) {
+                if r.optional() || !stores(r, world) || written.contains(&r.name) {
+                    continue;
+                }
+                add(
+                    out,
+                    8,
+                    format!("{dn}.{tn} never writes required reference '{}'", r.name),
+                    t.module,
+                    &t.path,
+                );
+            }
         }
         let inputs = obj(x, "inputs");
         if t.head == Head::Assert {

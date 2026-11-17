@@ -4,6 +4,11 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Changed, and may refuse what 0.29.0 accepted
+
+- Check 8 refuses a creation that never writes a required reference its type stores, as it refused one leaving a required attribute unwritten, and as `declaration-syntax.md` §10 defines the check. Such a module loaded clean, and every creation of the type faulted `500`, or, from this release, is refused (below); since no creation of the type could succeed, nothing that ran is refused.
+- Check 24 refuses an amount in a currency the engine has no minor unit for anywhere in a metric's value, such as `count() * PHP 1.00`, as it refused one in every other expression. Such a metric loaded clean and was answered `501`, not run.
+
 ### Fixed
 
 - A creation that left absent an attribute the store holds required, such as a required reference no creation writes, faulted `500`, "NOT NULL constraint failed"; the store's constraint kept it from being written. Both runners now refuse it `value_in_range`, naming no object, as an absent value assigned is refused (ADR-0201 decision 7).

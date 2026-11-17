@@ -2824,41 +2824,13 @@ types:
             failed.message
         );
         assert!(r.fatal() && !r.accepted);
-        // an example reaching what the core does not yet run refuses the
-        // publish, which cannot say it passed
-        // a guard reading a metric whose value is an amount in a currency
-        // whose minor unit the core does not know, so it cannot round it;
-        // the guard names no amount itself, which the typing refuses in
-        // such a currency, and a metric's expression is not yet typed
-        let metered = text
-            .replace(
-                "migration:\n",
-                "    metrics:\n      priced: { description: Robots priced in pesos., source: objects, item: o, expression: count() * PHP 1.00 }\nmigration:\n",
-            )
-            .replace(
-                "remedy: self_serviceable }\n",
-                "remedy: self_serviceable }\n      settled: { description: Few robots priced., expression: \"metric(priced) <= metric(priced)\", remedy: dependent }\n",
-            )
-            .replace("guards: { graded: deny }", "guards: { graded: deny, settled: deny }");
-        assert!(metered.contains("metric(priced)") && metered.contains("settled: deny"));
-        let w = s.snapshot().unwrap();
-        let r = dry_run(
-            &w,
-            &Draft {
-                change_id: Some(&change),
-                source: &[
-                    ("fleet".to_string(), metered),
-                    (
-                        "fleet.examples".to_string(),
-                        examples("{ verdict: applied, state: RETIRED }"),
-                    ),
-                ],
-                source_ref: Some("git:fleet@1"),
-                source_digest: None,
-                actor: OPERATOR,
-            },
-        )
-        .unwrap();
+        // an example reaching what the core cannot run refuses the publish,
+        // which cannot say it passed: here a `publish` step naming a file the
+        // change does not carry (ADR-0232 decision 1)
+        let r = with(&examples("{ verdict: applied, state: RETIRED }").replace(
+            "    steps:\n",
+            "    steps:\n      - publish: { source: [fleet-v0.yaml] }\n",
+        ));
         let unrun = r
             .findings
             .iter()

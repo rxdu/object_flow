@@ -349,14 +349,10 @@ def self_test(texts):
         ("an example whose expectation the runner contradicts", "example: publishing_dates_the_document",
          {**base, trial: plain + examples.replace("state: PUBLISHED, values: { published_at: now }",
                                                   "state: PUBLISHED, values: { published_at: now - 1 h }")}),
-        # a guard reading a metric whose value is an amount in a currency neither the runner nor the core knows the minor
-        # unit of, so neither can round it (declaration-syntax.md §8.3)
+        # an example whose `publish` step names a file the document does not give, which no runner can run (ADR-0166
+        # decision 3)
         ("an example the runner does not run", "notrun:",
-         {**base, trial: plain.replace("    transitions:\n", "    conditions:\n      calm:\n        description: Few priced.\n"
-                                       "        expression: metric(priced) <= metric(priced)\n        remedy: dependent\n\n    transitions:\n", 1)
-                              .replace("        to: PUBLISHED\n", "        to: PUBLISHED\n        guards:\n          calm: deny\n", 1)
-                              .replace("expr: now }\n```\n", "expr: now }\n\n    metrics:\n      priced:\n        description: Documents priced in pesos.\n"
-                                       "        source: objects\n        item: o\n        expression: count() * PHP 1.00\n```\n", 1) + examples}),
+         {**base, trial: plain + examples.replace("    steps:\n", "    steps:\n      - publish: { source: [documents-v0.yaml] }\n", 1)}),
     ]
     ok = True
     for name, expect, docs in plants:

@@ -4963,9 +4963,11 @@ impl MetricRows<'_> {
 /// What a metric's value breaks that the core's metric evaluator does not
 /// compute, where the types it combines can be told: an aggregate over its
 /// rows of what it does not compute over, a text, a bool, a member, an
-/// identity or a state, and a sum of times; and a sum or a difference of
-/// two types, a decimal and an int or two scales, whose fractional value
-/// the core cannot place (the values audit's M2, the model's check 24;
+/// identity or a state, and a sum of times; a sum or a difference of two
+/// types, a decimal and an int or two scales, whose fractional value the
+/// core cannot place (the values audit's M2, the model's check 24); and an
+/// amount anywhere in it in a currency whose minor unit the engine does
+/// not know, as every other expression refuses it (L1;
 /// `check-flows.py`'s `metric_type_errors`).
 fn metric_type_errors(
     typing: &mut Typing<'_>,
@@ -4990,6 +4992,11 @@ fn metric_type_errors(
             item: body_text(m, "item"),
         };
         let mut problems = Vec::new();
+        if let Some(c) = unknown_currency(&tree) {
+            problems.push(format!(
+                "{c} is a currency whose minor unit the engine does not know"
+            ));
+        }
         rows.kind(typing, &tree, &mut problems);
         if let Some(p) = problems.first() {
             out.push(finding(
@@ -6242,6 +6249,15 @@ fn scan_errors(tn: &str, t: &Value, library: &Obj) -> Found {
         }
     }
     out
+}
+
+/// The first amount, in reading order, in a currency the engine has no
+/// minor unit for, which no runner holds (the values audit's L1).
+fn unknown_currency(e: &Expr) -> Option<&str> {
+    match e {
+        Expr::Money(c, _) if crate::value::minor_unit(c).is_none() => Some(c),
+        _ => children(e).into_iter().find_map(unknown_currency),
+    }
 }
 
 /// An expression's direct subexpressions, as `flowexpr`'s tuples hold them.
