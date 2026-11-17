@@ -555,6 +555,11 @@ types:
         source: objects
         item: p
         expression: max(add_months(p.ends_on, 1))
+      first_opened:
+        description: The first day a plan was opened, the date of an instant.
+        source: objects
+        item: p
+        expression: min(date(p.created_at))
 """
 
 
@@ -595,6 +600,10 @@ def test_a_plans_length_is_held_by_add_months_alike(tee):
     # a metric of a date moved by months answers a date, as the reference's does
     m = tee.post("/v1/metric", {"actor": OP, "name": "Plan.latest_renewal"})
     assert [r["value"] for r in m["rows"]] == ["2029-03-28"], m
+    # a metric of the date of an instant answers a date, as the reference's does, where the core answered a count of
+    # seconds (ADR-0145)
+    m = tee.post("/v1/metric", {"actor": OP, "name": "Plan.first_opened"})
+    assert [type(r["value"]) for r in m["rows"]] == [str] and len(m["rows"][0]["value"]) == 10, m
     alike(tee)
 
 DUES = """module: dues

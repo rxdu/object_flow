@@ -9,6 +9,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 - Step 3 of the flow checker reads a qualified name whatever its member's case, so it refuses `Foo.bar` where nothing declares `Foo`, as it refused `Foo.BAR`; `Kind.small` where the enumeration `Kind` has no `small`; and `Bundle.size`, `Bundle` a value, whose name owns nothing an expression names. Each loaded clean, and the core stopped every request its expression reached as not run (ADR-0282).
 - Check 24 types `date`'s argument, a timestamp or a date, so it refuses `date(title)`, `title` a string, `date(5)` and `date(true)`, which loaded clean; the core stopped a request reaching the date of a text as not run, and the reference runner failed on it. The reference runner now answers `date` of anything but a timestamp or a date not run, as the core does (ADR-0283).
 
+### Fixed
+
+- The core answered a metric whose value is the date of an instant, such as `min(date(p.created_at))`, as a count of seconds, `1767225600`, where the reference runner answered the date, `2026-01-01`. It now answers the date, as it does a metric over `add_months`; a deployment reading such a metric gets a date where it got a number (ADR-0145).
+
 ## 0.28.0, 2026-11-16
 
 A release before 1.0.0, as 0.27.0 was (ADR-0214), with issues #98 and #99: step 5 of the flow checker decides each group of rules that share nothing alone (ADR-0280), first keying a part it cannot read by the values it reads after a transition's writes, which closes the paths by which it refused a transition a request can take (ADR-0279); and the `absent` notice reads a loop's `where` as it reads a deny guard (ADR-0281). Step 5 may refuse what 0.27.0 accepted, as its heading lists.
