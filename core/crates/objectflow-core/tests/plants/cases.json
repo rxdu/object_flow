@@ -37624,6 +37624,232 @@
   }
  },
  {
+  "label": "date_argument_plants: of now",
+  "files": [
+   [
+    "dues.yaml",
+    "2f2d55d29fe4c6e4"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "dues.yaml",
+    18,
+    "notice",
+    "self_serviceable",
+    "said's remedy is self_serviceable, 'supply it', and close takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {
+   "Due": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "date_argument_plants: of a timestamp member",
+  "files": [
+   [
+    "dues.yaml",
+    "536b7aa8a015773e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "dues.yaml",
+    18,
+    "notice",
+    "self_serviceable",
+    "said's remedy is self_serviceable, 'supply it', and close takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {
+   "Due": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "date_argument_plants: of a date",
+  "files": [
+   [
+    "dues.yaml",
+    "211fde2bf33b1a7b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "dues.yaml",
+    18,
+    "notice",
+    "self_serviceable",
+    "said's remedy is self_serviceable, 'supply it', and close takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {
+   "Due": [
+    0,
+    1
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "date_argument_plants: of a string",
+  "files": [
+   [
+    "dues.yaml",
+    "1d7ba4db68863771"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "dues.yaml",
+    15,
+    "fatal",
+    "names",
+    "condition said does not type: date takes a timestamp or a date, and is given a string (the model's check 24)"
+   ],
+   [
+    "dues.yaml",
+    18,
+    "notice",
+    "self_serviceable",
+    "said's remedy is self_serviceable, 'supply it', and close takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "date_argument_plants: of a string read through this",
+  "files": [
+   [
+    "dues.yaml",
+    "233558ab3ebaccfe"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "dues.yaml",
+    15,
+    "fatal",
+    "names",
+    "condition said does not type: date takes a timestamp or a date, and is given a string (the model's check 24)"
+   ],
+   [
+    "dues.yaml",
+    18,
+    "notice",
+    "self_serviceable",
+    "said's remedy is self_serviceable, 'supply it', and close takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "date_argument_plants: of a number",
+  "files": [
+   [
+    "dues.yaml",
+    "9c64c704a84f86bf"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "dues.yaml",
+    15,
+    "fatal",
+    "names",
+    "condition said does not type: date takes a timestamp or a date, and is given a number (the model's check 24)"
+   ],
+   [
+    "dues.yaml",
+    18,
+    "notice",
+    "self_serviceable",
+    "said's remedy is self_serviceable, 'supply it', and close takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "date_argument_plants: of an int",
+  "files": [
+   [
+    "dues.yaml",
+    "02658167acd6bbd5"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "dues.yaml",
+    15,
+    "fatal",
+    "names",
+    "condition said does not type: date takes a timestamp or a date, and is given an int (the model's check 24)"
+   ],
+   [
+    "dues.yaml",
+    18,
+    "notice",
+    "self_serviceable",
+    "said's remedy is self_serviceable, 'supply it', and close takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "date_argument_plants: of a bool",
+  "files": [
+   [
+    "dues.yaml",
+    "9b00a7f986750443"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "dues.yaml",
+    15,
+    "fatal",
+    "names",
+    "condition said does not type: date takes a timestamp or a date, and is given a bool (the model's check 24)"
+   ],
+   [
+    "dues.yaml",
+    18,
+    "notice",
+    "self_serviceable",
+    "said's remedy is self_serviceable, 'supply it', and close takes no input a caller could supply"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "creation_read_plants: a creation's guard reading what it takes",
   "files": [
    [

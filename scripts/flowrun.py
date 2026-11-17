@@ -1509,7 +1509,18 @@ class Evaluator:
             return self.entered_at(o, args[0][1]) if fn[1] == "entered_at" else self.time_in(o, args[0][1])
         if fn == ("name", "date") and len(args) == 1:
             v = self.value(args[0], env)            # the UTC calendar day of an instant (ADR-0145)
-            return v if v is ABSENT or is_date(v) else (EPOCH + datetime.timedelta(seconds=math.floor(v))).date()
+            if v is ABSENT or is_date(v):
+                return v
+            try:
+                held = self.held_kind(args[0], self.kinds_here(env), env)[0]
+            except NotRunnable:
+                held = None
+            # a time is a Fraction here, as a decimal, an amount and a duration are, so an int, a text or a bool is
+            # none, and a Fraction is one where it is held as one or its kind cannot be told; any other value is not
+            # run, as the core's is, where text raised TypeError and 5 read as a time (ADR-0283)
+            if not isinstance(v, Fraction) or held not in ("timestamp", "other", None):
+                raise NotRunnable("date of a value that is not a timestamp or a date")
+            return (EPOCH + datetime.timedelta(seconds=math.floor(v))).date()
         if fn == ("name", "add_months") and len(args) == 2:
             d, n = self.value(args[0], env), self.value(args[1], env)
             if d is ABSENT or n is ABSENT:
@@ -5079,6 +5090,18 @@ def self_test():
     r, s, order, lines = fresh(1)
     check("a creation by an effect", lines[0][3], ["Line.add"])
     check("an add to a set", s.objects[order].attrs.get("tags"), ("lined",))
+    # the date of a timestamp is its UTC day, and of a number held as an int not run, as the core's is (ADR-0283)
+    line = next(o.id for o in s.objects.values() if o.type == "Line")
+    # an input the transition does not declare is held as a kind not told, so a text is told by its value
+    # a decimal and a duration are Fractions, as a time is, and told apart by the kind they are held at
+    for text, want in (("date(now)", "2026-01-01"), ("date(qty)", "not run"), ("date(5)", "not run"),
+                       ("date(inputs.t)", "not run"), ("date(inputs.n)", "not run"), ("date(1.5)", "not run"),
+                       ("date(5 min)", "not run")):
+        try:
+            got = str(Evaluator(s, "Line", line, inputs={"t": "x", "n": 5}).value(flowexpr.parse(text), {}))
+        except NotRunnable:
+            got = "not run"
+        check(f"the date of {text[5:-1]}", got, want)
     r, s, order, _ = fresh(1, 0, 2)
     check("a loop's filter and its calls, in id order", r.attempt(s, "Order", "ship", order, OPERATOR, {}, {}, {})[3],
           ["Line.pack", "Line.pack"])

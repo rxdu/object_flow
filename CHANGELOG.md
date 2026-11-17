@@ -7,6 +7,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 ### Changed, and may refuse what 0.28.0 accepted
 
 - Step 3 of the flow checker reads a qualified name whatever its member's case, so it refuses `Foo.bar` where nothing declares `Foo`, as it refused `Foo.BAR`; `Kind.small` where the enumeration `Kind` has no `small`; and `Bundle.size`, `Bundle` a value, whose name owns nothing an expression names. Each loaded clean, and the core stopped every request its expression reached as not run (ADR-0282).
+- Check 24 types `date`'s argument, a timestamp or a date, so it refuses `date(title)`, `title` a string, `date(5)` and `date(true)`, which loaded clean; the core stopped a request reaching the date of a text as not run, and the reference runner failed on it. The reference runner now answers `date` of anything but a timestamp or a date not run, as the core does (ADR-0283).
 
 ## 0.28.0, 2026-11-16
 

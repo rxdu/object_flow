@@ -3566,6 +3566,13 @@ class Typing:
                 if arg is not None and arg[0] != "string":
                     self.fail(f"trim takes a string, and is given {type_text(arg)}")
                 return ("string",)
+            if f == ("name", "date"):
+                # the UTC day of a timestamp, or a date itself, where any argument typed and the core did not run the
+                # date of a text (ADR-0283)
+                arg = self.of(e[2][0], tn, x, env, seen) if len(e[2]) == 1 else None
+                if arg is not None and arg[0] not in ("timestamp", "date"):
+                    self.fail(f"date takes a timestamp or a date, and is given {type_text(arg)}")
+                return ("date",)
             if f == ("name", "add_months"):
                 # a date and a whole number of months, a date moved by them (ADR-0276)
                 d, n = (self.of(a, tn, x, env, seen) for a in e[2])
@@ -3587,7 +3594,7 @@ class Typing:
                 if arg is not None and arg[0] != "decimal" and not (arg[0] == "number" and arg[1] > 0):
                     self.fail(f"{f[1]} takes a decimal, and is given {type_text(arg)}")
                 return yields
-            return {"entered_at": ("timestamp",), "time_in": ("duration",), "date": ("date",)}.get(f[1] if f[0] == "name" else None)
+            return {"entered_at": ("timestamp",), "time_in": ("duration",)}.get(f[1] if f[0] == "name" else None)
         if k == "changed":
             # the event it reads is one no type here names, so a value of a type it can tell is not one, where an int
             # was read as a log position (the values audit's G7)
@@ -13424,6 +13431,37 @@ def whole_plants():
     return ok
 
 
+def date_argument_plants():
+    """`date` of a timestamp or a date (ADR-0283): of now, of a timestamp member and of a date it is clean; of a string,
+    a number, an int and a bool it is refused, where each typed and the core did not run the date of a text."""
+    base = ("module: dues\ncategories: [live, closed]\ntypes:\n  Due:\n    description: A thing due on a day.\n"
+            "    tracking: record\n    attributes:\n      title: { type: string }\n      due: { type: date }\n"
+            "      count: { type: int }\n    states:\n      OPEN: { description: Open., category: live }\n"
+            "      DONE: { description: Done., category: closed, final: true }\n    conditions:\n"
+            "      said: { description: It is due., expression: '{expr}', remedy: self_serviceable }\n"
+            "    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [title, due, count] }\n"
+            "      close: { kind: external, from: OPEN, to: DONE, guards: { said: deny } }\n")
+    typed = "condition said does not type: date takes a timestamp or a date, and is given {} (the model's check 24)"
+    cases = [
+        ("of now", "due <= date(now)", []),
+        ("of a timestamp member", "date(created_at) <= due", []),
+        ("of a date", "date(due) == due", []),
+        ("of a string", "date(title) == due", [typed.format("a string")]),
+        ("of a string read through this", "date(this.title) == due", [typed.format("a string")]),
+        ("of a number", "date(5) == due", [typed.format("a number")]),
+        ("of an int", "date(count) == due", [typed.format("an int")]),
+        ("of a bool", "date(true) == due", [typed.format("a bool")]),
+    ]
+    ok = True
+    for name, expr, want in cases:
+        found, notes = check([("dues.yaml", base.replace("{expr}", expr))])
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  date, {name}: {'as expected' if hit else 'NOT: ' + str(got) + ' ' + str([x[4] for x in notes])}")
+    return ok
+
+
 def qualified_member_plants():
     """A qualified name read whatever its member's case (ADR-0282): an owner nothing declares is refused with a member
     in lower or mixed case, as with one in upper case, and so is an enumeration's member it does not have; an
@@ -13778,6 +13816,7 @@ def main():
     ok &= add_months_plants()
     ok &= whole_plants()
     ok &= qualified_member_plants()
+    ok &= date_argument_plants()
     ok &= creation_read_plants()
     ok &= metric_plants(people)
     ok &= range_plant(people)

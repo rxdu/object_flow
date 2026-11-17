@@ -3529,8 +3529,8 @@ impl Typing<'_> {
         None
     }
 
-    /// The type of a call of `length`, `trim`, `add_months`, `whole` or
-    /// `is_whole`, typed here through one arm of [`Self::of`]: each typed in
+    /// The type of a call of `length`, `trim`, `date`, `add_months`, `whole`
+    /// or `is_whole`, typed here through one arm of [`Self::of`]: each typed in
     /// `of`, their temporaries grew the frame its recursion holds past the
     /// oracle's test thread's stack (`docs/LESSONS.md`).
     #[inline(never)]
@@ -3562,6 +3562,19 @@ impl Typing<'_> {
                         ));
                     }
                     Some(Ty::Int)
+                } else if name == "date" {
+                    // the UTC day of a timestamp, or a date itself, where any
+                    // argument typed and the core did not run the date of a
+                    // text (ADR-0283)
+                    if let Some(arg) = arg
+                        && !matches!(arg, Ty::Timestamp | Ty::Date)
+                    {
+                        self.fail(format!(
+                            "date takes a timestamp or a date, and is given {}",
+                            arg.text()
+                        ));
+                    }
+                    Some(Ty::Date)
                 } else {
                     if let Some(arg) = arg
                         && !matches!(arg, Ty::Str)
@@ -4050,12 +4063,11 @@ impl Typing<'_> {
                     return None;
                 };
                 match name.as_str() {
-                    "length" | "trim" | "add_months" | "whole" | "is_whole" => {
+                    "length" | "trim" | "date" | "add_months" | "whole" | "is_whole" => {
                         self.typed_function(name, args, tn, x, env, seen)
                     }
                     "entered_at" => Some(Ty::Timestamp),
                     "time_in" => Some(Ty::Duration),
-                    "date" => Some(Ty::Date),
                     _ => None,
                 }
             }

@@ -597,6 +597,42 @@ def test_a_plans_length_is_held_by_add_months_alike(tee):
     assert [r["value"] for r in m["rows"]] == ["2029-03-28"], m
     alike(tee)
 
+DUES = """module: dues
+categories: [live, closed]
+types:
+  Due:
+    description: A thing due on a day.
+    tracking: record
+    attributes:
+      due: { type: date, optional: true }
+    states:
+      OPEN: { category: live, description: Open. }
+      DONE: { category: closed, final: true, description: Done. }
+    conditions:
+      numbered: { description: The date of a number., expression: 'date(inputs.n) <= date(now)', remedy: self_serviceable }
+      worded: { description: The date of a text., expression: 'date(inputs.word) <= date(now)', remedy: self_serviceable }
+    transitions:
+      open: { kind: initial, to: OPEN }
+      by_number: { kind: internal, from: [OPEN], inputs: { n: { type: int } }, guards: { numbered: deny } }
+      by_word: { kind: internal, from: [OPEN], inputs: { word: { type: string } }, guards: { worded: deny } }
+"""
+
+
+def test_the_date_of_anything_but_an_instant_is_not_run_alike(tee):
+    """`date` of an int or a text, loaded with the checks skipped since check
+    24 refuses it, stops the request as not run on both runners alike, where
+    the reference raised TypeError on a text and read an int as an instant
+    (ADR-0283)."""
+    tee.found.clear()
+    assert tee.post("/sandbox/load", {"files": [{"name": "dues.yaml", "text": DUES}], "unchecked": True})["loaded"]
+    tee.post("/sandbox/reset", {})
+    due = made(tee, "Due", "open")
+    for xn, inputs in (("by_number", {"n": 5}), ("by_word", {"word": "2026-01-01"})):
+        with pytest.raises(NotRun, match="the date of"):
+            tee.post("/v1/request", {"transition": xn, "actor": OP, "object_id": due, "inputs": inputs})
+    alike(tee)
+
+
 RATIOS = """module: ratios
 categories: [live, closed]
 types:
