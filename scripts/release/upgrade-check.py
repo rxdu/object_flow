@@ -5,8 +5,9 @@ For each of the two example modules, reimbursement and servicedesk, the old serv
 database, publishes the module, plays its examples as far as they play and records every object it can read. The new
 service then answers the store as due an upgrade, runs a dry run that leaves it due, upgrades it, and serves it at the
 new release. Each object is read again: its state and attributes as before, and each earlier event as the old release
-answered it. A key the new release adds to an event is named, and held empty, since no event before the upgrade has a
-value of it; `declaration_type` (ADR-0244) is the object's own type, since no version of these modules moves one.
+answered it. A key the new release adds to an event is named, and held empty, null or an empty list, since no event
+before the upgrade has a value of it, as `flags` names no flag an earlier release raised (ADR-0288);
+`declaration_type` (ADR-0244) is the object's own type, since no version of these modules moves one.
 
 The release gate runs it with the release before's published service and the release build; the release's own
 verification runs it with the published service (`scripts/release/gate`, `scripts/release/verify`). SQLite's upgrade is
@@ -116,7 +117,8 @@ for name in ("reimbursement", "servicedesk"):
                 extra = set(n) - set(w)
                 added.update(extra)
                 return ({k: n.get(k) for k in w} == w
-                        and all(n[k] == got.get("type") if k == "declaration_type" else n[k] is None for k in extra))
+                        and all(n[k] == got.get("type") if k == "declaration_type" else n[k] in (None, [])
+                                for k in extra))
             if oid == "operator":
                 # the operator's history gains the upgrade's own events, one a step
                 if not all(alike(w, n) for w, n in zip(was_events, now_events)) or len(now_events) != len(
