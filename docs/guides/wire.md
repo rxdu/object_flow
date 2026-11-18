@@ -107,7 +107,7 @@ A verdict is `{"kind": …, "remedy": …}` with the fields of its kind; a satis
  "reasons": {"amount": "wrong_currency", "expense_date": "malformed"}}
 ```
 
-**`not_computed`.** A field the design names but the engine does not compute yet is listed in the answer's `not_computed` instead of being given a misleading value: today an offer's `consulted` (an offer asks no evaluator) and an event's `taint_version`, `txn` and `flags`. The reference runner a sandbox runs on lists more of an event's fields. Read a field only where it is not listed.
+**`not_computed`.** A field the design names but the engine does not compute yet is listed in the answer's `not_computed` instead of being given a misleading value: today an offer's `consulted` (an offer asks no evaluator) and an event's `taint_version` and `txn`. The reference runner a sandbox runs on lists more of an event's fields. Read a field only where it is not listed.
 
 ## Reads
 
@@ -174,10 +174,10 @@ As `history`, `events` and `pull` answer it:
  "payload": {"inputs": {}, "wrote": {"settled_at": "2026-10-10T09:31:02Z"}}, "cause": null, "context": null,
  "reads": {"objects": {}, "scans": {}, "now": "2026-10-10T09:31:02Z"},
  "consulted": {"cleared": {"bank.cleared(T-1)": "satisfied"}}, "as_of": {"cleared": "2026-10-10T09:31:02Z"},
- "retries": 0, "batch": null}
+ "flags": [], "retries": 0, "batch": null}
 ```
 
-`declaration_version` and `declaration_type` name the declaration the event was written under, as an object's do. `payload.inputs` holds what the request sent, and `payload.wrote` each attribute the event changed, with its value after and `null` where it cleared one, so an object's events folded in order give its attributes (ADR-0209); an event that changed none has no `wrote`, nor has one recorded before 2026-10-16. Both are under the names the event's version gave, so where a later version renamed one, `renamed` maps each such name to the installed version's, `{"cover": "cover_note"}`, a chain of renames composed; an event with no name renamed since has none (ADR-0250). `reads` holds what its rules read, and `consulted` and `as_of`, by guard, each outside answer or metric value it used and when. `retries` counts the times the request waited out another process's lock on the store. `batch` is the position of the first event of the batch its request came in, `null` for a request sent alone (ADR-0228).
+`declaration_version` and `declaration_type` name the declaration the event was written under, as an object's do. `payload.inputs` holds what the request sent, and `payload.wrote` each attribute the event changed, with its value after and `null` where it cleared one, so an object's events folded in order give its attributes (ADR-0209); an event that changed none has no `wrote`, nor has one recorded before 2026-10-16. Both are under the names the event's version gave, so where a later version renamed one, `renamed` maps each such name to the installed version's, `{"cover": "cover_note"}`, a chain of renames composed; an event with no name renamed since has none (ADR-0250). `reads` holds what its rules read, and `consulted` and `as_of`, by guard, each outside answer or metric value it used and when. `flags` holds each warning its transition raised, in the shape the request's verdict gave it: `{"clause": "was_checked", "remedy": "self_serviceable", "unknown": false, "objects": []}`. A call's or a cascade's warning is on that transition's own event, its clause unqualified; `context` beside it says why the caller went ahead (ADR-0288). An event that raised none has `[]`, as has one recorded by 0.30.0 or earlier, whose warnings are only in the attempt log until it is pruned. The operator's `upgrade` event to the first release after 0.30.0 marks where a store's events begin to name them. `retries` counts the times the request waited out another process's lock on the store. `batch` is the position of the first event of the batch its request came in, `null` for a request sent alone (ADR-0228).
 
 ### Pages
 

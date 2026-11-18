@@ -2424,14 +2424,8 @@ fn remedy(r: Option<objectflow_core::model::Remedy>) -> J {
 }
 
 fn flags(fs: &[Flag]) -> J {
-    J::Array(
-        fs.iter()
-            .map(|f| {
-                json!({"clause": f.clause, "remedy": remedy(f.remedy),
-                            "unknown": f.unknown, "objects": f.objects})
-            })
-            .collect(),
-    )
+    // one shape for a flag, a verdict's, an offer's and an event's (ADR-0288)
+    J::Array(fs.iter().map(Flag::record).collect())
 }
 
 /// A verdict on the wire with what its refusal tells beside it, where it
@@ -2574,6 +2568,12 @@ fn event(
             consulted.insert(rule, c.get("values").cloned().unwrap_or(J::Null));
         }
     }
+    // each flag its transition raised, in a verdict's shape, none where
+    // its payload names none (ADR-0288)
+    let raised = payload
+        .as_object_mut()
+        .and_then(|p| p.remove("flags"))
+        .unwrap_or_else(|| json!([]));
     let mut out = json!({
         "position": e.position, "object_id": e.object_id, "transition": e.transition,
         "from_state": e.from_state, "to_state": e.to_state, "changes_state": e.changes_state,
@@ -2589,7 +2589,7 @@ fn event(
         "recorded_at": timestamp_text(e.recorded_at),
         "occurred_at": e.occurred_at.map(timestamp_text), "imported": e.imported,
         "payload": payload, "cause": e.cause, "reads": e.reads, "context": e.context,
-        "consulted": consulted, "as_of": as_of,
+        "consulted": consulted, "as_of": as_of, "flags": raised,
         // the serialisation retries its request took (ADR-0178 decision 2)
         "retries": e.retries,
         // the batch its request came in, by its first event (ADR-0228)
@@ -2603,7 +2603,7 @@ fn event(
     out
 }
 
-const EVENT_NOT_COMPUTED: [&str; 3] = ["taint_version", "txn", "flags"];
+const EVENT_NOT_COMPUTED: [&str; 2] = ["taint_version", "txn"];
 
 fn offer(o: &Offer, actor_dependent: bool) -> J {
     let inputs: Map<String, J> = o

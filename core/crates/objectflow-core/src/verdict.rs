@@ -16,6 +16,21 @@ pub struct Flag {
     pub objects: Vec<String>,
 }
 
+impl Flag {
+    /// The flag as a verdict tells it, an idempotency record keeps it and
+    /// an event's payload holds it, `{clause, remedy, unknown, objects}`,
+    /// its remedy `null` where it declares none (`library-api.md` §4,
+    /// ADR-0288).
+    pub fn record(&self) -> serde_json::Value {
+        serde_json::json!({
+            "clause": self.clause,
+            "remedy": self.remedy.map(Remedy::text),
+            "unknown": self.unknown,
+            "objects": self.objects,
+        })
+    }
+}
+
 /// What a refusal tells its caller beside its verdict (`library-api.md`
 /// §4, `Unsatisfied`, `InvariantViolated`): whether its clause was unknown
 /// rather than false, the objects its remedy points at, whether a proposal

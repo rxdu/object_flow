@@ -15,6 +15,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 - Check 24 types a loop's filter with its item bound, as the loop's steps see it, so it refuses `where: e.amount == label` over a set of entries, `amount` an `int`. The filter was typed without its item, whose members typed as nothing, and the module loaded clean.
 - Check 24 types a state's category as a category, of whatever object the state is read, so it refuses `none(r in referrers where r.state.category == count)`, `count` an `int`. A referrer's type cannot be told, and its state's category typed as nothing.
 
+### Fixed
+
+- An event did not name the warnings its request raised, though the design said it did (issue #100). A `warn` guard's flag was in the verdict and the attempt log alone, so once the attempt log was pruned, nothing recorded which warning an act passed, while its event kept the caller's `context`. Each event now names each flag its transition raised, in the shape the verdict gives a flag, `{clause, remedy, unknown, objects}`; `history`, `events` and `pull` give it as the event's `flags`, and no longer list `flags` in `not_computed`; `export` gives it in the payload. An event recorded by 0.30.0 or earlier names none: export a type's `.attempts` source before the prune to keep those flags with their `applied_position`, though without the objects a remedy named, which an attempt row does not keep (ADR-0288).
+
 ## 0.30.0, 2026-11-17
 
 A release before 1.0.0, as 0.29.0 was (ADR-0214), with the two gaps a check of the checks against the engine found, each decided by the author: check 8 reads a required reference no creation writes, and check 24 reads an amount's currency anywhere in a metric's value. Each may refuse what 0.29.0 accepted, a module whose creation or metric could never succeed. It fixes three defects besides: a creation leaving a required attribute absent is refused, not faulted; the sandbox's reset reads its body first; and step 3 reads an input where the expression's tree reads it. It changes neither the store's own tables nor its built-ins.

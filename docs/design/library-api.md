@@ -407,7 +407,8 @@ class Event:
     consulted: Mapping[str, Any]          # per evaluator or metric guard, by its call: the verdict or value given; an
                                           # argument or binding reading anything personal written (personal) (ADR-0200)
     as_of: Mapping[str, datetime]         # per evaluator or metric guard: when its value was given
-    flags: Sequence[str] = ()             # the clauses marked flag that failed for it (ADR-0111)
+    flags: Sequence[Flag] = ()            # each flag its transition raised, its clause as that transition names
+                                          # it; none recorded by 0.30.0 or earlier (ADR-0111, ADR-0288)
 
 
 @dataclass(frozen=True)

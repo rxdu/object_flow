@@ -607,6 +607,93 @@ fn a_requests_principal_is_read_checked_and_recorded() {
     assert_eq!(history["events"][0]["principal"], "operator", "{history}");
 }
 
+/// An event names each flag its transition raised, as the verdict told
+/// it, beside the caller's reason, and `history`, `events` and `pull` give
+/// it, no longer listing it not computed; an event that raised none gives
+/// none (issue #100, ADR-0288). The issue's flow, in a sandbox, so on
+/// PostgreSQL too in that lane.
+#[test]
+fn an_event_gives_the_flags_its_request_raised() {
+    const WARNED: &str = "module: warned\ncategories: [live]\ntypes:\n  Parcel:\n    description: \"A parcel.\"\n    tracking: record\n    attributes:\n      checked: { type: bool, default: false, description: \"Whether it was checked.\" }\n    states:\n      PACKED: { description: \"Packed.\", category: live }\n      SENT: { description: \"Sent.\", category: live, final: true }\n    conditions:\n      was_checked:\n        description: \"It was checked before it leaves.\"\n        expression: checked\n        remedy: self_serviceable\n    transitions:\n      pack: { kind: initial, to: PACKED, description: \"Packs it.\" }\n      send: { kind: external, from: PACKED, to: SENT, description: \"Sends it, checked or not.\", guards: { was_checked: warn } }\n";
+    let s = start(&["--port", "0"]);
+    let loaded = post(
+        &s,
+        "/sandbox/load",
+        &json!({"files": [{"name": "warned.yaml", "text": WARNED}]}),
+    );
+    assert_eq!(loaded["loaded"], json!(true), "{loaded}");
+    let op = json!({"id": "operator"});
+    let subscription = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Subscription", "transition": "subscribe",
+                "inputs": {"target_type": "Parcel"}}),
+    )["object_id"]
+        .clone();
+    let packed = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "type": "Parcel", "transition": "pack"}),
+    );
+    let parcel = packed["object_id"].clone();
+    let reason = "Sent unchecked: the customer collects within the hour";
+    let sent = post(
+        &s,
+        "/v1/request",
+        &json!({"actor": op, "object_id": parcel, "transition": "send", "context": reason}),
+    );
+    let told = json!([{"clause": "was_checked", "remedy": "self_serviceable", "unknown": false, "objects": []}]);
+    assert_eq!(sent["flags"], told, "{sent}");
+    let history = post(&s, "/v1/history", &json!({"actor": op, "id": parcel}));
+    let events = post(
+        &s,
+        "/v1/events",
+        &json!({"actor": op, "positions": [packed["events"][0], sent["events"][0]]}),
+    );
+    let pulled = post(
+        &s,
+        "/v1/pull",
+        &json!({"actor": op, "subscription": subscription}),
+    );
+    for (read, answer) in [
+        ("history", &history),
+        ("events", &events),
+        ("pull", &pulled),
+    ] {
+        assert_eq!(
+            answer["not_computed"],
+            json!(["taint_version", "txn"]),
+            "{read}: {answer}"
+        );
+        let given: Vec<(Value, Value, Value)> = answer["events"]
+            .as_array()
+            .expect("its events")
+            .iter()
+            .map(|e| {
+                (
+                    e["transition"].clone(),
+                    e["context"].clone(),
+                    e["flags"].clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            given,
+            [
+                (json!("pack"), Value::Null, json!([])),
+                (json!("send"), json!(reason), told.clone()),
+            ],
+            "{read}: {answer}"
+        );
+        // the payload holds what the request sent and wrote, the flags
+        // given beside it once
+        assert!(
+            answer["events"][1]["payload"].get("flags").is_none(),
+            "{read}: {answer}"
+        );
+    }
+}
+
 /// A batch through the wire applies whole or not at all (ADR-0228): every
 /// verdict, in order, where all apply; where one is refused, its index and
 /// its verdict, and nothing of the batch kept; and what a batch cannot hold

@@ -228,12 +228,7 @@ fn recorded_verdict(v: &Verdict) -> Json {
             "object_id": object_id,
             "version": version,
             "events": events,
-            "flags": flags.iter().map(|f| json!({
-                "clause": f.clause,
-                "remedy": f.remedy.map(|r| r.text()),
-                "unknown": f.unknown,
-                "objects": f.objects,
-            })).collect::<Vec<_>>(),
+            "flags": flags.iter().map(Flag::record).collect::<Vec<_>>(),
         }),
         _ => Json::Null,
     }
@@ -820,6 +815,9 @@ struct Ctx<'w> {
     /// failed: each clause, whether it raises a flag, its remedy and whether
     /// it was unknown, linked to its event once its position is allocated.
     failed: Vec<(String, bool, Option<Remedy>, bool, Reading)>,
+    /// The flags of the transition being taken, its clauses unqualified,
+    /// which its event names once its position is allocated (ADR-0288).
+    raised: Vec<Flag>,
     /// Their rows of the attempt log, written with the events (§7).
     observed: Vec<crate::store::Attempt>,
     /// For a check, where it names each guard it did not evaluate, one that
@@ -1131,6 +1129,7 @@ fn decide_or_stop(
         answers: answers.clone(),
         flags: Vec::new(),
         failed: Vec::new(),
+        raised: Vec::new(),
         observed: Vec::new(),
         checking: checking.clone(),
         causes: cause.into_iter().collect(),
@@ -2103,17 +2102,24 @@ fn take_unwound(
                     ));
                 }
                 Enforce::Warn => {
-                    let clause = if tn == ctx.requested {
-                        g.clone()
-                    } else {
-                        qualified(g, tn)
-                    };
-                    ctx.flags.push(Flag {
-                        clause,
+                    // its event names it as its transition does, the
+                    // verdict qualified where another type's clause raised
+                    // it (ADR-0288)
+                    let flag = Flag {
+                        clause: g.clone(),
                         remedy: c.remedy,
                         unknown: ok.is_none(),
                         objects: in_id_order(&ctx.work, named.into_inner().objects)?,
-                    });
+                    };
+                    if tn != ctx.requested {
+                        ctx.flags.push(Flag {
+                            clause: qualified(g, tn),
+                            ..flag.clone()
+                        });
+                    } else {
+                        ctx.flags.push(flag.clone());
+                    }
+                    ctx.raised.push(flag);
                     ctx.failed
                         .push((g.clone(), true, c.remedy, ok.is_none(), guard_read));
                 }
@@ -2149,6 +2155,9 @@ fn take_unwound(
     ctx.causes.push(position);
     let consulted = read.consulted_record(ctx.work.now);
     ctx.readings.insert(position, read);
+    // the flags its event names, taken before its effect takes any other
+    // transition, whose own its event names
+    let raised = std::mem::take(&mut ctx.raised);
     // each flag raised, and each audit's would-be refusal, a row of the type
     // whose clause failed, linked to this event (DESIGN.md §5.5, §7)
     for (clause, flagged, remedy, unknown, clause_read) in std::mem::take(&mut ctx.failed) {
@@ -2694,7 +2703,7 @@ fn take_unwound(
                 .push((source.clone(), v, id.clone(), a.clone()));
         }
     }
-    let event = Event {
+    let mut event = Event {
         position,
         retries: 0,
         batch: None,
@@ -2753,6 +2762,12 @@ fn take_unwound(
         },
         reads: json!({}),
     };
+    // each flag its transition raised, in the shape a verdict tells a
+    // flag, so which warning it passed outlives the prune of its attempt
+    // rows (DESIGN.md §5.5, ADR-0288); none where it raised none
+    if !raised.is_empty() {
+        event.payload["flags"] = raised.iter().map(Flag::record).collect();
+    }
     ctx.work.appended.push(event.clone());
     ctx.events.push(event);
     ctx.causes.pop();
@@ -16723,6 +16738,122 @@ types:
             before
                 .replace("\"Dana Q\"", "null")
                 .replace("\"Zed Q\"", "null")
+        );
+    }
+
+    /// An event names each flag its transition raised, in the shape a
+    /// verdict tells a flag: the clause as its transition names it, its
+    /// remedy, whether it was unknown and the objects its remedy points at,
+    /// so which warning a
+    /// request passed outlives the prune of its attempt rows; a call's flag
+    /// is on the call's event, and an event that raised none names none.
+    /// An erasure and `export` keep them (`DESIGN.md` §5.5, ADR-0111,
+    /// ADR-0288). On both backends.
+    #[test]
+    fn an_event_names_the_flags_its_transition_raised() {
+        const SENT: &str = r#"
+module: sent
+categories: [live, closed]
+types:
+  Line:
+    attributes:
+      checked: { type: bool, default: false }
+    states:
+      OPEN: { category: live }
+      PACKED: { category: closed, final: true }
+    conditions:
+      was_checked: { expression: checked, remedy: self_serviceable }
+    transitions:
+      add: { kind: initial, to: OPEN }
+      pack: { kind: external, from: [OPEN], to: PACKED, guards: { was_checked: warn } }
+  Order:
+    attributes:
+      line: { reference: Line }
+      weight: { type: int, optional: true }
+      recipient: { type: string, optional: true, personal: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    conditions:
+      line_checked: { expression: line.checked, remedy: dependent }
+      light: { expression: weight < 30, remedy: self_serviceable }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [line], optional_inputs: [weight, recipient] }
+      ship: { kind: external, from: [OPEN], to: DONE, optional_inputs: [recipient], guards: { line_checked: warn, light: warn }, effect: [ { call: { target: line, transition: pack } } ] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"#;
+        let lib = Library::load(&[("sent.yaml".into(), SENT.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let line = created(&req(&mut s, "add", OPERATOR, ("Line", true), json!({})));
+        let order = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Order", true),
+            json!({"line": line}),
+        ));
+        let Verdict::Satisfied { events, flags, .. } = req(
+            &mut s,
+            "ship",
+            OPERATOR,
+            (&order, false),
+            json!({"recipient": "Dana Q"}),
+        ) else {
+            panic!("a warning refuses nothing")
+        };
+        // the caller is told every flag, a call's qualified
+        assert_eq!(
+            flags.iter().map(|f| f.clause.as_str()).collect::<Vec<_>>(),
+            ["line_checked", "light", "Line.was_checked"]
+        );
+        let shipped = json!([
+            {"clause": "line_checked", "remedy": "dependent", "unknown": false, "objects": [line]},
+            // an absent weight compared is unknown, never false (§8.2)
+            {"clause": "light", "remedy": "self_serviceable", "unknown": true, "objects": []}
+        ]);
+        let packed = json!([
+            {"clause": "was_checked", "remedy": "self_serviceable", "unknown": false, "objects": []}
+        ]);
+        let evs: Vec<_> = s.events(&events).unwrap().into_iter().flatten().collect();
+        assert_eq!(
+            evs.iter()
+                .map(|e| (e.transition.as_str(), e.payload["flags"].clone()))
+                .collect::<Vec<_>>(),
+            [("ship", shipped.clone()), ("pack", packed.clone())]
+        );
+        // an event whose transition raised none names none
+        let opened = &s.history(&order).unwrap()[0];
+        assert_eq!(opened.transition, "open");
+        assert!(opened.payload.get("flags").is_none(), "{opened:?}");
+        // an erasure rewrites the flagged event, its personal input
+        // nulled, and leaves its flags
+        created(&req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&order, false),
+            json!({"reason": "asked"}),
+        ));
+        let h = s.history(&order).unwrap();
+        let ship = h.iter().find(|e| e.transition == "ship").unwrap();
+        assert_eq!(ship.payload["inputs"]["recipient"], Json::Null, "{ship:?}");
+        assert_eq!(ship.payload["flags"], shipped);
+        // and the log exported holds them as the event does
+        let w = s.snapshot().unwrap();
+        let log: Vec<Json> = crate::export::export(&w, "log", None)
+            .unwrap()
+            .lines
+            .iter()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let exported = |t: &str| {
+            log.iter()
+                .find(|e| e["transition"] == json!(t))
+                .map(|e| e["payload"]["flags"].clone())
+        };
+        assert_eq!(
+            (exported("ship"), exported("pack")),
+            (Some(shipped), Some(packed))
         );
     }
 
