@@ -3511,6 +3511,11 @@ impl Typing<'_> {
         {
             return None;
         }
+        if m == "attempts" {
+            return Some(format!(
+                "it reads the attempts of {tn}, its attempt log, which a metric reads alone (ADR-0286)"
+            ));
+        }
         if WITHDRAWN_MEMBERS.contains(&m) {
             return Some(format!(
                 "it reads {m} of {tn}, which is withdrawn before 1.0.0, no store keeping it, and may return with a use (ADR-0210 decision 3)"
@@ -6191,6 +6196,10 @@ fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
                     _ => String::new(),
                 };
                 format!("{name} reads '{r}', which is not a field of the observation {o}")
+            } else if r == "attempts" {
+                format!(
+                    "{name} reads attempts, an object's attempt log, which a metric reads alone (ADR-0286)"
+                )
             } else if WITHDRAWN_MEMBERS.contains(&r.as_str()) {
                 format!(
                     "{name} reads '{r}', which is withdrawn before 1.0.0, no store keeping it, and may return with a use (ADR-0210 decision 3)"

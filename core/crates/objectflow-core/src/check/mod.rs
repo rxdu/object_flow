@@ -1192,3 +1192,40 @@ fn expressions(schema: &Schema, doc: &Value) -> Vec<(Vec<Seg>, String)> {
     walk(schema, doc, &top, &mut Vec::new(), &mut out);
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LEDGER: &str = "module: ledger\ncategories: [live, closed]\ntypes:\n  Account:\n    description: An account.\n    tracking: record\n    attributes:\n      count: { type: int }\n    states:\n      OPEN: { category: live }\n      SHUT: { category: closed, final: true }\n    derived_attributes:\n      refused: { description: Its refusals., expression: \"count(a in this.attempts)\" }\n    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [count] }\n      shut: { kind: external, from: [OPEN], to: SHUT }\n";
+
+    fn fatal(module: &str) -> Vec<String> {
+        let files = [("ledger.yaml".to_string(), module.to_string())];
+        check(&files, &BTreeMap::new())
+            .into_iter()
+            .filter(|f| f.severity == Severity::Fatal)
+            .map(|f| f.message)
+            .collect()
+    }
+
+    /// An object's attempts read outside a metric are refused by check 24
+    /// and step 3, each saying the attempt log is a metric's to read, where
+    /// each said the type did not declare them; a metric over objects reads
+    /// them (ADR-0286). The oracle compares findings unworded, so the reason
+    /// is held here.
+    #[test]
+    fn an_objects_attempts_are_a_metrics_to_read() {
+        let said = fatal(LEDGER);
+        assert_eq!(said.len(), 2, "{said:?}");
+        assert!(
+            said.iter()
+                .all(|m| m.contains("attempt log, which a metric reads alone (ADR-0286)")),
+            "{said:?}"
+        );
+        let metric = LEDGER.replace(
+            "      refused: { description: Its refusals., expression: \"count(a in this.attempts)\" }\n",
+            "      doubled: { description: Twice the count., expression: count * 2 }\n",
+        ) + "    metrics:\n      refused_often:\n        description: Accounts refused more than once.\n        source: objects\n        item: o\n        expression: \"count(where count(a in o.attempts) > 1)\"\n";
+        assert_eq!(fatal(&metric), Vec::<String>::new());
+    }
+}

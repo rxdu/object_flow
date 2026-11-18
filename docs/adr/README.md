@@ -286,4 +286,5 @@
 | [0283](0283-date-takes-a-timestamp-or-a-date.md) | `date` takes a timestamp or a date | Decided by the author; built |
 | [0284](0284-a-condition-is-typed-with-each-transition-guarding-with-it.md) | A condition is typed with each transition guarding with it | Decided by the author; built |
 | [0285](0285-text-tests-and-a-dates-parts-join-the-expression-library.md) | Text tests and a date's parts join the expression library | Decided by the author; built |
+| [0286](0286-an-objects-attempts-are-read-by-a-metric-alone.md) | An object's attempts are read by a metric alone | Decided by the author; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |

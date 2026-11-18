@@ -3419,6 +3419,8 @@ class Typing:
             return None
         if m in (t.get("attributes") or {}) or m in (t.get("derived_attributes") or {}) or m in (t.get("observations") or {}):
             return None
+        if m == "attempts":
+            return f"it reads the attempts of {tn}, its attempt log, which a metric reads alone (ADR-0286)"
         if m in WITHDRAWN_MEMBERS:
             return (f"it reads {m} of {tn}, which is withdrawn before 1.0.0, no store keeping it, and may return with a "
                     "use (ADR-0210 decision 3)")
@@ -4526,6 +4528,7 @@ def read_errors(tn, t, categories=()):
     return out + [(path, "names", f"{name} reads '{r}', which only a transition has" if r in REQUEST_ONLY else
                                   f"{name} reads labels, which are read only as a metric's source, source: labels (check 55)" if r == "labels" else
                                   f"{name} reads '{r}', which is not a field of the observation {path[3]}" if "observations" in path else
+                                  f"{name} reads attempts, an object's attempt log, which a metric reads alone (ADR-0286)" if r == "attempts" else
                                   f"{name} reads '{r}', which is withdrawn before 1.0.0, no store keeping it, and may return with a use (ADR-0210 decision 3)" if r in WITHDRAWN_MEMBERS else
                                   f"{name} reads '{r}', which {tn} does not declare")
                   for path, name, text, scope in exprs for r in sorted(reads(text) - scope)]
@@ -10802,6 +10805,13 @@ def expression_type_plants(people):
          ledger(probe, condition="none(r in referrers where r.state.category == count)"),
          [wrong("condition ready", "it compares a category with an int")]),
         ("a referrer's state's category that types", ledger(probe, condition="none(r in referrers where r.state.category != closed)"), []),
+        # an object's attempt log is read by a metric alone (ADR-0286)
+        ("an object's attempts read outside a metric", ledger("count(a in this.attempts) >= 0"),
+         [wrong("derived attribute probe", "it reads the attempts of Account, its attempt log, which a metric reads alone (ADR-0286)"),
+          "derived attribute 'probe' reads attempts, an object's attempt log, which a metric reads alone (ADR-0286)"]),
+        ("an object's attempts read by a metric over objects", ledger(probe)
+         + "    metrics:\n      refused_often:\n        description: Accounts refused more than once.\n        source: objects\n"
+           "        item: o\n        expression: \"count(where count(a in o.attempts) > 1)\"\n", []),
         ("an observation's members that type", audited(
             "count(o in audits where o.score > count and o.grade == Tier.GOLD and o.subject == this and o.occurred_at > "
             "since and o.recorded_by_kind == ActorKind.human) + sum(o in audits: o.score) >= count"), []),
