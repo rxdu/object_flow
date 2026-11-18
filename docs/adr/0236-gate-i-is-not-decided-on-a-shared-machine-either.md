@@ -3,6 +3,7 @@
 - **Status:** **Decided** 2026-11-01 under the author's direction ("go with your recommendations"), on the recommendation given the same day for the question `TODO.md` put.
 - **Date:** 2026-11-01
 - **Refines:** ADR-0235 (a Gate P run that other work shared is run again)
+- **Refined by:** ADR-0287 — the wait before a run reads the busy ticks the sampler reads
 - **Relates to:** ADR-0214 decision 2 (a release's gates); `design/audit/cost.md` §3 (Gate I); `core/README.md` (`throughput.py`'s figures); `docs/LESSONS.md`, "A quiet start is not a quiet run"
 
 ## Context

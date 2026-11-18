@@ -8,8 +8,9 @@
 #
 # A run that other work shared exits 3, not decided, and is run again
 # (ADR-0235, ADR-0236), three attempts at most. Before each attempt the script
-# waits for the machine's 1-minute load to fall under 1.0, checked every 20 s,
-# for at most --wait seconds; the run's own sampler still decides the run. Each
+# waits for a quiet machine, no 10 s of the last 300 s with its threads busy
+# past 0.4 (scripts/profile/quiet.py, ADR-0287), for at most --wait seconds;
+# the run's own sampler still decides the run. Each
 # attempt's output is kept as <work>/<run>.log.<attempt>, and a line per attempt
 # is printed, its verdict first. Gate P's figures and each miss are the run's; whether a miss is one
 # a decision accepts by name is the release record's to say (TODO.md, F).
@@ -48,16 +49,11 @@ done
 export OBJECTFLOW_STORE_PASSWORD=objectflow
 DB=objectflow-gate-db
 psql_() { docker exec "$DB" psql -q -tA -U objectflow -d "${2:-postgres}" -c "$1"; }
-quiet() {
-  local waited=0 l
-  while :; do
-    l=$(cut -d' ' -f1 /proc/loadavg)
-    if awk "BEGIN {exit !($l < 1.0)}"; then
-      echo "   start load $(cut -d' ' -f1-3 /proc/loadavg), after $waited s waiting"; return 0
-    fi
-    [ "$waited" -ge "$WAIT" ] && { echo "   no quiet machine in $WAIT s: load $(cut -d' ' -f1-3 /proc/loadavg)"; return 1; }
-    sleep 20; waited=$((waited + 20))
-  done
+quiet() {   # a quiet machine, as the run's sampler reads one, waited for at most --wait seconds (ADR-0287)
+  local said rc
+  said=$("$PY" "$ROOT/scripts/profile/quiet.py" --wait "$WAIT"); rc=$?
+  echo "   $said"
+  return $rc
 }
 copy() {   # a Gate P run's fresh copy of the built PostgreSQL store, marked as operate.md says
   psql_ "DROP DATABASE IF EXISTS $1" && psql_ "CREATE DATABASE $1 TEMPLATE base" &&
