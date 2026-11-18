@@ -2,7 +2,9 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
-## Unreleased
+## 0.31.0, 2026-11-18
+
+A release before 1.0.0, as 0.30.0 was (ADR-0214), with a text's tests and a date's parts in the expression language (ADR-0285), check 24 taught four constructs whose operands it could not tell, and each event naming the flags its request raised (issue #100, ADR-0288). The typer's four may refuse what 0.30.0 accepted, a comparison across types that loaded clean. It changes neither the store's own tables nor its built-ins, so its step from 0.30.0 records the release alone.
 
 ### Added
 
@@ -18,6 +20,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 ### Fixed
 
 - An event did not name the warnings its request raised, though the design said it did (issue #100). A `warn` guard's flag was in the verdict and the attempt log alone, so once the attempt log was pruned, nothing recorded which warning an act passed, while its event kept the caller's `context`. Each event now names each flag its transition raised, in the shape the verdict gives a flag, `{clause, remedy, unknown, objects}`; `history`, `events` and `pull` give it as the event's `flags`, and no longer list `flags` in `not_computed`; `export` gives it in the payload. An event recorded by 0.30.0 or earlier names none: export a type's `.attempts` source before the prune to keep those flags with their `applied_position`, though without the objects a remedy named, which an attempt row does not keep (ADR-0288).
+- Check 24 and step 3 refused `this.attempts` outside a metric, saying the type did not declare it, which pointed an author at declaring an attribute that would hide the attempt log from the type's metrics. They now say the attempt log is a metric's to read; they refuse nothing they did not refuse before (ADR-0286).
 
 ## 0.30.0, 2026-11-17
 
