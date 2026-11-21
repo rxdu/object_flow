@@ -3,6 +3,7 @@
 - **Status:** **Decided** by the author 2026-11-21 ("supervise a session to address the issue with your recommendations"), as proposed the same day for issue #102 under the author's direction ("review open issues and address properly"), its direction and each of its points put with a recommendation. The author skipped the trace put with its direction. To be built for 0.32.0, with ADR-0289. Built the same day, `2df86dd9` to `f7385cfb`; six points of the wire its text leaves open are built as recommended and put to the author (`TODO.md`, #102).
 - **Date:** 2026-11-21
 - **Refines:** ADR-0271 decision 5 (a field that differs by element is named by the step); the `create` step of `flow-format.md` §4.8
+- **Refined by:** ADR-0291 — the six points of the wire its text left open: the list's reason and an entry that is no object in `invalid_input`, `declaration`'s default the text `"[]"`, the `redact` event naming the list, `entries` and `entry` only where they apply, and where `over_limit` stands among the refusals.
 - **Relates to:** ADR-0254 decision 9 (a value's later slices); ADR-0275 (a derived set defaults to the empty set, and a derivation carries through); ADR-0180 decision 2 (what `/v1` may add); ADR-0228 (a batch); `storage-schema.md` §9 (erasure); `docs/research/deriving-an-acts-inputs-from-the-record-it-makes.md`, its section on many records; issue #102
 
 ## Context
