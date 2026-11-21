@@ -2462,6 +2462,62 @@ def steps_taking(store, steps, transition, tn):
     return out
 
 
+def clauses_taking(store, kinds, cause_type, cause_transition, transition, tn):
+    """Each argument a cascade clause or a follows clause on the cause's transition passes the transition it caused,
+    each input with the expressions that fill it and the reference a follows clause reads the cause's object through,
+    None for a cascade's, read over the cause's object (storage-schema.md §9 steps 3 and 12, ADR-0292 decision 6); a
+    cascade's was missed until #103, and a follow's with it."""
+    out = []
+    ct = kinds.get(cause_type) or {}
+    ends = [(spec, (spec or {}).get("cascade") or []) for spec in (ct.get("attributes") or {}).values()
+            if (spec or {}).get("aggregation") == "composite"]
+    family = {an: spec for an, spec in (ct.get("attributes") or {}).items()}
+    ends += [(family.get(an) or {}, (ip or {}).get("cascade") or []) for an, ip in (ct.get("inherited_parts") or {}).items()]
+    for spec, clauses in ends:
+        part = str((spec or {}).get("reference", "")).rstrip("[]")
+        if tn and part and not store.is_a(tn, part):
+            continue
+        out += [(n, [e], None) for c in clauses if c.get("transition") == transition
+                and cause_transition in (c.get("on") or []) for n, e in (c.get("inputs") or {}).items()]
+    for fn, f in kinds.items():
+        if (tn and fn != tn) or (f or {}).get("abstract"):
+            continue
+        for an, spec in ((f or {}).get("attributes") or {}).items():
+            if str((spec or {}).get("reference", "")).rstrip("[]") != cause_type:
+                continue
+            out += [(n, [e], an) for c in (spec or {}).get("follows") or [] if c.get("transition") == transition
+                    and cause_transition in (c.get("on") or []) for n, e in (c.get("inputs") or {}).items()]
+    return out
+
+
+def carries_through(text, ref, tainted, holding):
+    """Whether a follows clause's argument, read over the follower, carries a tainted value: it reads a tainted input
+    of the transition it follows, or an attribute holding one of the object it follows through the reference, bare or
+    through `this` (ADR-0292 decision 6)."""
+    if not isinstance(text, str):
+        return False
+    if inputs_read(text) & tainted:
+        return True
+    found = []
+
+    def walk(n):
+        if isinstance(n, tuple):
+            if len(n) == 3 and n[0] == "path" and n[2] in holding and (
+                    n[1] == ("name", ref) or (isinstance(n[1], tuple) and n[1][:1] == ("path",)
+                                              and n[1][1:] == (("name", "this"), ref))):
+                found.append(n)
+            for c in n[1:]:
+                walk(c)
+        elif isinstance(n, list):
+            for c in n:
+                walk(c)
+    try:
+        walk(flowexpr.parse(text))
+    except Exception:
+        return False
+    return bool(found)
+
+
 def attributes_written(t, x, name):
     """The attributes an input writes: itself where it is an attribute's input, and each location an effect step
     assigns or adds it to."""
@@ -3863,7 +3919,11 @@ class Runner:
             to = work.objects.get(callee["object"])
             callee_type = self.type_then(work, to.id, to.type, callee["declaration_version"]) if to else ""
             passed = set()
-            for n, exprs in steps_taking(work, cx.get("effect") or [], callee["transition"], callee_type):
+            taking = [(n, exprs) for n, exprs in steps_taking(work, cx.get("effect") or [], callee["transition"], callee_type)]
+            taking += [(n, exprs) for n, exprs, _ref in clauses_taking(
+                work, self.kinds_at(work, v), self.type_then(work, co.id, co.type, v), caller["transition"],
+                callee["transition"], callee_type)]
+            for n, exprs in taking:
                 if n in tainted:
                     for x in exprs:
                         passed |= inputs_read(x)
@@ -3909,6 +3969,11 @@ class Runner:
             px = (pt.get("transitions") or {}).get(f["transition"]) or {}
             passed = {n for n, exprs in steps_taking(work, fx.get("effect") or [], f["transition"], f["type"])
                       if any(carries(x, tainted, holding) for x in exprs)}
+            # and what a cascade clause or a follows clause on it passed, a follow's read through its reference
+            passed |= {n for n, exprs, ref in clauses_taking(work, self.kinds_at(work, e["declaration_version"]), e["type"],
+                                                            e["transition"], f["transition"], f["type"])
+                       if any(carries(x, tainted, holding) if ref is None else carries_through(x, ref, tainted, holding)
+                              for x in exprs)}
             # each attribute the installed version declares, by the name `under` gave it, which the object's write
             # index holds by its installed name
             installed = {self.named_under(work, p.type, a, under): a

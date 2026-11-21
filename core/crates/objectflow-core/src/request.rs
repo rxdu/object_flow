@@ -3018,9 +3018,9 @@ fn caller_taint(
         };
         let version = written_under(&caller);
         let lib = ctx.work.library_at(version);
-        let Some(cx) = lib
+        let Some((ct, cx)) = lib
             .type_(&object_type_then(&ctx.work, co, version)?)
-            .and_then(|t| t.transition(&caller.transition))
+            .and_then(|t| t.transition(&caller.transition).map(|x| (t, x)))
         else {
             break;
         };
@@ -3029,11 +3029,16 @@ fn caller_taint(
             None => None,
         };
         let mut passed = BTreeSet::new();
-        for (input, exprs) in
-            steps_taking(lib, &cx.effect, &callee.transition, callee_type.as_deref())
-        {
-            if tainted.contains(input) {
-                for e in exprs {
+        for tk in taking(
+            lib,
+            ct,
+            &caller.transition,
+            cx,
+            &callee.transition,
+            callee_type.as_deref(),
+        ) {
+            if tainted.contains(tk.input) {
+                for e in tk.exprs {
                     e.inputs_read(&mut passed);
                 }
             }
@@ -3093,9 +3098,9 @@ fn walk_down(
         return Ok(());
     };
     let lib = ctx.work.library_at(version);
-    let Some(fx) = lib
+    let Some((ft, fx)) = lib
         .type_(&object_type_then(&ctx.work, fo, version)?)
-        .and_then(|t| t.transition(&from.transition))
+        .and_then(|t| t.transition(&from.transition).map(|x| (t, x)))
     else {
         return Ok(());
     };
@@ -3120,9 +3125,13 @@ fn walk_down(
             continue;
         };
         let mut passed = BTreeSet::new();
-        for (input, exprs) in steps_taking(lib, &fx.effect, &f.transition, Some(&then)) {
-            if exprs.iter().any(|e| carries(e, tainted, holding)) {
-                passed.insert(input.clone());
+        for tk in taking(lib, ft, &from.transition, fx, &f.transition, Some(&then)) {
+            let carried = tk.exprs.iter().any(|e| match tk.through {
+                None => carries(e, tainted, holding),
+                Some(r) => carries_through(e, r, tainted, holding),
+            });
+            if carried {
+                passed.insert(tk.input.clone());
             }
         }
         // each attribute the installed version declares, by the name `under`
@@ -3187,6 +3196,42 @@ fn reads_attribute(e: &Expr, attributes: &BTreeSet<String>) -> bool {
             .children()
             .into_iter()
             .any(|c| reads_attribute(c, attributes)),
+    }
+}
+
+/// Whether a follows clause's argument, read over the follower, carries a
+/// tainted value: it reads a tainted input of the transition it follows, or
+/// an attribute holding one of the object it follows, through the
+/// reference `r`, bare or through `this` (ADR-0292 decision 6).
+fn carries_through(
+    e: &Expr,
+    r: &str,
+    inputs: &BTreeSet<String>,
+    attributes: &BTreeSet<String>,
+) -> bool {
+    let mut read = BTreeSet::new();
+    e.inputs_read(&mut read);
+    read.iter().any(|n| inputs.contains(n)) || reads_through(e, r, attributes)
+}
+
+fn reads_through(e: &Expr, r: &str, attributes: &BTreeSet<String>) -> bool {
+    match e {
+        Expr::Path(b, m)
+            if attributes.contains(m)
+                && match b.as_ref() {
+                    Expr::Name(n) => n == r,
+                    Expr::Path(t, n) => {
+                        n == r && matches!(t.as_ref(), Expr::Name(x) if x == "this")
+                    }
+                    _ => false,
+                } =>
+        {
+            true
+        }
+        _ => e
+            .children()
+            .into_iter()
+            .any(|c| reads_through(c, r, attributes)),
     }
 }
 
@@ -3366,6 +3411,83 @@ fn steps_taking<'s>(
             }
             _ => {}
         }
+    }
+    out
+}
+
+/// An argument a caused transition takes, with the expressions its value
+/// comes from, and the reference a follows clause reads its cause's object
+/// through; none where the expressions are read over the cause's object.
+struct Taking<'s> {
+    input: &'s String,
+    exprs: Vec<&'s Expr>,
+    through: Option<&'s str>,
+}
+
+/// Each argument the cause's transition passes the transition it caused on
+/// another object (`storage-schema.md` §9 steps 3 and 12): a step of its
+/// effect taking it, a create's or a call's (`steps_taking`); a cascade
+/// clause of the cause's composite ends on it, read over the cause's
+/// object; and a follows clause on it of the caused object's type, read
+/// over the follower, the cause's object through the reference (ADR-0292
+/// decision 6). A cascade's argument was missed until #103, and a follow's
+/// with it.
+fn taking<'s>(
+    lib: &'s Library,
+    cause_type: &'s Type,
+    cause_transition: &str,
+    cause_x: &'s Transition,
+    transition: &str,
+    type_: Option<&str>,
+) -> Vec<Taking<'s>> {
+    let mut out: Vec<Taking<'s>> = steps_taking(lib, &cause_x.effect, transition, type_)
+        .into_iter()
+        .map(|(input, exprs)| Taking {
+            input,
+            exprs,
+            through: None,
+        })
+        .collect();
+    for (_, end) in &cause_type.attributes {
+        let Declared::Reference(part) = &end.declared else {
+            continue;
+        };
+        if !end.composite || type_.is_some_and(|t| !lib.is_a(t, part)) {
+            continue;
+        }
+        for c in end
+            .cascade
+            .iter()
+            .filter(|c| c.transition == transition && c.on.iter().any(|o| o == cause_transition))
+        {
+            out.extend(c.inputs.iter().map(|(n, e)| Taking {
+                input: n,
+                exprs: vec![e],
+                through: None,
+            }));
+        }
+    }
+    for f in lib
+        .followed
+        .get(cause_type.name.as_str())
+        .and_then(|by| by.get(cause_transition))
+        .into_iter()
+        .flatten()
+        .filter(|f| type_.is_none_or(|t| t == f.type_))
+    {
+        let Some(c) = lib
+            .type_(&f.type_)
+            .and_then(|ft| ft.attribute(&f.reference))
+            .and_then(|a| a.follows.get(f.clause))
+            .filter(|c| c.transition == transition)
+        else {
+            continue;
+        };
+        out.extend(c.inputs.iter().map(|(n, e)| Taking {
+            input: n,
+            exprs: vec![e],
+            through: Some(f.reference.as_str()),
+        }));
     }
     out
 }
@@ -22577,5 +22699,206 @@ types:
             plan.iter().any(|l| l.contains("t_hold_slot_id_ix")),
             "{plan:?}"
         );
+    }
+
+    /// A slot whose contact is personal, its shifts parts it cascades its
+    /// cancel to and its holds following its cancel from a module of their
+    /// own, each passing the slot's contact and the cancel's reason into
+    /// personal attributes of its own (issue #103, the integrity review's
+    /// findings 1 and 2).
+    const ERASE_HUB: &str = r#"
+module: hub
+categories: [live, closed]
+types:
+  Slot:
+    attributes:
+      label: { type: string }
+      contact: { type: string, optional: true, personal: true }
+      shifts: { reference: "Shift[]", opposite: slot, aggregation: composite, cascade: [ { on: [cancel], transition: end, inputs: { memo: contact, cause: inputs.why }, limit: 10 } ] }
+    states:
+      OPEN: { category: live }
+      CANCELLED: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label], optional_inputs: [contact] }
+      staff: { kind: internal, from: [OPEN], effect: [ { create: { type: Shift, transition: add, inputs: { slot: this } } } ] }
+      cancel:
+        kind: external
+        from: [OPEN]
+        to: CANCELLED
+        inputs:
+          why: { type: string, optional: true }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Shift:
+    attributes:
+      slot: { reference: Slot, opposite: shifts }
+      memo: { type: string, optional: true, personal: true }
+      cause: { type: string, optional: true, personal: true }
+      blocked: { type: bool, default: false }
+    states:
+      ON: { category: live }
+      OFF: { category: closed, final: true }
+    conditions:
+      not_blocked: { expression: not blocked, remedy: dependent }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [slot], only_via: [Slot.staff] }
+      block: { kind: internal, from: [ON], effect: [ { assign: { location: blocked, expr: "true" } } ] }
+      end: { kind: external, from: [ON], to: OFF, optional_inputs: [memo, cause], guards: { not_blocked: deny } }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"#;
+
+    const ERASE_HOLDS: &str = r#"
+module: holds
+imports: { hub: [Slot] }
+categories: [live, closed]
+types:
+  Hold:
+    attributes:
+      slot: { reference: Slot, follows: [ { on: [cancel], transition: release, inputs: { note: slot.contact, cause: inputs.why }, limit: 5 } ] }
+      note: { type: string, optional: true, personal: true }
+      cause: { type: string, optional: true, personal: true }
+      blocked: { type: bool, default: false }
+    states:
+      HELD: { category: live }
+      RELEASED: { category: closed, final: true }
+    conditions:
+      not_blocked: { expression: not blocked, remedy: dependent }
+    transitions:
+      take: { kind: initial, to: HELD, required_inputs: [slot], optional_inputs: [blocked] }
+      release: { kind: external, from: [HELD], to: RELEASED, optional_inputs: [note, cause], guards: { not_blocked: deny } }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"#;
+
+    fn erasing_store() -> Store {
+        let lib = Library::load(&[
+            ("hub.yaml".into(), ERASE_HUB.into()),
+            ("holds.yaml".into(), ERASE_HOLDS.into()),
+        ])
+        .unwrap();
+        Store::sandbox(lib, 1_767_225_600).unwrap()
+    }
+
+    /// The inputs the first event of a transition on an object recorded.
+    fn recorded(s: &Store, id: &str, xn: &str) -> Json {
+        s.history(id)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.transition == xn)
+            .unwrap()
+            .payload["inputs"]
+            .clone()
+    }
+
+    /// An object's last event, which an erasure that redacted it records
+    /// as a `redact` caused by the erasure's event: what it redacted.
+    fn redacted_by(s: &Store, id: &str, erasure: i64) -> Json {
+        let last = s.history(id).unwrap().pop().unwrap();
+        assert_eq!(
+            (last.transition.as_str(), last.source.as_str(), last.cause),
+            ("redact", "erased", Some(erasure)),
+            "{id}"
+        );
+        last.payload["redacted"].clone()
+    }
+
+    /// A slot opened with a contact, a shift and a hold beside it, and
+    /// cancelled for a reason: the shift's cascade and the hold's follow each
+    /// copy the contact and the reason into personal attributes of their own.
+    fn cancelled_with_copies(s: &mut Store, why: &str) -> (String, String, String) {
+        let slot = created(&req(
+            s,
+            "open",
+            OPERATOR,
+            ("Slot", true),
+            json!({"label": "A", "contact": "a@b"}),
+        ));
+        let Verdict::Satisfied { created: made, .. } =
+            req(s, "staff", OPERATOR, (&slot, false), json!({}))
+        else {
+            panic!("a slot is staffed")
+        };
+        let hold = created(&req(
+            s,
+            "take",
+            OPERATOR,
+            ("Hold", true),
+            json!({"slot": slot}),
+        ));
+        applied(&req(
+            s,
+            "cancel",
+            OPERATOR,
+            (&slot, false),
+            json!({"why": why}),
+        ));
+        for (o, a) in [(&made[0], "memo"), (&hold, "note")] {
+            assert_eq!(held_as(s, o, a).1, Value::Text("a@b".into()), "{a}");
+        }
+        (slot, made[0].clone(), hold)
+    }
+
+    fn erase(s: &mut Store, id: &str) -> i64 {
+        applied(&req(
+            s,
+            "forget",
+            OPERATOR,
+            (id, false),
+            json!({"reason": "asked"}),
+        ));
+        s.snapshot()
+            .unwrap()
+            .log()
+            .unwrap()
+            .rfind(|e| e.transition == "forget")
+            .unwrap()
+            .position
+    }
+
+    /// An erasure follows its object's events down a cascade and a follow
+    /// as down a call (`storage-schema.md` §9 step 12): the slot's contact a
+    /// cascade passed its shift, read over the slot, and a follow passed its
+    /// hold, read through the hold's reference, is redacted in each caused
+    /// event and cleared on each object, each of which records one `redact`
+    /// naming it, caused by the erasure; the cancel's reason each passed on,
+    /// not the slot's to erase, stays with them. On both backends.
+    #[test]
+    fn an_erasure_reaches_what_a_cascade_and_a_follow_copied_from_it() {
+        let mut s = erasing_store();
+        let (slot, shift, hold) = cancelled_with_copies(&mut s, "moving");
+        let erasure = erase(&mut s, &slot);
+        assert_eq!(
+            recorded(&s, &shift, "end"),
+            json!({"memo": null, "cause": "moving"})
+        );
+        assert_eq!(
+            recorded(&s, &hold, "release"),
+            json!({"note": null, "cause": "moving"})
+        );
+        assert_eq!(held_as(&s, &shift, "memo").1, Value::Absent);
+        assert_eq!(held_as(&s, &hold, "note").1, Value::Absent);
+        assert_eq!(held_as(&s, &hold, "cause").1, Value::Text("moving".into()));
+        assert_eq!(redacted_by(&s, &shift, erasure), json!(["memo"]));
+        assert_eq!(redacted_by(&s, &hold, erasure), json!(["note"]));
+    }
+
+    /// An erasure walks up from a follower and from a part to what passed it
+    /// a value (`storage-schema.md` §9 step 3): the cancel's reason a follow
+    /// or a cascade took into the erased object's personal attribute is
+    /// redacted in the slot's event, which records one `redact` naming it;
+    /// the slot's contact, its own, stays. On both backends.
+    #[test]
+    fn an_erasure_of_a_follower_or_a_part_redacts_what_its_cause_passed_it() {
+        for erased in ["Hold", "Shift"] {
+            let mut s = erasing_store();
+            let (slot, shift, hold) = cancelled_with_copies(&mut s, "moving");
+            let target = if erased == "Hold" { &hold } else { &shift };
+            let erasure = erase(&mut s, target);
+            assert_eq!(
+                recorded(&s, &slot, "cancel"),
+                json!({"why": null}),
+                "{erased}"
+            );
+            assert_eq!(redacted_by(&s, &slot, erasure), json!(["why"]), "{erased}");
+            assert_eq!(held_as(&s, &slot, "contact").1, Value::Text("a@b".into()));
+        }
     }
 }

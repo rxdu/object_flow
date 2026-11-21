@@ -993,3 +993,143 @@ def test_followers_are_driven_and_refused_alike(tee):
     got = get(fh)
     assert (got["state"], got["attributes"]["note"]) == ("RELEASED", "asked"), got
     assert tee.found[before:] == [], tee.found[before:]
+
+
+# a slot whose contact is personal, its shifts parts its cancel cascades to
+# and its holds following its cancel, each copying the contact and the
+# cancel's reason into personal attributes of its own (the integrity
+# review's finding 1)
+ERASE_HUB = """module: hub
+categories: [live, closed]
+types:
+  Slot:
+    description: A slot work is planned in.
+    tracking: record
+    attributes:
+      label: { type: string, description: Its label. }
+      contact: { type: string, optional: true, personal: true, description: Who to call. }
+      shifts:
+        reference: "Shift[]"
+        opposite: slot
+        aggregation: composite
+        description: Its shifts.
+        cascade:
+          - { on: [cancel], transition: end, inputs: { memo: contact, cause: inputs.why }, limit: 10 }
+    states:
+      OPEN: { category: live, description: Open. }
+      CANCELLED: { category: closed, final: true, description: Cancelled. }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label], optional_inputs: [contact], description: Opens it. }
+      staff: { kind: internal, from: [OPEN], effect: [ { create: { type: Shift, transition: add, inputs: { slot: this } } } ], description: Adds a shift. }
+      cancel:
+        kind: external
+        from: [OPEN]
+        to: CANCELLED
+        description: Cancels it.
+        inputs:
+          why: { type: string, optional: true, description: Why it is cancelled. }
+      forget:
+        kind: erasure
+        description: Forgets it, and its shifts.
+        inputs: { reason: { type: string, description: Why. } }
+        effect:
+          - foreach: { item: f, array: shifts, limit: 10, steps: [ { call: { target: f, transition: forget, inputs: { reason: inputs.reason } } } ] }
+  Shift:
+    description: A shift of a slot.
+    tracking: record
+    attributes:
+      slot: { reference: Slot, opposite: shifts, description: Its slot. }
+      memo: { type: string, optional: true, personal: true, description: Its slot's contact. }
+      cause: { type: string, optional: true, personal: true, description: Why it ended. }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [slot], only_via: [Slot.staff], description: Adds it. }
+      end: { kind: external, from: [ON], to: OFF, optional_inputs: [memo, cause], description: Ends it. }
+      forget: { kind: erasure, inputs: { reason: { type: string, description: Why. } }, description: Forgets it. }
+"""
+
+ERASE_HOLDS = """module: holds
+imports: { hub: [Slot] }
+categories: [live, closed]
+types:
+  Hold:
+    description: A hold on a slot.
+    tracking: record
+    attributes:
+      slot: { reference: Slot, follows: [ { on: [cancel], transition: release, inputs: { note: slot.contact, cause: inputs.why }, limit: 5 } ], description: The slot held. }
+      note: { type: string, optional: true, personal: true, description: Its slot's contact. }
+      cause: { type: string, optional: true, personal: true, description: Why it ended. }
+    states:
+      HELD: { category: live, description: Held. }
+      RELEASED: { category: closed, final: true, description: Released. }
+    transitions:
+      take: { kind: initial, to: HELD, required_inputs: [slot], description: Takes it. }
+      release: { kind: external, from: [HELD], to: RELEASED, optional_inputs: [note, cause], description: Releases it. }
+      forget: { kind: erasure, inputs: { reason: { type: string, description: Why. } }, description: Forgets it. }
+"""
+
+
+def test_an_erasure_reaches_across_a_cascade_and_a_follow_alike(tee):
+    """An erasure follows a cascade and a follow as it follows a call, alike
+    in both backends (`storage-schema.md` §9 steps 3 and 12): the slot's
+    contact its hold's follow copied, read through the reference, is cleared
+    from the hold, which records a `redact`; and the cancel's reason a
+    follow or a cascade passed into the erased follower's or part's personal
+    attribute leaves the slot's event, which records a `redact`. Every
+    answer is compared, the histories with their `redact` events among
+    them."""
+    tee.module = "hub and holds (erasure)"
+    before = len(tee.found)
+    op = {"id": "operator"}
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "hub.yaml", "text": ERASE_HUB},
+                                                   {"name": "holds.yaml", "text": ERASE_HOLDS}]})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+
+    def made(t, xn, inputs):
+        v = tee.post("/v1/request", {"actor": op, "type": t, "transition": xn, "inputs": inputs})
+        assert v["kind"] == "satisfied", v
+        return v
+
+    def act(oid, xn, inputs=None):
+        v = tee.post("/v1/request", {"actor": op, "object_id": oid, "transition": xn, "inputs": inputs or {}})
+        assert v["kind"] == "satisfied", v
+        return v
+
+    def cancelled(shifted=True, held=True):
+        slot = made("Slot", "open", {"label": "A", "contact": "a@b"})["object_id"]
+        shift = act(slot, "staff")["created"][0] if shifted else None
+        hold = made("Hold", "take", {"slot": slot})["object_id"] if held else None
+        act(slot, "cancel", {"why": "moving"})
+        return slot, shift, hold
+
+    def histories(*ids):
+        for oid in ids:
+            if oid:
+                tee.post("/v1/history", {"actor": op, "id": oid})
+
+    # down: the slot erased with only a follower, then with only a part, so
+    # one other object is redacted at a time (TODO.md: the two backends order
+    # the `redact` events of several objects unlike)
+    slot, _, hold = cancelled(shifted=False)
+    act(slot, "forget", {"reason": "asked"})
+    got = tee.post("/v1/get", {"actor": op, "id": hold})
+    assert (got["attributes"].get("note"), got["attributes"].get("cause")) == (None, "moving"), got
+    events = tee.post("/v1/history", {"actor": op, "id": hold})["events"]
+    assert [e["transition"] for e in events] == ["take", "release", "redact"], events
+    histories(slot)
+    slot, shift, _ = cancelled(held=False)
+    act(slot, "forget", {"reason": "asked"})
+    events = tee.post("/v1/history", {"actor": op, "id": shift})["events"]
+    assert [e["transition"] for e in events] == ["add", "end", "redact", "forget"], events
+    histories(slot)
+    # up: the follower erased, and the part, each redacting the slot's reason
+    for erased in ("hold", "shift"):
+        slot, shift, hold = cancelled()
+        act(hold if erased == "hold" else shift, "forget", {"reason": "asked"})
+        events = tee.post("/v1/history", {"actor": op, "id": slot})["events"]
+        assert events[-1]["transition"] == "redact", (erased, events)
+        histories(shift, hold)
+    assert tee.found[before:] == [], tee.found[before:]
