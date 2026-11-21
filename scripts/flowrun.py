@@ -3020,7 +3020,9 @@ class Runner:
             states = (self.kinds.get(work.objects[oid].type) or {}).get("states") or {}
             froms = [st for st, v in states.items() if not (v or {}).get("final") and st != x.get("to")]
         if work.objects[oid].state not in froms:
-            raise Refused("unavailable", remedy="unreachable_from_here", detail=f"it is in {work.objects[oid].state}")
+            # the object named, whose state a caller is told, a part or a follower's among them (ADR-0292)
+            raise Refused("unavailable", remedy="unreachable_from_here", detail=f"it is in {work.objects[oid].state}",
+                          object_id=oid)
 
     def take(self, ctx, tn, xn, oid, inputs, depth):
         """One transition, the requested one or one it causes, as `taken` takes it: one a call, a creation or a cascade
@@ -3241,9 +3243,10 @@ class Runner:
             if w is not None:
                 ctx.wrote(w)
         ctx.taken.append(f"{tn}.{xn}")
-        # 6. the effect, then the cascades to parts, depth-first (ADR-0038, ADR-0138)
+        # 6. the effect, then the cascades to parts, then the followers, depth-first (ADR-0038, ADR-0138, ADR-0292)
         self.effects(ctx, tn, o, x.get("effect") or [], inputs, {}, depth)
         self.cascades(ctx, t, tn, xn, o, inputs, depth)
+        self.follows(ctx, tn, xn, o, inputs, depth)
         # an actor's identity is written only at its creation (the audit's write path I-01, ADR-0205 decision 5): the
         # checker refuses a flow writing it later before the runner runs one, so the core's refusal at run time,
         # `identity_unchanged`, holds only flows an earlier release published, which the runner never runs
@@ -3566,6 +3569,55 @@ class Runner:
                     except Refused as r:
                         raise Refused(r.verdict, qualified(r.clause, ptype) if r.verdict != "call_refused" else r.clause,
                                       r.remedy, detail=f"cascading to {p}: {r.detail}")
+
+    def followed(self, tn, xn):
+        """Each follows clause naming tn.xn, as (the follower's type, the reference, the clause), in the order the flow
+        declares them: modules in the order they are checked, then types, attributes and clauses (ADR-0292 decision
+        7). An abstract type has no objects to follow."""
+        out = []
+        for fn, f in self.kinds.items():
+            if (f or {}).get("abstract"):
+                continue
+            for an, spec in ((f or {}).get("attributes") or {}).items():
+                if str((spec or {}).get("reference", "")).rstrip("[]") != tn:
+                    continue
+                out += [(fn, an, c) for c in (spec or {}).get("follows") or [] if xn in (c.get("on") or [])]
+        return out
+
+    def follows(self, ctx, tn, xn, o, inputs, depth):
+        """The objects following this transition (ADR-0292): for each follows clause naming it, in the order the flow
+        declares them, each object holding the clause's reference to this one, in creation order, those already in a
+        final state passed over and not counted; each driven as a cascade's part is, its clause's inputs read over
+        it, `inputs.<name>` the triggering transition's (decisions 2, 6 and 7)."""
+        work = ctx.work
+        for fn, an, clause in self.followed(tn, xn):
+            driven = [x.id for x in sorted(work.objects.values(), key=lambda x: x.id_order)
+                      if x.id != o.id and work.is_a(x.type, fn) and x.attrs.get(an) == o.id and not work.final(x)]
+            if not driven:
+                continue
+            if len(driven) > clause.get("limit", len(driven)):
+                raise Refused("over_limit", remedy="unreachable_from_here", loop=f"the follow on {fn}.{an}",
+                              bound=clause["limit"],
+                              detail=f"the follow on {fn}.{an} drives {len(driven)}, over its limit of {clause['limit']}")
+            for p in driven:
+                values = {}
+                for k, e in (clause.get("inputs") or {}).items():
+                    asking = Evaluator(work, fn, p, inputs, ctx.who, ctx.stubs)
+                    v = asking.value(flowexpr.parse(e), {})
+                    if v is ABSENT and asking.failed_arithmetic:
+                        # an input a division by zero left with none refuses, naming the follower its expression is
+                        # read over, as a cascade's names its whole (ADR-0185, ADR-0277)
+                        raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[p])
+                    if v is not ABSENT:
+                        values[k] = v
+                ptype = work.type_of(p)
+                try:
+                    self.take(ctx, ptype, clause["transition"], p, values, depth + 1)
+                except Refused as r:
+                    # the follower's own verdict, a guard's clause qualified by its type, as a part's is
+                    if r.verdict == "unsatisfied":
+                        r.clause = qualified(r.clause, ptype)
+                    raise
 
     def erase(self, ctx, o):
         """Its personal attributes made absent, and its observations' personal fields, which the subject's erasure
@@ -4084,6 +4136,23 @@ class Runner:
                             k2 = next(iter(st2))
                             if k2 in ("assign", "add", "remove") and "actor" in names_read(parsed(st2[k2]["expr"])):
                                 by_actor.add(st2[k2]["location"])
+                # and a follower's transition its follows clause takes, one hop away as a part's is (ADR-0292)
+                for fn, _an, clause in self.followed(owner, xn):
+                    if fn != tn:
+                        continue
+                    taken = ((self.kinds.get(tn) or {}).get("transitions") or {}).get(clause.get("transition"))
+                    if taken is None:
+                        continue
+                    for name, e in (clause.get("inputs") or {}).items():
+                        read = names_read(parsed(str(e)))
+                        if "inputs" in read:
+                            writes.add(name)
+                        if "actor" in read:
+                            by_actor.add(name)
+                    for st2 in taken.get("effect") or []:
+                        k2 = next(iter(st2))
+                        if k2 in ("assign", "add", "remove") and "actor" in names_read(parsed(st2[k2]["expr"])):
+                            by_actor.add(st2[k2]["location"])
         return writes, by_actor
 
     def erasure_broke(self, ctx, obj, n):

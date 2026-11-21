@@ -36902,6 +36902,461 @@
   "could_violate": {}
  },
  {
+  "label": "follows_plants: its examples run by the reference runner",
+  "files": [
+   [
+    "hub.yaml",
+    "aae64b427bb7fd1b"
+   ],
+   [
+    "holds.yaml",
+    "2f72b537bda09cd4"
+   ],
+   [
+    "holds.examples.yaml",
+    "556976d9a579be9f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 8 transitions of holds as the request under test, which only a setup, a step or an expected cascade takes: Hold.drop, Hold.pause, Hold.relabel, Hold.take, Lock.fit, Lock.open_up, Tag.peel, Tag.stick"
+   ],
+   [
+    "hub.yaml",
+    10,
+    "notice",
+    "unbounded_reach",
+    "Slot.shifts's cascade on cancel takes at most 10 of it, and no invariant of Slot holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in shifts) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "Hold": [
+    1,
+    1
+   ],
+   "Lock": [
+    0,
+    0
+   ],
+   "Shift": [
+    0,
+    0
+   ],
+   "Slot": [
+    0,
+    1
+   ],
+   "Tag": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: its examples run by the reference runner",
+  "files": [
+   [
+    "hub.yaml",
+    "aae64b427bb7fd1b"
+   ],
+   [
+    "holds.yaml",
+    "2f72b537bda09cd4"
+   ],
+   [
+    "holds.examples.yaml",
+    "e31941d797e1d892"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 8 transitions of holds as the request under test, which only a setup, a step or an expected cascade takes: Hold.drop, Hold.pause, Hold.relabel, Hold.take, Lock.fit, Lock.open_up, Tag.peel, Tag.stick"
+   ],
+   [
+    "holds.examples.yaml",
+    20,
+    "fatal",
+    "example",
+    "a_cancel_drives_each_follower_in_order: expected the request to cause ['Shift.end', 'Hold.release', 'Tag.peel', 'Hold.release', 'Lock.open_up'], and it causes ['Shift.end', 'Lock.open_up', 'Hold.release', 'Tag.peel', 'Hold.release']"
+   ],
+   [
+    "hub.yaml",
+    10,
+    "notice",
+    "unbounded_reach",
+    "Slot.shifts's cascade on cancel takes at most 10 of it, and no invariant of Slot holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in shifts) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "Hold": [
+    1,
+    1
+   ],
+   "Lock": [
+    0,
+    0
+   ],
+   "Shift": [
+    0,
+    0
+   ],
+   "Slot": [
+    0,
+    1
+   ],
+   "Tag": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: its examples run by the reference runner",
+  "files": [
+   [
+    "hub.yaml",
+    "aae64b427bb7fd1b"
+   ],
+   [
+    "holds.yaml",
+    "2f72b537bda09cd4"
+   ],
+   [
+    "holds.examples.yaml",
+    "3bf20024a0911f2f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 8 transitions of holds as the request under test, which only a setup, a step or an expected cascade takes: Hold.drop, Hold.pause, Hold.relabel, Hold.take, Lock.fit, Lock.open_up, Tag.peel, Tag.stick"
+   ],
+   [
+    "holds.examples.yaml",
+    35,
+    "fatal",
+    "example",
+    "a_final_follower_is_passed_over: expected the request to cause ['Hold.release', 'Hold.release', 'Hold.release'], and it causes ['Hold.release', 'Hold.release']"
+   ],
+   [
+    "hub.yaml",
+    10,
+    "notice",
+    "unbounded_reach",
+    "Slot.shifts's cascade on cancel takes at most 10 of it, and no invariant of Slot holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in shifts) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "Hold": [
+    1,
+    1
+   ],
+   "Lock": [
+    0,
+    0
+   ],
+   "Shift": [
+    0,
+    0
+   ],
+   "Slot": [
+    0,
+    1
+   ],
+   "Tag": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: its examples run by the reference runner",
+  "files": [
+   [
+    "hub.yaml",
+    "aae64b427bb7fd1b"
+   ],
+   [
+    "holds.yaml",
+    "2f72b537bda09cd4"
+   ],
+   [
+    "holds.examples.yaml",
+    "82c7855750209802"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 7 transitions of holds as the request under test, which only a setup, a step or an expected cascade takes: Hold.drop, Hold.pause, Hold.take, Lock.fit, Lock.open_up, Tag.peel, Tag.stick"
+   ],
+   [
+    "holds.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example takes 1 transition of holds, by its request, a step, a setup or a cascade it expects: Hold.relabel"
+   ],
+   [
+    "holds.examples.yaml",
+    25,
+    "fatal",
+    "example",
+    "a_rename_relabels_each_hold: expected the request to cause nothing, and it causes ['Hold.relabel', 'Hold.relabel']"
+   ],
+   [
+    "hub.yaml",
+    10,
+    "notice",
+    "unbounded_reach",
+    "Slot.shifts's cascade on cancel takes at most 10 of it, and no invariant of Slot holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in shifts) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "Hold": [
+    1,
+    1
+   ],
+   "Lock": [
+    0,
+    0
+   ],
+   "Shift": [
+    0,
+    0
+   ],
+   "Slot": [
+    0,
+    1
+   ],
+   "Tag": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: its examples run by the reference runner",
+  "files": [
+   [
+    "hub.yaml",
+    "aae64b427bb7fd1b"
+   ],
+   [
+    "holds.yaml",
+    "2f72b537bda09cd4"
+   ],
+   [
+    "holds.examples.yaml",
+    "54a7c783b3e52cfb"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 8 transitions of holds as the request under test, which only a setup, a step or an expected cascade takes: Hold.drop, Hold.pause, Hold.relabel, Hold.take, Lock.fit, Lock.open_up, Tag.peel, Tag.stick"
+   ],
+   [
+    "holds.examples.yaml",
+    30,
+    "fatal",
+    "example",
+    "a_follow_past_its_limit_is_refused: expected the request to apply, and it is refused as over_limit  unreachable_from_here the follow on Hold.slot drives 3, over its limit of 2"
+   ],
+   [
+    "hub.yaml",
+    10,
+    "notice",
+    "unbounded_reach",
+    "Slot.shifts's cascade on cancel takes at most 10 of it, and no invariant of Slot holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in shifts) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "Hold": [
+    1,
+    1
+   ],
+   "Lock": [
+    0,
+    0
+   ],
+   "Shift": [
+    0,
+    0
+   ],
+   "Slot": [
+    0,
+    1
+   ],
+   "Tag": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: its examples run by the reference runner",
+  "files": [
+   [
+    "hub.yaml",
+    "aae64b427bb7fd1b"
+   ],
+   [
+    "holds.yaml",
+    "2f72b537bda09cd4"
+   ],
+   [
+    "holds.examples.yaml",
+    "30122a51afd44914"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 8 transitions of holds as the request under test, which only a setup, a step or an expected cascade takes: Hold.drop, Hold.pause, Hold.relabel, Hold.take, Lock.fit, Lock.open_up, Tag.peel, Tag.stick"
+   ],
+   [
+    "holds.examples.yaml",
+    42,
+    "fatal",
+    "example",
+    "a_paused_follower_refuses_the_cancel: expected the request to apply, and it is refused as unavailable  unreachable_from_here it is in PAUSED"
+   ],
+   [
+    "hub.yaml",
+    10,
+    "notice",
+    "unbounded_reach",
+    "Slot.shifts's cascade on cancel takes at most 10 of it, and no invariant of Slot holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in shifts) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "Hold": [
+    1,
+    1
+   ],
+   "Lock": [
+    0,
+    0
+   ],
+   "Shift": [
+    0,
+    0
+   ],
+   "Slot": [
+    0,
+    1
+   ],
+   "Tag": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: its examples run by the reference runner",
+  "files": [
+   [
+    "hub.yaml",
+    "aae64b427bb7fd1b"
+   ],
+   [
+    "holds.yaml",
+    "2f72b537bda09cd4"
+   ],
+   [
+    "holds.examples.yaml",
+    "fb2ca674d7b6ee3c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.examples.yaml",
+    19,
+    "notice",
+    "coverage",
+    "no example requests 8 transitions of holds as the request under test, which only a setup, a step or an expected cascade takes: Hold.drop, Hold.pause, Hold.relabel, Hold.take, Lock.fit, Lock.open_up, Tag.peel, Tag.stick"
+   ],
+   [
+    "holds.examples.yaml",
+    49,
+    "fatal",
+    "example",
+    "a_blocked_follower_refuses_the_cancel: expected the request to apply, and it is refused as unsatisfied not_blocked dependent"
+   ],
+   [
+    "hub.yaml",
+    10,
+    "notice",
+    "unbounded_reach",
+    "Slot.shifts's cascade on cancel takes at most 10 of it, and no invariant of Slot holds it to 10: past 10, each is refused over_limit, and an object holding more can never take it; declare one such as count(x in shifts) <= 10 (ADR-0201)"
+   ]
+  ],
+  "analysed": {
+   "Hold": [
+    1,
+    1
+   ],
+   "Lock": [
+    0,
+    0
+   ],
+   "Shift": [
+    0,
+    0
+   ],
+   "Slot": [
+    0,
+    1
+   ],
+   "Tag": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "history_plants: an owned whole and its parts alike, its identifier unique",
   "files": [
    [

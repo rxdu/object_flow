@@ -1,0 +1,53 @@
+module: holds
+imports: { hub: [Slot] }
+categories: [live, closed]
+types:
+  Lock:
+    description: A lock fitted on a slot.
+    tracking: record
+    attributes:
+      slot: { reference: Slot, follows: [ { on: [cancel], transition: open_up, limit: 5 } ], description: Its slot. }
+    states:
+      SHUT: { category: live, description: Shut. }
+      OPENED: { category: closed, final: true, description: Opened. }
+    transitions:
+      fit: { kind: initial, to: SHUT, required_inputs: [slot], description: Fits it. }
+      open_up: { kind: external, from: [SHUT], to: OPENED, description: Opens it. }
+  Hold:
+    description: A hold on a slot.
+    tracking: record
+    attributes:
+      slot:
+        reference: Slot
+        description: The slot held.
+        follows:
+          - { on: [cancel], transition: release, inputs: { note: inputs.why, seen: slot.label, own: label }, limit: 2 }
+          - { on: [rename], transition: relabel, inputs: { label: slot.label }, limit: 5 }
+      label: { type: string, optional: true, description: Its label. }
+      note: { type: string, optional: true, description: Why it ended. }
+      seen: { type: string, optional: true, description: Its slot's label when it ended. }
+      own: { type: string, optional: true, description: Its own label when it ended. }
+      blocked: { type: bool, default: false, description: Whether it may not end. }
+    states:
+      HELD: { category: live, description: Held. }
+      PAUSED: { category: live, description: Paused. }
+      RELEASED: { category: closed, final: true, description: Released. }
+    conditions:
+      not_blocked: { description: It is not blocked., expression: not blocked, remedy: dependent }
+    transitions:
+      take: { kind: initial, to: HELD, required_inputs: [slot], optional_inputs: [label, blocked], description: Takes it. }
+      pause: { kind: external, from: [HELD], to: PAUSED, description: Pauses it. }
+      relabel: { kind: internal, from: [HELD, PAUSED], required_inputs: [label], description: Relabels it. }
+      drop: { kind: external, from: [HELD, PAUSED], to: RELEASED, description: Drops it. }
+      release: { kind: external, from: [HELD], to: RELEASED, optional_inputs: [note, seen, own], guards: { not_blocked: deny }, only_via: [Slot.cancel], description: Releases it. }
+  Tag:
+    description: A tag stuck on a hold.
+    tracking: record
+    attributes:
+      hold: { reference: Hold, follows: [ { on: [release], transition: peel, limit: 5 } ], description: Its hold. }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      stick: { kind: initial, to: ON, required_inputs: [hold], description: Sticks it. }
+      peel: { kind: external, from: [ON], to: OFF, description: Peels it. }

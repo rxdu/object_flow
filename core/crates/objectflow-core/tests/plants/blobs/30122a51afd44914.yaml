@@ -1,0 +1,57 @@
+examples_for: holds
+setups:
+  held:
+    description: A slot with a shift, two holds, a tag on the first and a lock fitted last.
+    steps:
+      - request: { type: Slot, transition: open, as: a, inputs: { label: A } }
+      - request: { object: a, transition: staff }
+      - request: { type: Hold, transition: take, as: h1, inputs: { slot: a, label: h1 } }
+      - request: { type: Hold, transition: take, as: h2, inputs: { slot: a, label: h2 } }
+      - request: { type: Tag, transition: stick, inputs: { hold: h1 } }
+      - request: { type: Lock, transition: fit, inputs: { slot: a } }
+  crowded:
+    description: A slot with three holds, past its follow's limit.
+    steps:
+      - request: { type: Slot, transition: open, as: c, inputs: { label: C } }
+      - request: { type: Hold, transition: take, inputs: { slot: c } }
+      - request: { type: Hold, transition: take, as: second, inputs: { slot: c } }
+      - request: { type: Hold, transition: take, as: third, inputs: { slot: c } }
+examples:
+  a_cancel_drives_each_follower_in_order:
+    description: The shift first, then the lock, then each hold, the tag after its own.
+    given: held
+    request: { object: a, transition: cancel, inputs: { why: gone } }
+    expect: { verdict: applied, state: CANCELLED, cascaded: [Shift.end, Lock.open_up, Hold.release, Tag.peel, Hold.release] }
+  a_rename_relabels_each_hold:
+    description: Each hold takes the slot's new label, read through its reference.
+    given: held
+    request: { object: a, transition: rename, inputs: { label: A2 } }
+    expect: { verdict: applied, state: OPEN, cascaded: [Hold.relabel, Hold.relabel] }
+  a_follow_past_its_limit_is_refused:
+    description: Three open holds past a limit of two refuse the cancel.
+    given: crowded
+    request: { object: c, transition: cancel }
+    expect: { verdict: over_limit }
+  a_final_follower_is_passed_over:
+    description: A hold dropped by hand is passed over and not counted.
+    given: crowded
+    steps:
+      - request: { object: third, transition: drop }
+    request: { object: c, transition: cancel }
+    expect: { verdict: applied, state: CANCELLED, cascaded: [Hold.release, Hold.release] }
+  a_paused_follower_refuses_the_cancel:
+    description: A hold in a state its release is not taken from refuses the cancel.
+    given: held
+    steps:
+      - request: { object: h2, transition: pause }
+    request: { object: a, transition: cancel }
+    expect: { verdict: applied, state: CANCELLED }
+  a_blocked_follower_refuses_the_cancel:
+    description: The last hold's guard refuses the cancel, named as its own.
+    given: crowded
+    steps:
+      - request: { object: third, transition: drop }
+      - request: { object: second, transition: drop }
+      - request: { type: Hold, transition: take, inputs: { slot: c, blocked: true } }
+    request: { object: c, transition: cancel }
+    expect: { verdict: unsatisfied, clause: Hold.not_blocked, remedy: dependent }

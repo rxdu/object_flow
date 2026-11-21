@@ -13921,7 +13921,10 @@ def follows_plants():
     out, an `inputs.<name>` that is not an input of every transition in `on`, a personal value reaching a
     non-personal attribute (check 10), and a cycle through a follow and the imported module's own call (check 12);
     at step 4, its text read as a line: an argument reading the actor (check 64), and an `only via` naming a transition
-    it does not follow (check 13)."""
+    it does not follow (check 13). Run by the reference runner, a slot's cancel drives its shift, then a lock, then
+    each hold, a tag following its hold before the next, and its rename relabels each hold; three holds past a limit of
+    two refuse the cancel, a final one is passed over and not counted, and a paused hold, or a blocked one's guard,
+    refuses it, named qualified; each wrong expectation is found (ADR-0292 decisions 2 and 7)."""
     hub = (
         "module: hub\ncategories: [live, closed]\ntypes:\n"
         "  Slot:\n    description: A slot work is planned in.\n    tracking: record\n"
@@ -14053,6 +14056,165 @@ def follows_plants():
         ("its transition only via one it does not follow", two + [("holds.yaml", p(holds, release, release[:-3] + ", only_via: [Slot.move] }\n"))],
          [("holds.yaml", "check 13", "Hold.release names parent Slot.move, which never reaches it")]),
     ]
+    # run by both runners, the reference's and the core's alike through the oracle: a slot whose shift is its part,
+    # a lock following its cancel, two holds its cancel and rename, and a tag following a hold's release
+    run_hub = (
+        'module: hub\n'
+        'categories: [live, closed]\n'
+        'types:\n'
+        '  Slot:\n'
+        '    description: A slot work is planned in.\n'
+        '    tracking: record\n'
+        '    attributes:\n'
+        '      label: { type: string, description: Its label. }\n'
+        '      cap: { type: int, default: 9, description: The most objects that may refer to it when it is cancelled. }\n'
+        '      shifts: { reference: "Shift[]", opposite: slot, aggregation: composite, cascade: [ { on: [cancel], transition: end, limit: 10 } ], description: Its shifts. }\n'
+        '    states:\n'
+        '      OPEN: { category: live, description: Open. }\n'
+        '      CANCELLED: { category: closed, final: true, description: Cancelled. }\n'
+        '    conditions:\n'
+        '      few_holds: { description: Few objects refer to it., expression: "count(r in referrers) <= cap", remedy: dependent }\n'
+        '    transitions:\n'
+        '      open: { kind: initial, to: OPEN, required_inputs: [label], optional_inputs: [cap], description: Opens it. }\n'
+        '      rename: { kind: internal, from: [OPEN], required_inputs: [label], description: Renames it. }\n'
+        '      staff: { kind: internal, from: [OPEN], effect: [ { create: { type: Shift, transition: add, inputs: { slot: this } } } ], description: Adds a shift. }\n'
+        '      cancel:\n'
+        '        kind: external\n'
+        '        from: [OPEN]\n'
+        '        to: CANCELLED\n'
+        '        proposable: true\n'
+        '        description: Cancels it.\n'
+        '        guards: { few_holds: deny }\n'
+        '        inputs:\n'
+        '          why: { type: string, optional: true, description: Why it is cancelled. }\n'
+        '  Shift:\n'
+        '    description: A shift of a slot.\n'
+        '    tracking: record\n'
+        '    attributes:\n'
+        '      slot: { reference: Slot, opposite: shifts, description: Its slot. }\n'
+        '    states:\n'
+        '      ON: { category: live, description: On. }\n'
+        '      OFF: { category: closed, final: true, description: Off. }\n'
+        '    transitions:\n'
+        '      add: { kind: initial, to: ON, required_inputs: [slot], only_via: [Slot.staff], description: Adds it. }\n'
+        '      end: { kind: external, from: [ON], to: OFF, description: Ends it. }\n'
+    )
+    run_holds = (
+        'module: holds\n'
+        'imports: { hub: [Slot] }\n'
+        'categories: [live, closed]\n'
+        'types:\n'
+        '  Lock:\n'
+        '    description: A lock fitted on a slot.\n'
+        '    tracking: record\n'
+        '    attributes:\n'
+        '      slot: { reference: Slot, follows: [ { on: [cancel], transition: open_up, limit: 5 } ], description: Its slot. }\n'
+        '    states:\n'
+        '      SHUT: { category: live, description: Shut. }\n'
+        '      OPENED: { category: closed, final: true, description: Opened. }\n'
+        '    transitions:\n'
+        '      fit: { kind: initial, to: SHUT, required_inputs: [slot], description: Fits it. }\n'
+        '      open_up: { kind: external, from: [SHUT], to: OPENED, description: Opens it. }\n'
+        '  Hold:\n'
+        '    description: A hold on a slot.\n'
+        '    tracking: record\n'
+        '    attributes:\n'
+        '      slot:\n'
+        '        reference: Slot\n'
+        '        description: The slot held.\n'
+        '        follows:\n'
+        '          - { on: [cancel], transition: release, inputs: { note: inputs.why, seen: slot.label, own: label }, limit: 2 }\n'
+        '          - { on: [rename], transition: relabel, inputs: { label: slot.label }, limit: 5 }\n'
+        '      label: { type: string, optional: true, description: Its label. }\n'
+        '      note: { type: string, optional: true, description: Why it ended. }\n'
+        "      seen: { type: string, optional: true, description: Its slot's label when it ended. }\n"
+        '      own: { type: string, optional: true, description: Its own label when it ended. }\n'
+        '      blocked: { type: bool, default: false, description: Whether it may not end. }\n'
+        '    states:\n'
+        '      HELD: { category: live, description: Held. }\n'
+        '      PAUSED: { category: live, description: Paused. }\n'
+        '      RELEASED: { category: closed, final: true, description: Released. }\n'
+        '    conditions:\n'
+        '      not_blocked: { description: It is not blocked., expression: not blocked, remedy: dependent }\n'
+        '    transitions:\n'
+        '      take: { kind: initial, to: HELD, required_inputs: [slot], optional_inputs: [label, blocked], description: Takes it. }\n'
+        '      pause: { kind: external, from: [HELD], to: PAUSED, description: Pauses it. }\n'
+        '      relabel: { kind: internal, from: [HELD, PAUSED], required_inputs: [label], description: Relabels it. }\n'
+        '      drop: { kind: external, from: [HELD, PAUSED], to: RELEASED, description: Drops it. }\n'
+        '      release: { kind: external, from: [HELD], to: RELEASED, optional_inputs: [note, seen, own], guards: { not_blocked: deny }, only_via: [Slot.cancel], description: Releases it. }\n'
+        '  Tag:\n'
+        '    description: A tag stuck on a hold.\n'
+        '    tracking: record\n'
+        '    attributes:\n'
+        '      hold: { reference: Hold, follows: [ { on: [release], transition: peel, limit: 5 } ], description: Its hold. }\n'
+        '    states:\n'
+        '      ON: { category: live, description: On. }\n'
+        '      OFF: { category: closed, final: true, description: Off. }\n'
+        '    transitions:\n'
+        '      stick: { kind: initial, to: ON, required_inputs: [hold], description: Sticks it. }\n'
+        '      peel: { kind: external, from: [ON], to: OFF, description: Peels it. }\n'
+    )
+    run_examples = (
+        'examples_for: holds\n'
+        'setups:\n'
+        '  held:\n'
+        '    description: A slot with a shift, two holds, a tag on the first and a lock fitted last.\n'
+        '    steps:\n'
+        '      - request: { type: Slot, transition: open, as: a, inputs: { label: A } }\n'
+        '      - request: { object: a, transition: staff }\n'
+        '      - request: { type: Hold, transition: take, as: h1, inputs: { slot: a, label: h1 } }\n'
+        '      - request: { type: Hold, transition: take, as: h2, inputs: { slot: a, label: h2 } }\n'
+        '      - request: { type: Tag, transition: stick, inputs: { hold: h1 } }\n'
+        '      - request: { type: Lock, transition: fit, inputs: { slot: a } }\n'
+        '  crowded:\n'
+        "    description: A slot with three holds, past its follow's limit.\n"
+        '    steps:\n'
+        '      - request: { type: Slot, transition: open, as: c, inputs: { label: C } }\n'
+        '      - request: { type: Hold, transition: take, inputs: { slot: c } }\n'
+        '      - request: { type: Hold, transition: take, as: second, inputs: { slot: c } }\n'
+        '      - request: { type: Hold, transition: take, as: third, inputs: { slot: c } }\n'
+        'examples:\n'
+        '  a_cancel_drives_each_follower_in_order:\n'
+        '    description: The shift first, then the lock, then each hold, the tag after its own.\n'
+        '    given: held\n'
+        '    request: { object: a, transition: cancel, inputs: { why: gone } }\n'
+        '    expect: { verdict: applied, state: CANCELLED, cascaded: [Shift.end, Lock.open_up, Hold.release, Tag.peel, Hold.release] }\n'
+        '  a_rename_relabels_each_hold:\n'
+        "    description: Each hold takes the slot's new label, read through its reference.\n"
+        '    given: held\n'
+        '    request: { object: a, transition: rename, inputs: { label: A2 } }\n'
+        '    expect: { verdict: applied, state: OPEN, cascaded: [Hold.relabel, Hold.relabel] }\n'
+        '  a_follow_past_its_limit_is_refused:\n'
+        '    description: Three open holds past a limit of two refuse the cancel.\n'
+        '    given: crowded\n'
+        '    request: { object: c, transition: cancel }\n'
+        '    expect: { verdict: over_limit }\n'
+        '  a_final_follower_is_passed_over:\n'
+        '    description: A hold dropped by hand is passed over and not counted.\n'
+        '    given: crowded\n'
+        '    steps:\n'
+        '      - request: { object: third, transition: drop }\n'
+        '    request: { object: c, transition: cancel }\n'
+        '    expect: { verdict: applied, state: CANCELLED, cascaded: [Hold.release, Hold.release] }\n'
+        '  a_paused_follower_refuses_the_cancel:\n'
+        '    description: A hold in a state its release is not taken from refuses the cancel.\n'
+        '    given: held\n'
+        '    steps:\n'
+        '      - request: { object: h2, transition: pause }\n'
+        '    request: { object: a, transition: cancel }\n'
+        '    expect: { verdict: unavailable }\n'
+        '  a_blocked_follower_refuses_the_cancel:\n'
+        "    description: The last hold's guard refuses the cancel, named as its own.\n"
+        '    given: crowded\n'
+        '    steps:\n'
+        '      - request: { object: third, transition: drop }\n'
+        '      - request: { object: second, transition: drop }\n'
+        '      - request: { type: Hold, transition: take, inputs: { slot: c, blocked: true } }\n'
+        '    request: { object: c, transition: cancel }\n'
+        '    expect: { verdict: unsatisfied, clause: Hold.not_blocked, remedy: dependent }\n'
+    )
+    ran = [("hub.yaml", run_hub), ("holds.yaml", run_holds)]
+    cases.append(("its examples run by the reference runner", ran + [("holds.examples.yaml", run_examples)], []))
     ok = True
     for name, files, want in cases:
         found, _notes = check(files)
@@ -14060,6 +14222,21 @@ def follows_plants():
         hit = got == sorted(want)
         ok &= hit
         print(f"  a follow, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    # each wrong expectation found by the reference runner: the followers' order, a final one counted, the limit not
+    # applied, and a follower's refusal not refusing the request
+    for old, new in (("cascaded: [Shift.end, Lock.open_up, Hold.release, Tag.peel, Hold.release]",
+                      "cascaded: [Shift.end, Hold.release, Tag.peel, Hold.release, Lock.open_up]"),
+                     ("cascaded: [Hold.release, Hold.release] }", "cascaded: [Hold.release, Hold.release, Hold.release] }"),
+                     ("cascaded: [Hold.relabel, Hold.relabel] }", "cascaded: [] }"),
+                     ("expect: { verdict: over_limit }", "expect: { verdict: applied, state: CANCELLED }"),
+                     ("expect: { verdict: unavailable }", "expect: { verdict: applied, state: CANCELLED }"),
+                     ("expect: { verdict: unsatisfied, clause: Hold.not_blocked, remedy: dependent }",
+                      "expect: { verdict: applied, state: CANCELLED }")):
+        assert run_examples.count(old) == 1, old
+        found, _notes = check(ran + [("holds.examples.yaml", run_examples.replace(old, new))])
+        hit = [x[3] for x in found] == ["example"]
+        ok &= hit
+        print(f"  a follow run by the reference runner, expecting {new}: {'found' if hit else 'NOT: ' + str(found)}")
     return ok
 
 

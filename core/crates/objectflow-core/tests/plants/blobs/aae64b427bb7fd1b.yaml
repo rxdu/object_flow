@@ -1,0 +1,39 @@
+module: hub
+categories: [live, closed]
+types:
+  Slot:
+    description: A slot work is planned in.
+    tracking: record
+    attributes:
+      label: { type: string, description: Its label. }
+      cap: { type: int, default: 9, description: The most objects that may refer to it when it is cancelled. }
+      shifts: { reference: "Shift[]", opposite: slot, aggregation: composite, cascade: [ { on: [cancel], transition: end, limit: 10 } ], description: Its shifts. }
+    states:
+      OPEN: { category: live, description: Open. }
+      CANCELLED: { category: closed, final: true, description: Cancelled. }
+    conditions:
+      few_holds: { description: Few objects refer to it., expression: "count(r in referrers) <= cap", remedy: dependent }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label], optional_inputs: [cap], description: Opens it. }
+      rename: { kind: internal, from: [OPEN], required_inputs: [label], description: Renames it. }
+      staff: { kind: internal, from: [OPEN], effect: [ { create: { type: Shift, transition: add, inputs: { slot: this } } } ], description: Adds a shift. }
+      cancel:
+        kind: external
+        from: [OPEN]
+        to: CANCELLED
+        proposable: true
+        description: Cancels it.
+        guards: { few_holds: deny }
+        inputs:
+          why: { type: string, optional: true, description: Why it is cancelled. }
+  Shift:
+    description: A shift of a slot.
+    tracking: record
+    attributes:
+      slot: { reference: Slot, opposite: shifts, description: Its slot. }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [slot], only_via: [Slot.staff], description: Adds it. }
+      end: { kind: external, from: [ON], to: OFF, description: Ends it. }

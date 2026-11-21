@@ -771,3 +771,211 @@ def test_a_proposal_is_refused_in_the_order_a_request_is_alike(tee):
         "invalid_input", ["price", "code"], {"price": "malformed", "code": "missing"}), v
     assert "entries" not in v, v
     assert tee.found[before:] == [], tee.found[before:]
+
+
+# a slot a hold refers to, in a module the holds' imports and the slot's may
+# not (issue #103, ADR-0292): a hold follows its slot's cancel and rename, a
+# lock its cancel and a tag its hold's release; the slot's shifts are parts
+FOLLOW_HUB = """module: hub
+categories: [live, closed]
+types:
+  Slot:
+    description: A slot work is planned in.
+    tracking: record
+    attributes:
+      label: { type: string, description: Its label. }
+      cap: { type: int, default: 9, description: The most objects that may refer to it when it is cancelled. }
+      shifts: { reference: "Shift[]", opposite: slot, aggregation: composite, cascade: [ { on: [cancel], transition: end, limit: 10 } ], description: Its shifts. }
+    states:
+      OPEN: { category: live, description: Open. }
+      CANCELLED: { category: closed, final: true, description: Cancelled. }
+    conditions:
+      few_holds: { description: Few objects refer to it., expression: "count(r in referrers) <= cap", remedy: dependent }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label], optional_inputs: [cap], description: Opens it. }
+      rename: { kind: internal, from: [OPEN], required_inputs: [label], description: Renames it. }
+      staff: { kind: internal, from: [OPEN], effect: [ { create: { type: Shift, transition: add, inputs: { slot: this } } } ], description: Adds a shift. }
+      cancel:
+        kind: external
+        from: [OPEN]
+        to: CANCELLED
+        proposable: true
+        description: Cancels it.
+        guards: { few_holds: deny }
+        inputs:
+          why: { type: string, optional: true, description: Why it is cancelled. }
+  Shift:
+    description: A shift of a slot.
+    tracking: record
+    attributes:
+      slot: { reference: Slot, opposite: shifts, description: Its slot. }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [slot], only_via: [Slot.staff], description: Adds it. }
+      end: { kind: external, from: [ON], to: OFF, description: Ends it. }
+"""
+
+FOLLOW_HOLDS = """module: holds
+imports: { hub: [Slot] }
+categories: [live, closed]
+types:
+  Lock:
+    description: A lock fitted on a slot.
+    tracking: record
+    attributes:
+      slot: { reference: Slot, follows: [ { on: [cancel], transition: open_up, limit: 5 } ], description: Its slot. }
+    states:
+      SHUT: { category: live, description: Shut. }
+      OPENED: { category: closed, final: true, description: Opened. }
+    transitions:
+      fit: { kind: initial, to: SHUT, required_inputs: [slot], description: Fits it. }
+      open_up: { kind: external, from: [SHUT], to: OPENED, description: Opens it. }
+  Hold:
+    description: A hold on a slot.
+    tracking: record
+    attributes:
+      slot:
+        reference: Slot
+        description: The slot held.
+        follows:
+          - { on: [cancel], transition: release, inputs: { note: inputs.why, seen: slot.label, own: label }, limit: 2 }
+          - { on: [rename], transition: relabel, inputs: { label: slot.label }, limit: 5 }
+      label: { type: string, optional: true, description: Its label. }
+      note: { type: string, optional: true, description: Why it ended. }
+      seen: { type: string, optional: true, description: Its slot's label when it ended. }
+      own: { type: string, optional: true, description: Its own label when it ended. }
+      blocked: { type: bool, default: false, description: Whether it may not end. }
+    states:
+      HELD: { category: live, description: Held. }
+      PAUSED: { category: live, description: Paused. }
+      RELEASED: { category: closed, final: true, description: Released. }
+    invariants:
+      fair: { description: It ended for no bad reason., expression: 'note is null or note != "bad"' }
+    conditions:
+      not_blocked: { description: It is not blocked., expression: not blocked, remedy: dependent }
+    transitions:
+      take: { kind: initial, to: HELD, required_inputs: [slot], optional_inputs: [label, blocked], description: Takes it. }
+      pause: { kind: external, from: [HELD], to: PAUSED, description: Pauses it. }
+      relabel: { kind: internal, from: [HELD, PAUSED], required_inputs: [label], description: Relabels it. }
+      drop: { kind: external, from: [HELD, PAUSED], to: RELEASED, description: Drops it. }
+      release: { kind: external, from: [HELD], to: RELEASED, optional_inputs: [note, seen, own], guards: { not_blocked: deny }, only_via: [Slot.cancel], description: Releases it. }
+  Tag:
+    description: A tag stuck on a hold.
+    tracking: record
+    attributes:
+      hold: { reference: Hold, follows: [ { on: [release], transition: peel, limit: 5 } ], description: Its hold. }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      stick: { kind: initial, to: ON, required_inputs: [hold], description: Sticks it. }
+      peel: { kind: external, from: [ON], to: OFF, description: Peels it. }
+"""
+
+
+def test_followers_are_driven_and_refused_alike(tee):
+    """An object following a transition of the object it refers to
+    (ADR-0292) is driven alike by both backends, every answer compared:
+    after the slot's effect and its cascade, a lock's clause before a hold's,
+    each hold in creation order and a tag following its hold before the next
+    hold, each read whole after; a clause's inputs read over the follower;
+    no follower, nothing more; a follow past its limit `over_limit`, its loop
+    `the follow on Hold.slot`, three final followers passed over and not
+    counted; a paused follower `unavailable` in its own state, and a blocked
+    one `unsatisfied` naming `Hold.not_blocked`, and one whose invariant the
+    follow breaks with what the request gave `self_serviceable`; a proposal
+    driving them
+    once approved; and a guard of the slot reading its referrers counting
+    them."""
+    tee.module = "hub and holds (follows)"
+    before = len(tee.found)
+    op = {"id": "operator"}
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "hub.yaml", "text": FOLLOW_HUB},
+                                                   {"name": "holds.yaml", "text": FOLLOW_HOLDS}]})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+
+    def made(t, xn, inputs):
+        v = tee.post("/v1/request", {"actor": op, "type": t, "transition": xn, "inputs": inputs})
+        assert v["kind"] == "satisfied", v
+        return v["object_id"]
+
+    def act(oid, xn, inputs=None, propose=False):
+        body = {"actor": op, "object_id": oid, "transition": xn, "inputs": inputs or {}}
+        if propose:
+            body["propose"] = True
+        return tee.post("/v1/request", body)
+
+    def get(oid):
+        return tee.post("/v1/get", {"actor": op, "id": oid})
+
+    a, b, alone = (made("Slot", "open", {"label": n}) for n in ("A", "B", "C"))
+    assert act(a, "staff")["kind"] == "satisfied"
+    h1, h2 = (made("Hold", "take", {"slot": a, "label": n}) for n in ("h1", "h2"))
+    hb = made("Hold", "take", {"slot": b, "label": "hb"})
+    tag = made("Tag", "stick", {"hold": h1})
+    lock = made("Lock", "fit", {"slot": a})
+    renamed = act(a, "rename", {"label": "A2"})
+    assert renamed["kind"] == "satisfied" and len(renamed["events"]) == 3, renamed
+    assert act(h1, "relabel", {"label": "mine"})["kind"] == "satisfied"
+    cancelled = act(a, "cancel", {"why": "gone"})
+    assert cancelled["kind"] == "satisfied" and len(cancelled["events"]) == 6, cancelled
+    for oid in (a, h1, h2, hb, tag, lock):
+        tee.post("/v1/history", {"actor": op, "id": oid})
+    got = get(h1)
+    assert (got["state"], got["attributes"]["note"], got["attributes"]["seen"], got["attributes"]["own"]) == (
+        "RELEASED", "gone", "A2", "mine"), got
+    assert get(hb)["state"] == "HELD"
+    assert len(act(alone, "cancel")["events"]) == 1
+    assert act(hb, "release")["kind"] == "not_requestable"
+    # past the limit, and then three final followers passed over
+    c = made("Slot", "open", {"label": "D"})
+    held = [made("Hold", "take", {"slot": c}) for _ in range(3)]
+    over = act(c, "cancel")
+    assert (over["kind"], over["loop"], over["bound"]) == ("over_limit", "the follow on Hold.slot", 2), over
+    # the runner computes them too, which the tee would leave out were they named not computed
+    _, alone_runner = raw(tee.runner, "POST", "/v1/request", {"actor": op, "object_id": c, "transition": "cancel"})
+    assert (alone_runner["loop"], alone_runner["bound"], "not_computed" in alone_runner) == (
+        "the follow on Hold.slot", 2, False), alone_runner
+    assert act(held[2], "drop")["kind"] == "satisfied"
+    for _ in range(2):
+        assert act(made("Hold", "take", {"slot": c}), "drop")["kind"] == "satisfied"
+    applied = act(c, "cancel")
+    assert applied["kind"] == "satisfied" and len(applied["events"]) == 3, applied
+    # a follower refusing refuses the request with its own verdict
+    d = made("Slot", "open", {"label": "E"})
+    made("Hold", "take", {"slot": d})
+    paused = made("Hold", "take", {"slot": d})
+    assert act(paused, "pause")["kind"] == "satisfied"
+    v = act(d, "cancel")
+    assert (v["kind"], v["state"]) == ("unavailable", "PAUSED"), v
+    e = made("Slot", "open", {"label": "F"})
+    made("Hold", "take", {"slot": e})
+    made("Hold", "take", {"slot": e, "blocked": True})
+    v = act(e, "cancel")
+    assert (v["kind"], v["clause"], v["remedy"]) == ("unsatisfied", "Hold.not_blocked", "dependent"), v
+    assert get(e)["state"] == "OPEN"
+    # an invariant of the follower its follow breaks, with what the request gave
+    g = made("Slot", "open", {"label": "I"})
+    made("Hold", "take", {"slot": g})
+    v = act(g, "cancel", {"why": "bad"})
+    assert (v["kind"], v["remedy"], v["failures"][0]["invariant"]) == ("invariant_violated", "self_serviceable", "fair"), v
+    # a guard reading the referrers counts the followers; a proposal drives
+    # them once approved
+    crowded = made("Slot", "open", {"label": "G", "cap": 1})
+    made("Hold", "take", {"slot": crowded})
+    made("Hold", "take", {"slot": crowded})
+    v = act(crowded, "cancel")
+    assert (v["kind"], v["clause"]) == ("unsatisfied", "few_holds"), v
+    f = made("Slot", "open", {"label": "H", "cap": 1})
+    fh = made("Hold", "take", {"slot": f})
+    filed = act(f, "cancel", {"why": "asked"}, propose=True)
+    assert filed["kind"] == "satisfied", filed
+    assert get(fh)["state"] == "HELD"
+    approved = tee.post("/v1/request", {"actor": op, "object_id": filed["object_id"], "transition": "approve"})
+    assert approved["kind"] == "satisfied", approved
+    got = get(fh)
+    assert (got["state"], got["attributes"]["note"]) == ("RELEASED", "asked"), got
+    assert tee.found[before:] == [], tee.found[before:]

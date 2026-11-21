@@ -1334,8 +1334,11 @@ class Sandbox:
                        expected=getattr(r, "expected", None),
                        actual=getattr(r, "actual", None))
         elif v == "unavailable":
-            out["state"] = (self.store.objects[oid].state
-                            if oid in self.store.objects else None)
+            # the state of the object refused, a part's or a follower's
+            # where the runner names one (ADR-0292)
+            held = r.object_id if r.object_id in self.store.objects else oid
+            out["state"] = (self.store.objects[held].state
+                            if held in self.store.objects else None)
         elif v == "unknown_transition":
             out["transition"] = xn
         elif v == "unknown_type":

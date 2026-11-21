@@ -1422,7 +1422,7 @@ pub fn transition_reads_personal(lib: &Library, type_: &str, transition: &str) -
             let computed = r
                 .passes
                 .iter()
-                .any(|(_, e)| !plain(e) && personal.reads(tt, e, &r.bound));
+                .any(|(_, e)| !plain(e) && personal.reads(r.over.unwrap_or(tt), e, &r.bound));
             personal.passed_only = false;
             if written || computed {
                 return true;
@@ -1500,6 +1500,10 @@ struct Reach<'l> {
     /// whether it is an `assign` (ADR-0263 decision 5).
     writes: Option<(&'l str, &'l Expr, bool)>,
     bound: Bound,
+    /// The type a follows clause's arguments are read over, its follower's,
+    /// where the rest are read over the transition's own (ADR-0292 decision
+    /// 6).
+    over: Option<&'l Type>,
 }
 
 /// Whether an expression is a plain read, a name or a path of them, which
@@ -1512,7 +1516,8 @@ fn plain(e: &Expr) -> bool {
     }
 }
 
-/// What a transition's effect and its type's cascades on it reach. A
+/// What a transition's effect, its type's cascades and the follows clauses
+/// on it reach. A
 /// call's target the expression tells the type of takes that type's
 /// family's transition of the name; one it does not tell, every type's
 /// (ADR-0260 decision 2).
@@ -1550,6 +1555,7 @@ fn reaches<'l>(
                     chooses: Vec::new(),
                     writes: None,
                     bound: bound.clone(),
+                    over: None,
                 }),
                 Step::Call {
                     target,
@@ -1573,6 +1579,7 @@ fn reaches<'l>(
                         chooses: vec![target],
                         writes: None,
                         bound: bound.clone(),
+                        over: None,
                     });
                 }
                 Step::Foreach {
@@ -1589,6 +1596,7 @@ fn reaches<'l>(
                         chooses: array.iter().chain(range).collect(),
                         writes: None,
                         bound: bound.clone(),
+                        over: None,
                     });
                     let mut within = bound.clone();
                     let of = array
@@ -1604,6 +1612,7 @@ fn reaches<'l>(
                             chooses: vec![f],
                             writes: None,
                             bound: within.clone(),
+                            over: None,
                         });
                     }
                     steps(lib, personal, t, inner, &within, out);
@@ -1614,6 +1623,7 @@ fn reaches<'l>(
                     chooses: Vec::new(),
                     writes: Some((location, expr, true)),
                     bound: bound.clone(),
+                    over: None,
                 }),
                 Step::Add { location, expr } | Step::Remove { location, expr } => out.push(Reach {
                     takes: Vec::new(),
@@ -1621,6 +1631,7 @@ fn reaches<'l>(
                     chooses: Vec::new(),
                     writes: Some((location, expr, false)),
                     bound: bound.clone(),
+                    over: None,
                 }),
                 Step::Supersede(successor) => out.push(Reach {
                     takes: Vec::new(),
@@ -1628,6 +1639,7 @@ fn reaches<'l>(
                     chooses: vec![successor],
                     writes: None,
                     bound: bound.clone(),
+                    over: None,
                 }),
                 _ => {}
             }
@@ -1658,16 +1670,42 @@ fn reaches<'l>(
                 chooses: Vec::new(),
                 writes: None,
                 bound: Bound::new(),
+                over: None,
             });
         }
+    }
+    // and each follows clause on it, its arguments read over the follower
+    // (ADR-0292)
+    for f in lib
+        .followed
+        .get(t.name.as_str())
+        .and_then(|by| by.get(transition))
+        .into_iter()
+        .flatten()
+    {
+        let Some((ft, clause)) = lib.type_(&f.type_).and_then(|ft| {
+            ft.attribute(&f.reference)
+                .and_then(|a| a.follows.get(f.clause))
+                .map(|c| (ft, c))
+        }) else {
+            continue;
+        };
+        out.push(Reach {
+            takes: vec![(f.type_.clone(), clause.transition.clone())],
+            passes: &clause.inputs,
+            chooses: Vec::new(),
+            writes: None,
+            bound: Bound::new(),
+            over: Some(ft),
+        });
     }
     out
 }
 
 /// Each transition a request for one may take, by its type's name and its
 /// own: itself and, to the end, each that a `create` or a `call` of one's
-/// effect takes, or a cascade of its type's composite ends on it (ADR-0260
-/// decision 1).
+/// effect takes, a cascade of its type's composite ends on it, or a follows
+/// clause on it (ADR-0260 decision 1, ADR-0292).
 fn taken_by(
     lib: &Library,
     personal: &Personal<'_>,
@@ -1716,7 +1754,7 @@ fn passed_personal<'l>(
                 .unwrap_or_default();
             for r in reaches(lib, personal, t, xn) {
                 for (k, e) in r.passes {
-                    if personal.reads(t, e, &r.bound) {
+                    if personal.reads(r.over.unwrap_or(t), e, &r.bound) {
                         for to in &r.takes {
                             grew |= passed.entry(to.clone()).or_default().insert(k.clone());
                         }
@@ -3716,6 +3754,61 @@ types:
         // a subtype holding the invariant it inherits
         assert!(!personal("Letter", "draft"));
         assert!(!personal("Letter", "retitle"));
+    }
+
+    /// A transition others follow decides by a personal value where a
+    /// follower's does (ADR-0292, ADR-0260): a follower's guard reading a
+    /// personal member of its own, and a follow passing one, read over the
+    /// follower, to an input `not_blank` refuses by; a transition no clause
+    /// names decides by none.
+    #[test]
+    fn a_transition_followed_reads_what_its_followers_read() {
+        const FOLLOWED: &str = r#"
+module: desk
+categories: [live, closed]
+types:
+  Slot:
+    attributes:
+      label: { type: string }
+    states:
+      OPEN: { category: live }
+      SHUT: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label] }
+      rename: { kind: internal, from: [OPEN], required_inputs: [label] }
+      shut: { kind: external, from: [OPEN], to: SHUT }
+      lock: { kind: internal, from: [OPEN] }
+  Hold:
+    attributes:
+      slot:
+        reference: Slot
+        follows:
+          - { on: [shut], transition: end, limit: 5, inputs: { reason: secret } }
+          - { on: [lock], transition: check, limit: 5 }
+      secret: { type: string, personal: true, optional: true }
+      pin: { type: int, personal: true, optional: true }
+    states:
+      ON: { category: live }
+      OFF: { category: closed, final: true }
+    conditions:
+      small_pin: { expression: pin is null or pin < 5, remedy: dependent }
+    transitions:
+      take: { kind: initial, to: ON, required_inputs: [slot] }
+      end:
+        kind: external
+        from: [ON]
+        to: OFF
+        inputs:
+          reason: { type: string, optional: true, not_blank: true }
+      check: { kind: internal, from: [ON], guards: { small_pin: deny } }
+"#;
+        let lib = Library::load(&[("desk.yaml".into(), FOLLOWED.into())]).unwrap();
+        assert!(
+            transition_reads_personal(&lib, "Slot", "shut"),
+            "an argument"
+        );
+        assert!(transition_reads_personal(&lib, "Slot", "lock"), "a guard");
+        assert!(!transition_reads_personal(&lib, "Slot", "rename"));
     }
 
     /// A value an effect reads from a personal member decides the answer

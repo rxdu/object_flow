@@ -2701,7 +2701,8 @@ fn take_unwound(
         }
     }
     ctx.work.insert(o)?;
-    // the effect, then the cascades to the parts, depth-first (ADR-0038)
+    // the effect, then the cascades to the parts, then the followers,
+    // depth-first (ADR-0038, ADR-0292 decision 7)
     effects(
         ctx,
         alloc,
@@ -2714,6 +2715,8 @@ fn take_unwound(
         position,
     )?;
     cascades(ctx, alloc, t, xn, &id, &inputs, depth)?;
+    // then the objects following it, as its parts are driven (ADR-0292)
+    follows(ctx, alloc, t, xn, &id, &inputs, depth)?;
     // whole_open after the effect as well: a part an effect moved, or a
     // creation placed, into a whole already finished, where only an input
     // naming the whole was decided (the audit's write path R-03)
@@ -5869,6 +5872,102 @@ fn cascades(
     Ok(())
 }
 
+/// The objects following this transition: for each follows clause naming
+/// it, in the order the flow declares them, each object holding the clause's
+/// reference to this one, read by the index on the reference's column as
+/// `referrers` reads it, in creation order, those already in a final state
+/// passed over and not counted; each driven as a cascade's part is, its
+/// clause's inputs read over it, `inputs.<name>` the triggering transition's
+/// (ADR-0292 decisions 2, 6 and 7). A transition no clause names reads
+/// nothing.
+fn follows(
+    ctx: &mut Ctx<'_>,
+    alloc: &mut Allocator,
+    t: &Type,
+    xn: &str,
+    id: &str,
+    inputs: &BTreeMap<String, Value>,
+    depth: usize,
+) -> Result<(), Stop> {
+    let lib = ctx.work.lib;
+    let Some(clauses) = lib.followed.get(t.name.as_str()).and_then(|by| by.get(xn)) else {
+        return Ok(());
+    };
+    let target = Value::Object(id.to_string());
+    for f in clauses {
+        let Some((ft, clause)) = lib.type_(&f.type_).and_then(|ft| {
+            ft.attribute(&f.reference)
+                .and_then(|a| a.follows.get(f.clause))
+                .map(|c| (ft, c))
+        }) else {
+            continue;
+        };
+        let mut driven: Vec<(i64, String)> = Vec::new();
+        for o in ctx.work.with_key(
+            &f.type_,
+            std::slice::from_ref(&f.reference),
+            std::slice::from_ref(&target),
+        )? {
+            let open = lib
+                .type_(&o.type_)
+                .and_then(|ot| ot.state(&o.state))
+                .is_none_or(|s| !s.is_final);
+            if open && o.id != id {
+                driven.push((o.order, o.id.clone()));
+            }
+        }
+        driven.sort();
+        if driven.is_empty() {
+            continue;
+        }
+        if let Some(limit) = clause.limit
+            && i64::try_from(driven.len()).unwrap_or(i64::MAX) > limit
+        {
+            return refused(Verdict::OverLimit {
+                loop_: format!("the follow on {}.{}", f.type_, f.reference),
+                bound: limit,
+            });
+        }
+        for (_, p) in driven {
+            let mut values = BTreeMap::new();
+            for (k, e) in &clause.inputs {
+                let ev = Evaluator::new(&ctx.work, Some(ft), Some(&p))
+                    .with_committed(&ctx.before)
+                    .with_inputs(inputs)
+                    .with_actor(&ctx.who)
+                    .with_reading(&ctx.effect_read, EFFECT);
+                let v = ev.eval(e)?;
+                // an input a division by zero left with none refuses, naming
+                // the follower its expression is read over, as a cascade's
+                // names its whole (ADR-0185, ADR-0277)
+                if v.is_absent() && ev.failed_arithmetic.get() {
+                    return refused_naming(
+                        Verdict::Unsatisfied {
+                            clause: "value_in_range".into(),
+                            remedy: Some(Remedy::UnreachableFromHere),
+                        },
+                        &p,
+                    );
+                }
+                if !v.is_absent() {
+                    values.insert(k.clone(), v);
+                }
+            }
+            take(
+                ctx,
+                alloc,
+                &f.type_,
+                &clause.transition,
+                Some(p),
+                values,
+                depth + 1,
+            )
+            .map_err(|s| as_part(s, &f.type_))?;
+        }
+    }
+    Ok(())
+}
+
 /// A value as an identifier's format writes it, as text.
 pub(crate) fn text_of(v: &Value) -> String {
     match v {
@@ -7240,6 +7339,45 @@ fn writes_of(
                             if read.contains("actor") {
                                 by_actor.insert(location.clone());
                             }
+                        }
+                    }
+                }
+            }
+            // and a follower's transition its follows clause takes, one hop
+            // away as a part's is (ADR-0292 decision 2)
+            for f in lib
+                .followed
+                .get(owner.name.as_str())
+                .and_then(|by| by.get(xn))
+                .into_iter()
+                .flatten()
+                .filter(|f| f.type_ == tn)
+            {
+                let Some((clause, taken)) = lib.type_(tn).and_then(|ft| {
+                    let c = ft.attribute(&f.reference)?.follows.get(f.clause)?;
+                    ft.transition(&c.transition).map(|x| (c, x))
+                }) else {
+                    continue;
+                };
+                for (name, e) in &clause.inputs {
+                    let mut read = BTreeSet::new();
+                    names_read(e, &mut read);
+                    if read.contains("inputs") {
+                        writes.insert(name.clone());
+                    }
+                    if read.contains("actor") {
+                        by_actor.insert(name.clone());
+                    }
+                }
+                for st in &taken.effect {
+                    if let Step::Assign { location, expr }
+                    | Step::Add { location, expr }
+                    | Step::Remove { location, expr } = st
+                    {
+                        let mut read = BTreeSet::new();
+                        names_read(expr, &mut read);
+                        if read.contains("actor") {
+                            by_actor.insert(location.clone());
                         }
                     }
                 }
@@ -21779,5 +21917,598 @@ types:
         assert_eq!(t.objects, vec![big.clone()]);
         let (v, _) = told(&mut s, "add", &big, json!({"by": 5}));
         assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+    }
+
+    /// A slot a hold refers to, in a module that may not import the holds'
+    /// (issue #103, ADR-0292): a hold follows its slot's `cancel` and
+    /// `rename`, a lock its `cancel`, and a tag its hold's `release`, a
+    /// follow of a follow; the slot's shifts are its parts, cascaded first.
+    const FOLLOW_HUB: &str = r#"
+module: hub
+categories: [live, closed]
+types:
+  Slot:
+    attributes:
+      label: { type: string }
+      cap: { type: int, default: 9 }
+      shifts: { reference: "Shift[]", opposite: slot, aggregation: composite, cascade: [ { on: [cancel], transition: end, limit: 10 } ] }
+    states:
+      OPEN: { category: live }
+      CANCELLED: { category: closed, final: true }
+    conditions:
+      few_holds: { expression: "count(r in referrers) <= cap", remedy: dependent }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label], optional_inputs: [cap] }
+      rename: { kind: internal, from: [OPEN], required_inputs: [label] }
+      staff: { kind: internal, from: [OPEN], effect: [ { create: { type: Shift, transition: add, inputs: { slot: this } } } ] }
+      cancel:
+        kind: external
+        from: [OPEN]
+        to: CANCELLED
+        proposable: true
+        guards: { few_holds: deny }
+        inputs:
+          why: { type: string, optional: true }
+  Shift:
+    attributes:
+      slot: { reference: Slot, opposite: shifts }
+    states:
+      ON: { category: live }
+      OFF: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [slot], only_via: [Slot.staff] }
+      end: { kind: external, from: [ON], to: OFF }
+"#;
+
+    const FOLLOW_HOLDS: &str = r#"
+module: holds
+imports: { hub: [Slot] }
+categories: [live, closed]
+types:
+  Lock:
+    attributes:
+      slot: { reference: Slot, follows: [ { on: [cancel], transition: open_up, limit: 5 } ] }
+    states:
+      SHUT: { category: live }
+      OPENED: { category: closed, final: true }
+    transitions:
+      fit: { kind: initial, to: SHUT, required_inputs: [slot] }
+      open_up: { kind: external, from: [SHUT], to: OPENED }
+  Hold:
+    attributes:
+      slot:
+        reference: Slot
+        follows:
+          - { on: [cancel], transition: release, inputs: { note: inputs.why, seen: slot.label, own: label }, limit: 2 }
+          - { on: [rename], transition: relabel, inputs: { label: slot.label }, limit: 5 }
+      label: { type: string, optional: true }
+      note: { type: string, optional: true }
+      seen: { type: string, optional: true }
+      own: { type: string, optional: true }
+      blocked: { type: bool, default: false }
+    states:
+      HELD: { category: live }
+      PAUSED: { category: live }
+      RELEASED: { category: closed, final: true }
+    invariants:
+      fair: { expression: 'note is null or note != "bad"' }
+    conditions:
+      not_blocked: { expression: not blocked, remedy: dependent }
+    transitions:
+      take: { kind: initial, to: HELD, required_inputs: [slot], optional_inputs: [label, blocked] }
+      pause: { kind: external, from: [HELD], to: PAUSED }
+      relabel: { kind: internal, from: [HELD, PAUSED], required_inputs: [label] }
+      drop: { kind: external, from: [HELD, PAUSED], to: RELEASED }
+      release: { kind: external, from: [HELD], to: RELEASED, optional_inputs: [note, seen, own], guards: { not_blocked: deny }, only_via: [Slot.cancel] }
+  Tag:
+    attributes:
+      hold: { reference: Hold, follows: [ { on: [release], transition: peel, limit: 5 } ] }
+    states:
+      ON: { category: live }
+      OFF: { category: closed, final: true }
+    transitions:
+      stick: { kind: initial, to: ON, required_inputs: [hold] }
+      peel: { kind: external, from: [ON], to: OFF }
+"#;
+
+    fn following_store() -> Store {
+        let lib = Library::load(&[
+            ("hub.yaml".into(), FOLLOW_HUB.into()),
+            ("holds.yaml".into(), FOLLOW_HOLDS.into()),
+        ])
+        .unwrap();
+        Store::sandbox(lib, 1_767_225_600).unwrap()
+    }
+
+    /// A verdict that applied.
+    fn applied(v: &Verdict) {
+        assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+    }
+
+    /// An object's state and one of its attributes, as the store holds them.
+    fn held_as(s: &Store, id: &str, attr: &str) -> (String, Value) {
+        let o = s.snapshot().unwrap().get(id).unwrap().unwrap().clone();
+        (o.state.clone(), o.attr(attr))
+    }
+
+    /// The transitions a request's events record, each with its object and
+    /// the position of its cause, in the order each began.
+    fn follow_events(s: &Store, v: &Verdict) -> Vec<(String, String, Option<i64>, i64)> {
+        let Verdict::Satisfied { events, .. } = v else {
+            panic!("{v:?}")
+        };
+        s.events(events)
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .map(|e| (e.transition, e.object_id, e.cause, e.position))
+            .collect()
+    }
+
+    /// When a slot takes a transition its holders follow, each holder takes
+    /// its own in the same request (ADR-0292): after the slot's effect and its
+    /// cascades, clause by clause in the order the flow declares them, a
+    /// lock's before a hold's whatever their creation, each clause's
+    /// followers in creation order, depth-first, a tag following its hold's
+    /// release taken before the next hold's; each event caused by the one it
+    /// follows. A clause's inputs are read over the follower, its own label
+    /// its own, the slot's through the reference after the request's writes,
+    /// and `inputs.why` the slot's input; a holder of another slot, and a slot
+    /// no one holds, take nothing more. On both backends.
+    #[test]
+    fn a_follower_takes_its_transition_in_the_request_it_follows() {
+        let mut s = following_store();
+        let slot = |s: &mut Store, label: &str| {
+            created(&req(
+                s,
+                "open",
+                OPERATOR,
+                ("Slot", true),
+                json!({"label": label}),
+            ))
+        };
+        let a = slot(&mut s, "A");
+        let b = slot(&mut s, "B");
+        let alone = slot(&mut s, "C");
+        let Verdict::Satisfied {
+            created: staffed, ..
+        } = req(&mut s, "staff", OPERATOR, (&a, false), json!({}))
+        else {
+            panic!("a slot is staffed")
+        };
+        let shift = staffed[0].clone();
+        let take = |s: &mut Store, at: &str, label: &str| {
+            created(&req(
+                s,
+                "take",
+                OPERATOR,
+                ("Hold", true),
+                json!({"slot": at, "label": label}),
+            ))
+        };
+        let h1 = take(&mut s, &a, "h1");
+        let h2 = take(&mut s, &a, "h2");
+        let other = take(&mut s, &b, "hb");
+        let tag = created(&req(
+            &mut s,
+            "stick",
+            OPERATOR,
+            ("Tag", true),
+            json!({"hold": h1}),
+        ));
+        let lock = created(&req(
+            &mut s,
+            "fit",
+            OPERATOR,
+            ("Lock", true),
+            json!({"slot": a}),
+        ));
+        // a rename: each hold relabelled by what the slot holds now
+        let v = req(
+            &mut s,
+            "rename",
+            OPERATOR,
+            (&a, false),
+            json!({"label": "A2"}),
+        );
+        let renamed = follow_events(&s, &v);
+        assert_eq!(
+            renamed
+                .iter()
+                .map(|(x, o, c, _)| (x.as_str(), o.as_str(), *c))
+                .collect::<Vec<_>>(),
+            [
+                ("rename", a.as_str(), None),
+                ("relabel", h1.as_str(), Some(renamed[0].3)),
+                ("relabel", h2.as_str(), Some(renamed[0].3)),
+            ]
+        );
+        assert_eq!(held_as(&s, &h2, "label").1, Value::Text("A2".into()));
+        assert_eq!(held_as(&s, &other, "label").1, Value::Text("hb".into()));
+        applied(&req(
+            &mut s,
+            "relabel",
+            OPERATOR,
+            (&h1, false),
+            json!({"label": "mine"}),
+        ));
+        // a cancel: the shift, then the lock, then each hold, the tag after
+        // its own
+        let v = req(
+            &mut s,
+            "cancel",
+            OPERATOR,
+            (&a, false),
+            json!({"why": "gone"}),
+        );
+        let cancelled = follow_events(&s, &v);
+        let at = |i: usize| Some(cancelled[i].3);
+        assert_eq!(
+            cancelled
+                .iter()
+                .map(|(x, o, c, _)| (x.as_str(), o.as_str(), *c))
+                .collect::<Vec<_>>(),
+            [
+                ("cancel", a.as_str(), None),
+                ("end", shift.as_str(), at(0)),
+                ("open_up", lock.as_str(), at(0)),
+                ("release", h1.as_str(), at(0)),
+                ("peel", tag.as_str(), at(3)),
+                ("release", h2.as_str(), at(0)),
+            ]
+        );
+        assert_eq!(
+            [
+                held_as(&s, &h1, "note"),
+                held_as(&s, &h1, "seen"),
+                held_as(&s, &h1, "own"),
+                held_as(&s, &h2, "own"),
+            ],
+            [
+                ("RELEASED".to_string(), Value::Text("gone".into())),
+                ("RELEASED".to_string(), Value::Text("A2".into())),
+                ("RELEASED".to_string(), Value::Text("mine".into())),
+                ("RELEASED".to_string(), Value::Text("A2".into())),
+            ]
+        );
+        assert_eq!(held_as(&s, &other, "label").0, "HELD");
+        // no follower: the slot's own event alone
+        let v = req(&mut s, "cancel", OPERATOR, (&alone, false), json!({}));
+        assert_eq!(follow_events(&s, &v).len(), 1, "{v:?}");
+        // a follower's transition only via the one it follows, which no
+        // request may take
+        let held = take(&mut s, &b, "hc");
+        assert!(matches!(
+            req(&mut s, "release", OPERATOR, (&held, false), json!({})),
+            Verdict::NotRequestable { .. }
+        ));
+    }
+
+    /// A request a follow refuses leaves the store as it was: every row, the
+    /// counters and the log, one attempt more (PRD F2).
+    fn cancel_refused_whole(s: &mut Store, slot: &str, inputs: Json) -> Verdict {
+        let before = rows(s);
+        let (position, object) = (counter(s, "position"), counter(s, "object"));
+        let logged = attempts(s).len();
+        let v = req(s, "cancel", OPERATOR, (slot, false), inputs);
+        assert!(!matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+        assert_eq!(rows(s), before, "a row changed: {v:?}");
+        assert_eq!(
+            (counter(s, "position"), counter(s, "object")),
+            (position, object),
+            "{v:?}"
+        );
+        assert_eq!(attempts(s).len(), logged + 1, "{v:?}");
+        v
+    }
+
+    /// A follow drives at most its limit of followers, those in a final state
+    /// passed over and not counted: its limit applies, one past it is refused
+    /// `over_limit` naming the follow, never truncated, and writes nothing,
+    /// the slot's own transition, its cascade and the lock's included; two
+    /// open and three final apply under a limit of two, the final untouched
+    /// (ADR-0292 decision 2, PRD F2). On both backends.
+    #[test]
+    fn a_follow_past_its_limit_is_refused_whole_and_final_followers_are_not_counted() {
+        let mut s = following_store();
+        let a = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Slot", true),
+            json!({"label": "A"}),
+        ));
+        applied(&req(&mut s, "staff", OPERATOR, (&a, false), json!({})));
+        created(&req(
+            &mut s,
+            "fit",
+            OPERATOR,
+            ("Lock", true),
+            json!({"slot": a}),
+        ));
+        let take = |s: &mut Store| {
+            created(&req(
+                s,
+                "take",
+                OPERATOR,
+                ("Hold", true),
+                json!({"slot": a}),
+            ))
+        };
+        let open: Vec<String> = (0..3).map(|_| take(&mut s)).collect();
+        let over = cancel_refused_whole(&mut s, &a, json!({}));
+        assert_eq!(
+            over,
+            Verdict::OverLimit {
+                loop_: "the follow on Hold.slot".into(),
+                bound: 2
+            }
+        );
+        assert_eq!(over.remedy(), Some(Remedy::UnreachableFromHere));
+        // one dropped by hand, and three more final: two open, under the limit
+        applied(&req(&mut s, "drop", OPERATOR, (&open[2], false), json!({})));
+        let finals: Vec<String> = (0..2).map(|_| take(&mut s)).collect();
+        for f in &finals {
+            applied(&req(&mut s, "drop", OPERATOR, (f, false), json!({})));
+        }
+        let versions = |s: &Store| -> Vec<i64> {
+            let w = s.snapshot().unwrap();
+            finals
+                .iter()
+                .chain(std::iter::once(&open[2]))
+                .map(|f| w.get(f).unwrap().unwrap().version)
+                .collect()
+        };
+        let kept = versions(&s);
+        let v = req(&mut s, "cancel", OPERATOR, (&a, false), json!({}));
+        let released: Vec<String> = follow_events(&s, &v)
+            .into_iter()
+            .filter(|(x, ..)| x == "release")
+            .map(|(_, o, ..)| o)
+            .collect();
+        assert_eq!(released, open[..2], "{v:?}");
+        assert_eq!(versions(&s), kept, "a final follower was driven");
+    }
+
+    /// A follower that refuses refuses the whole request with its own verdict
+    /// (ADR-0292 decision 2): one in a state its transition is not taken from,
+    /// though not final, `unavailable`; one whose guard fails, the last
+    /// driven, `unsatisfied` naming its guard qualified by its type; neither
+    /// writing the slot's cancel, its cascade, the lock or the follower before
+    /// it (PRD F2). On both backends.
+    #[test]
+    fn a_follower_refusing_refuses_the_request_and_writes_nothing() {
+        let mut s = following_store();
+        let open = |s: &mut Store| {
+            created(&req(
+                s,
+                "open",
+                OPERATOR,
+                ("Slot", true),
+                json!({"label": "A"}),
+            ))
+        };
+        let a = open(&mut s);
+        applied(&req(&mut s, "staff", OPERATOR, (&a, false), json!({})));
+        created(&req(
+            &mut s,
+            "fit",
+            OPERATOR,
+            ("Lock", true),
+            json!({"slot": a}),
+        ));
+        created(&req(
+            &mut s,
+            "take",
+            OPERATOR,
+            ("Hold", true),
+            json!({"slot": a}),
+        ));
+        let paused = created(&req(
+            &mut s,
+            "take",
+            OPERATOR,
+            ("Hold", true),
+            json!({"slot": a}),
+        ));
+        applied(&req(&mut s, "pause", OPERATOR, (&paused, false), json!({})));
+        assert_eq!(
+            cancel_refused_whole(&mut s, &a, json!({"why": "gone"})),
+            Verdict::Unavailable {
+                state: "PAUSED".into()
+            }
+        );
+        let b = open(&mut s);
+        applied(&req(&mut s, "staff", OPERATOR, (&b, false), json!({})));
+        created(&req(
+            &mut s,
+            "fit",
+            OPERATOR,
+            ("Lock", true),
+            json!({"slot": b}),
+        ));
+        created(&req(
+            &mut s,
+            "take",
+            OPERATOR,
+            ("Hold", true),
+            json!({"slot": b}),
+        ));
+        created(&req(
+            &mut s,
+            "take",
+            OPERATOR,
+            ("Hold", true),
+            json!({"slot": b, "blocked": true}),
+        ));
+        let v = cancel_refused_whole(&mut s, &b, json!({}));
+        assert_eq!(
+            v,
+            Verdict::Unsatisfied {
+                clause: "Hold.not_blocked".into(),
+                remedy: Some(Remedy::Dependent)
+            }
+        );
+        // an invariant of the follower its follow breaks, with what the
+        // request gave: the remedy the requester's to take, one hop away as
+        // a part's is
+        let c = open(&mut s);
+        created(&req(
+            &mut s,
+            "take",
+            OPERATOR,
+            ("Hold", true),
+            json!({"slot": c}),
+        ));
+        match cancel_refused_whole(&mut s, &c, json!({"why": "bad"})) {
+            Verdict::InvariantViolated { failures, remedy } => {
+                assert_eq!(remedy, Some(Remedy::SelfServiceable));
+                assert_eq!(failures[0].invariant, "fair");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// A proposal of a transition others follow is filed with nothing
+    /// driven, and its approval drives them, as the request would; and a
+    /// guard of the slot reading its referrers counts its followers, since it
+    /// is evaluated before the slot's outcome (ADR-0292). On both backends.
+    #[test]
+    fn a_proposal_drives_followers_when_approved_and_a_guard_counts_them() {
+        let mut s = following_store();
+        let capped = |s: &mut Store| {
+            created(&req(
+                s,
+                "open",
+                OPERATOR,
+                ("Slot", true),
+                json!({"label": "A", "cap": 1}),
+            ))
+        };
+        let take = |s: &mut Store, slot: &str| {
+            created(&req(
+                s,
+                "take",
+                OPERATOR,
+                ("Hold", true),
+                json!({"slot": slot}),
+            ))
+        };
+        // two referrers past a cap of one: the guard counts the followers
+        let crowded = capped(&mut s);
+        take(&mut s, &crowded);
+        take(&mut s, &crowded);
+        assert_eq!(
+            req(&mut s, "cancel", OPERATOR, (&crowded, false), json!({})),
+            Verdict::Unsatisfied {
+                clause: "few_holds".into(),
+                remedy: Some(Remedy::Dependent)
+            }
+        );
+        // one, within it: the proposal filed with nothing driven, and its
+        // approval driving the hold
+        let a = capped(&mut s);
+        let h = take(&mut s, &a);
+        let filed = Request {
+            transition: "cancel".into(),
+            actor: OPERATOR.into(),
+            object_id: Some(a.clone()),
+            type_: None,
+            inputs: [("why".to_string(), json!("asked"))].into_iter().collect(),
+            occurred_at: None,
+            propose: true,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let proposal = created(&request(&mut s, &filed).unwrap().unwrap());
+        assert_eq!(held_as(&s, &h, "note"), ("HELD".to_string(), Value::Absent));
+        applied(&req(
+            &mut s,
+            "approve",
+            OPERATOR,
+            (&proposal, false),
+            json!({}),
+        ));
+        assert_eq!(held_as(&s, &a, "label").0, "CANCELLED");
+        assert_eq!(
+            held_as(&s, &h, "note"),
+            ("RELEASED".to_string(), Value::Text("asked".into()))
+        );
+    }
+
+    /// Followers are found by the index on their reference's column, as
+    /// `referrers` finds them, never by reading their type whole; a
+    /// transition no clause names reads nothing for one; and the statement
+    /// is served by that index on each backend (ADR-0292 decision 7). On
+    /// both backends.
+    #[test]
+    fn a_follower_is_found_by_its_references_index() {
+        let mut s = following_store();
+        let a = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Slot", true),
+            json!({"label": "A"}),
+        ));
+        let h = created(&req(
+            &mut s,
+            "take",
+            OPERATOR,
+            ("Hold", true),
+            json!({"slot": a}),
+        ));
+        created(&req(
+            &mut s,
+            "take",
+            OPERATOR,
+            ("Hold", true),
+            json!({"slot": a}),
+        ));
+        let (keyed, whole) = (
+            crate::world::keyed_reads(),
+            crate::world::whole_type_reads("Hold"),
+        );
+        // a transition no clause names
+        applied(&req(&mut s, "pause", OPERATOR, (&h, false), json!({})));
+        assert_eq!(crate::world::keyed_reads(), keyed, "pause read by key");
+        applied(&req(&mut s, "drop", OPERATOR, (&h, false), json!({})));
+        let keyed = crate::world::keyed_reads();
+        applied(&req(&mut s, "cancel", OPERATOR, (&a, false), json!({})));
+        assert!(
+            crate::world::keyed_reads() > keyed,
+            "no follower read by key"
+        );
+        assert_eq!(crate::world::whole_type_reads("Hold"), whole);
+        let c = s.connection();
+        let statement = "SELECT id FROM t_hold WHERE \"slot_id\" = 'slot-1'";
+        let plan: Vec<String> = match c.backend() {
+            crate::db::Backend::Sqlite => c
+                .prepare(&format!("EXPLAIN QUERY PLAN {statement}"))
+                .unwrap()
+                .query_map([], |r| r.get::<_, String>(3))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap(),
+            crate::db::Backend::Postgres => {
+                // a table this small is read whole by the planner's choice;
+                // with that choice taken away, the index serves it
+                c.execute_batch("SET enable_seqscan = off").unwrap();
+                c.prepare(&format!("EXPLAIN {statement}"))
+                    .unwrap()
+                    .query_map([], |r| r.get::<_, String>(0))
+                    .unwrap()
+                    .collect::<Result<_, _>>()
+                    .unwrap()
+            }
+        };
+        assert!(
+            plan.iter().any(|l| l.contains("t_hold_slot_id_ix")),
+            "{plan:?}"
+        );
     }
 }
