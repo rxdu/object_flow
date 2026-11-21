@@ -124,7 +124,7 @@ A read that cannot be answered says why in `refused`, with no items. Some carry 
 | `not_requestable` | `available` | The transition runs only as part of another. |
 | `value_in_range` | `get`, `query`, `metric` | A value the read derives or filters by is past what its type holds: an integer past 64 bits, a time past the calendar. `object_id` names the object, where one is known; the answer names no value. `availability` and `check` say it as a transition's verdict, as a request would be refused. |
 | `malformed_filter` | `query`, `metric` | The filter cannot be answered. `reason` says why: it does not parse; compares a member with a literal its type cannot hold; is not a boolean; calls an evaluator or a metric; reads the request (`actor`, `inputs`); divides by zero; nests too deep; holds more than 256 terms (about 64 comparisons chained by `or`); or, for a metric, reads something other than the metric's item. |
-| `unknown_order_key` | `query` | An `order` key that is not `created_at`, `entered_at(<tracked member>)` or an attribute holding one value. |
+| `unknown_order_key` | `query` | An `order` key that is not `created_at`, `entered_at(<tracked member>)`, `state` or an attribute holding one value, or `state` over a family whose types declare different states. |
 | `unknown_field` | `query` | A `fields` entry the type does not have. |
 | `malformed_cursor` | `query`, `available` | A cursor that did not come from this read. Start again without one. |
 | `unknown_metric` | `metric` | The flow declares no such metric. |

@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Added
+
+- `query` takes `state` as an order key, ordering objects by their state's place in their type's declared states, not by name, ` desc` reversing it and the object id breaking ties (issue #101, ADR-0289). A list showing each object's state can now sort by it, page by page. On a family, it orders where every type with objects declares the same states in the same order, as types binding one state machine do, and is refused `unknown_order_key` otherwise, its reason saying why.
+
 ## 0.31.0, 2026-11-18
 
 A release before 1.0.0, as 0.30.0 was (ADR-0214), with a text's tests and a date's parts in the expression language (ADR-0285), check 24 taught four constructs whose operands it could not tell, and each event naming the flags its request raised (issue #100, ADR-0288). The typer's four may refuse what 0.30.0 accepted, a comparison across types that loaded clean. It changes neither the store's own tables nor its built-ins, so its step from 0.30.0 records the release alone.

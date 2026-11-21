@@ -109,7 +109,7 @@ POST /v1/query
 
 - Compare a state or enumeration member by name (`Claim.SUBMITTED`), a reference by its id (`claim.id == "claim-4"`), and a time against `now` (there is no timestamp literal).
 - A long list of alternatives is a set, `number in {"C-1", "C-2"}`, not a chain of `or`s. A filter has at most 256 terms, about 64 comparisons of a member with a value chained by `or`, each comparison three terms and each `or` one.
-- Order by `created_at`, `entered_at(<tracked member>)` or an attribute holding one value, `desc` for descending. Mark `indexed` in the flow what you filter or order large types by.
+- Order by `created_at`, `entered_at(<tracked member>)`, `state` or an attribute holding one value, `desc` for descending. `state` orders as its type declares its states. Mark `indexed` in the flow what you filter or order large types by.
 - A filter the type cannot answer is refused `malformed_filter`, with a `reason`.
 
 **`available`** lists the objects of a type a given transition is available to now.

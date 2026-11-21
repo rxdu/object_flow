@@ -410,6 +410,9 @@ enum Key {
     CreatedAt,
     EnteredAt(String),
     Attribute(String),
+    /// The object's state, by its place in its type's declared states
+    /// (ADR-0289).
+    State,
 }
 
 /// A query over a type or a family (`DESIGN.md` §10, ADR-0048, ADR-0127):
@@ -1887,6 +1890,33 @@ pub fn query_page(
         };
         let key = if name == "created_at" {
             Key::CreatedAt
+        } else if name == "state" {
+            // a family's types order their states alike, one state machine
+            // among them, or no one order holds (ADR-0289)
+            let family = world.family(type_);
+            let mut orders = family
+                .iter()
+                .filter_map(|n| world.lib.type_(n))
+                .filter(|ft| !ft.abstract_)
+                .map(|ft| {
+                    ft.states
+                        .iter()
+                        .map(|(s, _)| s.as_str())
+                        .collect::<Vec<_>>()
+                });
+            let first = orders.next();
+            if !orders.all(|o| Some(&o) == first.as_ref()) {
+                return Ok(QueryPage {
+                    items: Vec::new(),
+                    refused: Some("unknown_order_key".to_string()),
+                    reason: Some(
+                        "the family's types declare different states, so no one order holds"
+                            .to_string(),
+                    ),
+                    cursor: None,
+                });
+            }
+            Key::State
         } else if let Some(m) = name
             .strip_prefix("entered_at(")
             .and_then(|r| r.strip_suffix(')'))
@@ -2038,6 +2068,10 @@ pub fn query_page(
                 .cloned()
                 .unwrap_or(Value::Absent),
             Key::Attribute(a) => o.attr(a),
+            Key::State => Value::State {
+                type_: o.type_.clone(),
+                name: o.state.clone(),
+            },
         }
     };
     // the place in creation order of each object a key's value names, read
@@ -4926,6 +4960,182 @@ types:
                 .len(),
             1
         );
+    }
+
+    /// A query orders by its objects' state, each by its place in its
+    /// type's declared states, not by name, either way, the object id
+    /// breaking ties; page by page as whole; over a family whose types
+    /// declare the same states in the same order, and refused, saying why,
+    /// over one whose types declare them otherwise (issue #101, ADR-0289).
+    #[test]
+    fn a_query_orders_by_state_as_its_type_declares_its_states() {
+        const STAGED: &str = r#"
+module: staged
+categories: [tentative, live, closed]
+types:
+  Item:
+    tracking: record
+    attributes:
+      name: { type: string }
+    states:
+      NEW: { category: tentative }
+      ADMITTED: { category: live }
+      SUSPENDED: { category: live }
+      RETIRED: { category: closed, final: true }
+    transitions:
+      propose: { kind: initial, to: NEW, required_inputs: [name] }
+      admit: { kind: external, from: [NEW, SUSPENDED], to: ADMITTED }
+      suspend: { kind: external, from: ADMITTED, to: SUSPENDED }
+      retire: { kind: external, from: [ADMITTED, SUSPENDED], to: RETIRED }
+  Kit:
+    abstract: true
+    tracking: record
+  Tool:
+    extends: Kit
+    states:
+      OUT: { category: live }
+      IN: { category: live }
+    transitions:
+      take: { kind: initial, to: OUT }
+      put_back: { kind: external, from: OUT, to: IN }
+  Spare:
+    extends: Kit
+    states:
+      OUT: { category: live }
+      IN: { category: live }
+    transitions:
+      take: { kind: initial, to: OUT }
+      put_back: { kind: external, from: OUT, to: IN }
+  Gear:
+    abstract: true
+    tracking: record
+  Rope:
+    extends: Gear
+    states:
+      UP: { category: live }
+      DOWN: { category: live }
+    transitions:
+      raise: { kind: initial, to: UP }
+  Lamp:
+    extends: Gear
+    states:
+      DOWN: { category: live }
+      UP: { category: live }
+    transitions:
+      raise: { kind: initial, to: UP }
+"#;
+        let lib = Library::load(&[("staged.yaml".into(), STAGED.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ask = |s: &mut Store, at: &str, xn: &str, inputs: serde_json::Value| -> String {
+            let created = at.chars().next().is_some_and(char::is_uppercase);
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: (!created).then(|| at.to_string()),
+                type_: created.then(|| at.to_string()),
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            match request(s, &r).unwrap().unwrap() {
+                Verdict::Satisfied { object_id, .. } => object_id,
+                other => panic!("{other:?}"),
+            }
+        };
+        // created in this order, their states' names in no declared order
+        let mut items = Vec::new();
+        for name in ["anvil", "bell", "cart", "drum", "easel"] {
+            items.push(ask(&mut s, "Item", "propose", json!({"name": name})));
+        }
+        let [a, b, c, d, e] = [0, 1, 2, 3, 4].map(|i| items[i].clone());
+        for (id, xns) in [
+            (&a, &["admit", "retire"][..]),
+            (&b, &["admit", "suspend"][..]),
+            (&c, &["admit"][..]),
+            (&e, &["admit"][..]),
+        ] {
+            for xn in xns {
+                ask(&mut s, id, xn, json!({}));
+            }
+        }
+        let t1 = ask(&mut s, "Tool", "take", json!({}));
+        ask(&mut s, &t1, "put_back", json!({}));
+        let s1 = ask(&mut s, "Spare", "take", json!({}));
+        let t2 = ask(&mut s, "Tool", "take", json!({}));
+        ask(&mut s, "Rope", "raise", json!({}));
+        let w = s.snapshot().unwrap();
+        let order = |keys: &[&str]| keys.iter().map(|k| k.to_string()).collect::<Vec<_>>();
+        let ids = |ty: &str, keys: &[&str]| -> Vec<String> {
+            let p = query(&w, ty, None, &order(keys), None).unwrap();
+            assert_eq!((p.refused, p.reason), (None, None), "{ty} {keys:?}");
+            p.items.into_iter().map(|i| i.id).collect()
+        };
+        // as declared, NEW to RETIRED, where by name ADMITTED would lead
+        assert_eq!(
+            ids("Item", &["state"]),
+            [d.as_str(), c.as_str(), e.as_str(), b.as_str(), a.as_str()]
+        );
+        // descending, ties still by creation
+        assert_eq!(
+            ids("Item", &["state desc"]),
+            [a.as_str(), b.as_str(), c.as_str(), e.as_str(), d.as_str()]
+        );
+        // a later key orders within a state
+        assert_eq!(
+            ids("Item", &["state", "name desc"]),
+            [d.as_str(), e.as_str(), c.as_str(), b.as_str(), a.as_str()]
+        );
+        // page by page, each continuing from its cursor, as one read
+        let mut paged = Vec::new();
+        let mut after: Option<String> = None;
+        loop {
+            let p = query_page(
+                &w,
+                "Item",
+                None,
+                None,
+                &order(&["state"]),
+                None,
+                after.as_deref(),
+                2,
+            )
+            .unwrap();
+            assert_eq!(p.refused, None);
+            assert!(p.items.len() <= 2);
+            paged.extend(p.items.into_iter().map(|i| i.id));
+            match p.cursor {
+                Some(c) => after = Some(c),
+                None => break,
+            }
+        }
+        assert_eq!(
+            paged,
+            [d.as_str(), c.as_str(), e.as_str(), b.as_str(), a.as_str()]
+        );
+        // a family whose types declare one order of states: OUT before IN
+        assert_eq!(
+            ids("Kit", &["state"]),
+            [s1.as_str(), t2.as_str(), t1.as_str()]
+        );
+        // one whose types declare them otherwise, refused with why
+        let p = query(&w, "Gear", None, &order(&["state"]), None).unwrap();
+        assert_eq!(p.refused.as_deref(), Some("unknown_order_key"));
+        assert_eq!(
+            p.reason.as_deref(),
+            Some("the family's types declare different states, so no one order holds")
+        );
+        assert!(p.items.is_empty());
     }
 
     fn setup() -> (Store, String) {

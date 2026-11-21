@@ -289,4 +289,5 @@
 | [0286](0286-an-objects-attempts-are-read-by-a-metric-alone.md) | An object's attempts are read by a metric alone | Decided by the author; built |
 | [0287](0287-the-gates-wait-for-a-quiet-machine-as-their-sampler-reads-one.md) | The gates wait for a quiet machine as their sampler reads one | Decided by the author; built |
 | [0288](0288-an-event-names-each-flag-its-transition-raised.md) | An event names each flag its transition raised | Decided under the author's direction; built |
+| [0289](0289-a-query-orders-by-its-objects-state.md) | A query orders by its objects' state | Decided under the author's direction; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |
