@@ -3612,29 +3612,55 @@ fn entry_fields_personal(
 /// transition's effect into a personal attribute, which makes it personal
 /// without the marking; or passed, one hop on, into another object's
 /// personal attribute by a step of the effect, a cascade clause on the
-/// transition or a follows clause on it. The transition is read by its
-/// name in `t`, and the clauses in `lib`, which is to be the library `t`
-/// belongs to; one `t` does not declare passes nothing.
+/// transition or a follows clause on it; or derived by `rest: inputs` from
+/// a target transition that holds it personal so. The transition is read by
+/// its name in `t`, and the clauses in `lib`, which is to be the library
+/// `t` belongs to; one `t` does not declare passes nothing.
 pub(crate) fn input_personal(lib: &Library, t: &Type, xn: &str, name: &str) -> bool {
+    input_personal_at(lib, t, xn, name, 0)
+}
+
+/// `input_personal`, `depth` derivations down.
+fn input_personal_at(lib: &Library, t: &Type, xn: &str, name: &str, depth: usize) -> bool {
     let Some(x) = t.transition(xn) else {
         return false;
     };
-    personal_by_own(t, x, name) || hops_pass(lib, t, x, xn, name, &marked)
+    personal_by_own(t, x, name)
+        || hops_pass(lib, t, x, xn, name, &marked)
+        || derived_through(t, x, xn, name).is_some_and(|(k, y)| {
+            depth >= CALL_DEPTH
+                || lib
+                    .type_(k)
+                    .is_none_or(|kt| input_personal_at(lib, kt, y, name, depth + 1))
+        })
 }
 
 /// Whether an input an event recorded is personal as an erasure and an
 /// export judge it: by the transition and the hops that ran, as the
 /// event's version declared them, read in its library (`then`), each hop's
 /// target personal where that version or the installed one (`now`) marks
-/// it so. A target type, or an argument, the installed library cannot
-/// resolve errs to personal. The installed type's own hops are
-/// `input_personal`'s, which a caller asks beside this.
+/// it so, and a derivation by `rest: inputs` judged alike. A target type,
+/// or an argument, the installed library cannot resolve errs to personal.
+/// The installed type's own hops are `input_personal`'s, which a caller
+/// asks beside this.
 pub(crate) fn input_personal_then(
     then: &Library,
     t: &Type,
     now: &Library,
     xn: &str,
     name: &str,
+) -> bool {
+    input_personal_then_at(then, t, now, xn, name, 0)
+}
+
+/// `input_personal_then`, `depth` derivations down.
+fn input_personal_then_at(
+    then: &Library,
+    t: &Type,
+    now: &Library,
+    xn: &str,
+    name: &str,
+    depth: usize,
 ) -> bool {
     let Some(x) = t.transition(xn) else {
         return false;
@@ -3643,6 +3669,40 @@ pub(crate) fn input_personal_then(
         || hops_pass(then, t, x, xn, name, &|tt, txn, arg| {
             marked(tt, txn, arg) || marked_now(now, &tt.name, txn, arg)
         })
+        || derived_through(t, x, xn, name).is_some_and(|(k, y)| {
+            depth >= CALL_DEPTH
+                || then
+                    .type_(k)
+                    .is_none_or(|kt| input_personal_then_at(then, kt, now, y, name, depth + 1))
+        })
+}
+
+/// The type and transition an input of `t`'s `xn` was derived from by
+/// `rest: inputs`, as the declaration served names it (`derived_from`);
+/// none for one the transition declares itself, or an `each` list, whose
+/// fields its marking judges (`Library::load`). The step passes it to the
+/// target by its name, so what the target transition holds personal of it,
+/// one hop on included, it carries on: a hop past the step's (issue #102).
+fn derived_through<'t>(
+    t: &'t Type,
+    x: &Transition,
+    xn: &str,
+    name: &str,
+) -> Option<(&'t str, &'t str)> {
+    if x.inputs
+        .iter()
+        .any(|(n, i)| n == name && matches!(i.declared, Declared::Entries(_)))
+    {
+        return None;
+    }
+    t.source
+        .get("transitions")?
+        .get(xn)?
+        .get("inputs")?
+        .get(name)?
+        .get("derived_from")?
+        .as_str()?
+        .split_once('.')
 }
 
 /// Whether an argument a hop passes to `xn` on `tt` is personal there: the
@@ -23891,5 +23951,212 @@ types:
             }
         }
         assert!(failed.is_empty(), "{failed:#?}");
+    }
+
+    /// An input `rest: inputs` derives, which the target transition passes,
+    /// one hop on, into another object's personal attribute, is personal
+    /// for the act, as an `each` list's field is: a refused request's
+    /// attempt row names it withheld and keeps no value of it, refused by
+    /// the act's guard or by the created object's; the log exported leaves
+    /// it out; and an erasure of the creating object redacts it from the
+    /// act's event, where each kept it in clear (`DESIGN.md` §8). An input
+    /// that reaches nothing personal is kept. On both backends.
+    #[test]
+    fn an_input_rest_derives_that_a_hop_makes_personal_is_withheld() {
+        const RESTED: &str = r#"
+module: rested
+categories: [live, closed]
+types:
+  Contact:
+    attributes:
+      phone: { type: string, optional: true, personal: true }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, optional_inputs: [phone] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Order:
+    attributes:
+      title: { type: string }
+    conditions:
+      titled: { expression: title != "no", remedy: unreachable_from_here }
+    states:
+      PLACED: { category: live }
+    transitions:
+      place:
+        kind: initial
+        to: PLACED
+        required_inputs: [title]
+        guards: { titled: deny }
+        effect:
+          - create: { type: Line, transition: add, inputs: { order: this }, rest: inputs }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Line:
+    attributes:
+      order: { reference: Order }
+      qty: { type: int }
+    conditions:
+      counted: { expression: qty > 0, remedy: unreachable_from_here }
+    states:
+      OPEN: { category: live }
+    transitions:
+      add:
+        kind: initial
+        to: OPEN
+        required_inputs: [order, qty]
+        inputs: { contact: { type: string, optional: true } }
+        guards: { counted: deny }
+        effect:
+          - create: { type: Contact, transition: add, inputs: { phone: inputs.contact } }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"#;
+        let mut failed = Vec::new();
+        for personal in [true, false] {
+            let text = if personal {
+                RESTED.to_string()
+            } else {
+                let open = RESTED.replace("optional: true, personal: true", "optional: true");
+                assert_ne!(open, RESTED);
+                open
+            };
+            let lib = Library::load(&[("rested.yaml".into(), text)]).unwrap();
+            let mut s = Store::sandbox(lib, 0).unwrap();
+            for (how, title, qty) in [("by the act's guard", "no", 1), ("by the line's", "T", 0)] {
+                let refused = req(
+                    &mut s,
+                    "place",
+                    OPERATOR,
+                    ("Order", true),
+                    json!({"title": title, "qty": qty, "contact": "555-0100"}),
+                );
+                assert!(
+                    matches!(
+                        refused,
+                        Verdict::Unsatisfied { .. } | Verdict::CallRefused { .. }
+                    ),
+                    "{how}: {refused:?}"
+                );
+                let w = s.snapshot().unwrap();
+                let rows = w.attempts().unwrap();
+                let row = rows
+                    .iter()
+                    .rfind(|a| a.transition.as_deref() == Some("place"))
+                    .unwrap();
+                let kept = row.request_values.to_string().contains("555-0100");
+                let named = row.withheld.contains(&"contact".to_string());
+                if personal == kept || personal != named {
+                    failed.push(format!(
+                        "{how}, personal {personal}: withheld {:?}, kept {}",
+                        row.withheld, row.request_values
+                    ));
+                }
+            }
+            let order = created(&req(
+                &mut s,
+                "place",
+                OPERATOR,
+                ("Order", true),
+                json!({"title": "T", "qty": 1, "contact": "555-0100"}),
+            ));
+            let w = s.snapshot().unwrap();
+            let log: Vec<Json> = crate::export::export(&w, "log", None)
+                .unwrap()
+                .lines
+                .iter()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+            let place = log
+                .iter()
+                .find(|e| e["object_id"] == json!(order) && e["transition"] == json!("place"))
+                .unwrap();
+            if personal == place["payload"]["inputs"].get("contact").is_some() {
+                failed.push(format!(
+                    "personal {personal}: exported {}",
+                    place["payload"]["inputs"]
+                ));
+            }
+            erase(&mut s, &order);
+            let held = recorded(&s, &order, "place");
+            if personal == held["contact"].is_string() {
+                failed.push(format!("personal {personal}: erased {held}"));
+            }
+        }
+        assert!(failed.is_empty(), "{failed:#?}");
+    }
+
+    /// A derivation through a target's own carries: an input an act
+    /// derives from a target that derives it in turn, the last target
+    /// passing it, one hop on, into a personal attribute, is personal for
+    /// every act on the way; and an event's input is judged by the
+    /// derivation of the version it was written under, after the installed
+    /// version stopped passing it on (issue #102).
+    #[test]
+    fn an_input_derived_through_a_targets_own_derivation_is_personal() {
+        const CHAINED: &str = r#"
+module: chained
+categories: [live]
+types:
+  Contact:
+    attributes:
+      phone: { type: string, optional: true, personal: true }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, optional_inputs: [phone] }
+  Item:
+    attributes:
+      label: { type: string, optional: true }
+    states:
+      ON: { category: live }
+    transitions:
+      make:
+        kind: initial
+        to: ON
+        inputs: { contact: { type: string, optional: true } }
+        effect:
+          - create: { type: Contact, transition: add, inputs: { phone: inputs.contact } }
+  Line:
+    attributes:
+      label: { type: string, optional: true }
+    states:
+      ON: { category: live }
+    transitions:
+      add:
+        kind: initial
+        to: ON
+        effect:
+          - create: { type: Item, transition: make, inputs: {}, rest: inputs }
+  Order:
+    attributes:
+      title: { type: string, optional: true }
+    states:
+      ON: { category: live }
+    transitions:
+      place:
+        kind: initial
+        to: ON
+        effect:
+          - create: { type: Line, transition: add, inputs: {}, rest: inputs }
+"#;
+        let lib = Library::load(&[("chained.yaml".into(), CHAINED.into())]).unwrap();
+        let personal =
+            |tn: &str, xn: &str| input_personal(&lib, lib.type_(tn).unwrap(), xn, "contact");
+        assert!(personal("Line", "add"));
+        assert!(personal("Order", "place"));
+        // judged as an erasure and an export judge an event: the version it
+        // was written under derived it from a target passing it on, which
+        // the installed version no longer does
+        let start = CHAINED
+            .find("        effect:\n          - create: { type: Contact")
+            .unwrap();
+        let end = CHAINED[start..].find("  Line:").unwrap() + start;
+        let now_text = format!("{}{}", &CHAINED[..start], &CHAINED[end..]);
+        let now = Library::load(&[("chained.yaml".into(), now_text)]).unwrap();
+        let order_now = now.type_("Order").unwrap();
+        assert!(!input_personal(&now, order_now, "place", "contact"));
+        let order_then = lib.type_("Order").unwrap();
+        assert!(input_personal_then(
+            &lib, order_then, &now, "place", "contact"
+        ));
     }
 }
