@@ -2,6 +2,7 @@
 
 - **Status:** Accepted — taken in autonomous design iteration 1 (2026-09-07); accepted by the author on 2026-09-28 ("accept all"), after a triage of the pending decisions against DESIGN.md and the later decisions; passages later decisions withdrew are marked where they stand.
 - **Date:** 2026-09-07
+- **Superseded in part by:** ADR-0292 — decision 3: a reference is still never cascaded by the type it refers to, and its own type may declare that it follows a transition of that type.
 - **Amended by:** ADR-0056 §3 — a composition declares its delete cascade. ADR-0058 then requires every terminal transition of the whole to be covered, and ADR-0066 lets the cascade carry arguments.
 
 ## Context
@@ -12,7 +13,7 @@ DESIGN.md never said what deletion is. The first consumer has a soft-delete flag
 
 1. A type that can be deleted declares a **terminal state** for it — `DELETED`, or a domain word such as `RETIRED` or `CANCELLED` — and an ordinary transition into it, with guards like any other.
 2. That transition is guarded on **no live references**: `none(r in <referencing type> where r.<reference> == this and r.state.category != closed)`, using a state category (ADR-0026) rather than terminality, which has no expression form, for every declared inverse relationship. A Customer with live deliveries is blocked with remedy class `dependent`, naming them. *(ADR-0056 §6 replaced this test with `referrers`.)*
-3. **Parts are cascaded** (ADR-0019): the whole's delete transition cascades the part's, because a part cannot outlive its whole (ADR-0003). **References are never cascaded** by deletion. *(ADR-0058 added `survives`, for a part that outlives some of its whole's final transitions.)*
+3. **Parts are cascaded** (ADR-0019): the whole's delete transition cascades the part's, because a part cannot outlive its whole (ADR-0003). **References are never cascaded** by deletion. *(ADR-0058 added `survives`, for a part that outlives some of its whole's final transitions.)* *(Superseded in part by ADR-0292: the referring type may declare that its objects follow a transition of the object they refer to.)*
 4. A deleted object stays readable in history and by id, is excluded from default reads and from availability queries, and admits no further transitions. *(ADR-0056 §7 carves erasure out of this: an `erase` transition runs from any state, terminal included, since erasure requests arrive for closed accounts, and it is the one transition a deleted object admits; `DESIGN.md` §8.)* *(Superseded by ADR-0114 §4: a read applies no filter of its own, so a caller leaves out deleted objects by their state, D459.)*
 5. There is no `force_transition`. Administrative repair is a declared asserting transition (ADR-0040), which carries its own capability and reason guards rather than the type's. *(The capability is withdrawn by ADR-0114: who may request it is the upper layer's.)*
 6. Legacy rows with `is_deleted = true` import into the type's deleted state with provenance `asserted` (ADR-0015).
