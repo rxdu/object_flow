@@ -2555,6 +2555,8 @@ fn to_sql(v: &Value) -> Stored<Sql> {
                 "a value of several fields in one column".to_string(),
             ));
         }
+        // a list of entries is a request's, never an attribute's (ADR-0290)
+        Value::Entries(_) => return Err(StoreError("a list of entries in a column".to_string())),
     })
 }
 

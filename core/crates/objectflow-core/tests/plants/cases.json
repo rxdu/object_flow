@@ -35818,6 +35818,98 @@
   "could_violate": {}
  },
  {
+  "label": "each_plants: an examples file's entries run",
+  "files": [
+   [
+    "orders.yaml",
+    "ae84a671e343fda6"
+   ],
+   [
+    "orders.examples.yaml",
+    "5d341bfb3a630416"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of orders as the request under test, which only a setup, a step or an expected cascade takes: Line.add, Product.list, Product.retire"
+   ],
+   [
+    "orders.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of orders, by its request, a step, a setup or a cascade it expects: Line.close, Order.close"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ],
+   "Order": [
+    0,
+    0
+   ],
+   "Product": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: a step's own inputs evaluated only for an entry",
+  "files": [
+   [
+    "orders.yaml",
+    "110e619b88dce3bd"
+   ],
+   [
+    "orders.examples.yaml",
+    "98da7ed1dd14ab21"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.examples.yaml",
+    7,
+    "notice",
+    "coverage",
+    "no example requests 1 transition of orders as the request under test, which only a setup, a step or an expected cascade takes: Product.list"
+   ],
+   [
+    "orders.examples.yaml",
+    7,
+    "notice",
+    "coverage",
+    "no example takes 4 transitions of orders, by its request, a step, a setup or a cascade it expects: Line.add, Line.close, Order.close, Product.retire"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ],
+   "Order": [
+    0,
+    0
+   ],
+   "Product": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "each_plants: an entry's field no input of the target",
   "files": [
    [
@@ -35892,6 +35984,271 @@
    ]
   ],
   "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: an entry's reference naming no alias",
+  "files": [
+   [
+    "orders.yaml",
+    "ae84a671e343fda6"
+   ],
+   [
+    "orders.examples.yaml",
+    "6d65ffcb55df62a8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of orders as the request under test, which only a setup, a step or an expected cascade takes: Line.add, Product.list, Product.retire"
+   ],
+   [
+    "orders.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of orders, by its request, a step, a setup or a cascade it expects: Line.close, Order.close"
+   ],
+   [
+    "orders.examples.yaml",
+    10,
+    "fatal",
+    "example",
+    "an_order_is_placed_with_its_lines: expected the request to cause ['Line.add'], and it causes ['Line.add', 'Line.add']"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ],
+   "Order": [
+    0,
+    0
+   ],
+   "Product": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: an entry's reference naming no alias",
+  "files": [
+   [
+    "orders.yaml",
+    "ae84a671e343fda6"
+   ],
+   [
+    "orders.examples.yaml",
+    "d85022be0c2149a9"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of orders as the request under test, which only a setup, a step or an expected cascade takes: Line.add, Product.list, Product.retire"
+   ],
+   [
+    "orders.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of orders, by its request, a step, a setup or a cascade it expects: Line.close, Order.close"
+   ],
+   [
+    "orders.examples.yaml",
+    15,
+    "fatal",
+    "example",
+    "an_order_with_no_lines: expected the request to cause ['Line.add'], and it causes nothing"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ],
+   "Order": [
+    0,
+    0
+   ],
+   "Product": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: an entry's reference naming no alias",
+  "files": [
+   [
+    "orders.yaml",
+    "ae84a671e343fda6"
+   ],
+   [
+    "orders.examples.yaml",
+    "fb3b6936f5411dcb"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of orders as the request under test, which only a setup, a step or an expected cascade takes: Line.add, Product.list, Product.retire"
+   ],
+   [
+    "orders.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of orders, by its request, a step, a setup or a cascade it expects: Line.close, Order.close"
+   ],
+   [
+    "orders.examples.yaml",
+    20,
+    "fatal",
+    "example",
+    "a_retired_product_refuses_the_order_whole: expected the request to apply, and it is refused as call_refused Line.product_listed self_serviceable create Line.add on a new object: unsatisfied"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ],
+   "Order": [
+    0,
+    0
+   ],
+   "Product": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: an entry's reference naming no alias",
+  "files": [
+   [
+    "orders.yaml",
+    "ae84a671e343fda6"
+   ],
+   [
+    "orders.examples.yaml",
+    "4fe692ac0507bf23"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of orders as the request under test, which only a setup, a step or an expected cascade takes: Line.add, Product.list, Product.retire"
+   ],
+   [
+    "orders.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of orders, by its request, a step, a setup or a cascade it expects: Line.close, Order.close"
+   ],
+   [
+    "orders.examples.yaml",
+    25,
+    "fatal",
+    "example",
+    "a_line_left_without_its_quantity: expected the request to apply, and it is refused as invalid_input  self_serviceable"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ],
+   "Order": [
+    0,
+    0
+   ],
+   "Product": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: an entry's reference naming no alias",
+  "files": [
+   [
+    "orders.yaml",
+    "ae84a671e343fda6"
+   ],
+   [
+    "orders.examples.yaml",
+    "573c5998c4e24ead"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example requests 3 transitions of orders as the request under test, which only a setup, a step or an expected cascade takes: Line.add, Product.list, Product.retire"
+   ],
+   [
+    "orders.examples.yaml",
+    9,
+    "notice",
+    "coverage",
+    "no example takes 2 transitions of orders, by its request, a step, a setup or a cascade it expects: Line.close, Order.close"
+   ],
+   [
+    "orders.examples.yaml",
+    30,
+    "fatal",
+    "example",
+    "too_many_lines: expected invalid_input, and it is refused as over_limit  unreachable_from_here the list lines holds more entries than its limit of 3"
+   ]
+  ],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ],
+   "Order": [
+    0,
+    0
+   ],
+   "Product": [
+    0,
+    0
+   ]
+  },
   "forms": {},
   "could_violate": {}
  },

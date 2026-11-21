@@ -227,6 +227,23 @@ impl Player<'_> {
             }
             return self.alias(&py_str(v)).map(Json::from);
         }
+        // a list an each takes, written as a list of mappings, each field as
+        // its input declares it, as `declaration` gives the entries (ADR-0290)
+        if let (Some(fields), Json::Array(entries)) = (spec.get("entries"), v) {
+            let mut out = Vec::new();
+            for entry in entries {
+                let Json::Object(given) = entry else {
+                    out.push(entry.clone());
+                    continue;
+                };
+                let mut one = serde_json::Map::new();
+                for (f, x) in given {
+                    one.insert(f.clone(), self.wire_value(x, fields.get(f))?);
+                }
+                out.push(Json::Object(one));
+            }
+            return Ok(Json::Array(out));
+        }
         let typ = spec.get("type").map(py_str).unwrap_or_default();
         // a value of several fields, written as a mapping of its fields, each
         // as its own type (ADR-0254)

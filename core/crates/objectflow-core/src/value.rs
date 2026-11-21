@@ -519,6 +519,9 @@ pub enum Value {
         value_type: String,
         fields: BTreeMap<String, Value>,
     },
+    /// A list of entries an each takes, in the order given, each the fields
+    /// it gives, none absent (ADR-0290); no expression reads it.
+    Entries(Vec<BTreeMap<String, Value>>),
 }
 
 impl Value {
@@ -540,6 +543,7 @@ impl Value {
             Value::Set(vs) => vs.iter().map(Value::wire_bytes).sum::<usize>() + vs.len() + 2,
             Value::Row(fields) => fields_bytes(fields),
             Value::Record { fields, .. } => fields_bytes(fields),
+            Value::Entries(es) => es.iter().map(fields_bytes).sum::<usize>() + es.len() + 2,
             _ => 48,
         }
     }
@@ -565,6 +569,7 @@ impl Value {
             Value::Set(_) => "a set",
             Value::Row(_) => "a row",
             Value::Record { .. } => "a value of several fields",
+            Value::Entries(_) => "a list of entries",
         }
     }
 

@@ -471,6 +471,12 @@ pub fn encode(v: &Value) -> Json {
         Value::Record { fields, .. } => {
             Json::Object(fields.iter().map(|(k, v)| (k.clone(), encode(v))).collect())
         }
+        // each entry an object of the fields it gives (ADR-0290)
+        Value::Entries(es) => Json::Array(
+            es.iter()
+                .map(|e| Json::Object(e.iter().map(|(k, v)| (k.clone(), encode(v))).collect()))
+                .collect(),
+        ),
     }
 }
 

@@ -19,7 +19,7 @@ import threading
 
 import pytest
 
-from compare import Tee
+from compare import Tee, raw
 from flowstudio.catalogue import Catalogue
 from flowstudio.core import Core
 from flowstudio.http import serve
@@ -517,4 +517,145 @@ def test_a_creation_leaving_a_required_attribute_absent_is_refused_alike(tee, ca
         assert v["kind"] == "satisfied", v
     else:
         assert (v["kind"], v.get("clause"), v.get("objects")) == ("unsatisfied", "value_in_range", []), v
+    assert tee.found[before:] == [], tee.found[before:]
+
+
+PLACING = """module: placing
+categories: [live, closed]
+enumerations:
+  Size: [S, M, L]
+types:
+  Product:
+    description: A product an order's line takes.
+    tracking: record
+    attributes:
+      code: { type: string, description: Its code. }
+    states:
+      LISTED: { description: Listed., category: live }
+      RETIRED: { description: Retired., category: closed, final: true }
+    transitions:
+      list: { kind: initial, to: LISTED, required_inputs: [code], description: Lists it. }
+      retire: { kind: external, from: [LISTED], to: RETIRED, description: Retires it. }
+  Order:
+    description: An order placed with its lines.
+    tracking: record
+    attributes:
+      title: { type: string, description: Its title. }
+    states:
+      PLACED: { description: Placed., category: live }
+      CLOSED: { description: Closed., category: closed, final: true }
+    transitions:
+      place:
+        kind: initial
+        to: PLACED
+        required_inputs: [title]
+        description: Places it with its lines.
+        proposable: true
+        effect:
+          - create: { type: Line, transition: add, inputs: { order: this }, each: lines, limit: 3 }
+      close: { kind: external, from: [PLACED], to: CLOSED, description: Closes it. }
+  Line:
+    description: A line of an order.
+    tracking: record
+    attributes:
+      order: { reference: Order, description: Its order. }
+      product: { reference: Product, description: Its product. }
+      qty: { type: int, description: How many units. }
+      rush: { type: bool, optional: true, description: Whether it ships first. }
+      size: { type: Size, optional: true, description: Its size. }
+    states:
+      OPEN: { description: Open., category: live }
+      CLOSED: { description: Closed., category: closed, final: true }
+    conditions:
+      product_listed:
+        description: The product is listed.
+        expression: product.state == Product.LISTED
+        remedy: self_serviceable
+    transitions:
+      add:
+        kind: initial
+        to: OPEN
+        description: Adds it.
+        required_inputs: [order, product, qty]
+        optional_inputs: [rush, size]
+        guards: { product_listed: deny }
+      close: { kind: external, from: [OPEN], to: CLOSED, description: Closes it. }
+"""
+
+
+def test_entries_are_taken_and_refused_alike(tee):
+    """A create taking each entry of a list (ADR-0290) is answered alike by
+    both backends: each entry makes a line, in the order given, a repeated
+    one its own, the list left out none; an entry at fault is refused
+    `invalid_input` naming each fault by entry and field, the list named
+    with the first fault's reason; one that is no list, or an entry that is
+    no object, `wrong_type`; more entries than the limit `over_limit`, its
+    loop `each lines`; and a creation refused for an entry `call_refused`,
+    naming the entry."""
+    tee.module = "placing (entries)"
+    before = len(tee.found)
+    op = {"id": "operator"}
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "placing.yaml",
+                                                   "text": PLACING}]})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+
+    def made(t, xn, inputs):
+        return tee.post("/v1/request", {"actor": op, "type": t,
+                                        "transition": xn, "inputs": inputs})
+
+    a = made("Product", "list", {"code": "A"})["object_id"]
+    b = made("Product", "list", {"code": "B"})["object_id"]
+    tee.post("/v1/request", {"actor": op, "object_id": b,
+                             "transition": "retire"})
+    line = {"product": a, "qty": 2, "rush": True, "size": "M"}
+    placed = made("Order", "place", {"title": "First", "lines": [line, line, dict(line, qty=5)]})
+    assert placed["kind"] == "satisfied", placed
+    assert len(placed["created"]) == 4, placed
+    for lid, qty in zip(placed["created"][1:], (2, 2, 5)):
+        got = tee.post("/v1/get", {"actor": op, "id": lid})
+        assert got["attributes"]["qty"] == qty and got["attributes"]["size"] == "M", got
+    bare = made("Order", "place", {"title": "Bare"})
+    assert bare["kind"] == "satisfied" and bare["created"] == [bare["object_id"]], bare
+    faulty = made("Order", "place", {"title": "Bad", "lines": [
+        {"product": a, "qty": 1, "colour": "red"}, "a line",
+        {"product": "product-99", "qty": "two"}]})
+    assert faulty["kind"] == "invalid_input", faulty
+    assert faulty["inputs"] == ["lines"], faulty
+    assert faulty["reasons"] == {"lines": "unknown_input"}, faulty
+    assert faulty["entries"] == [
+        {"entry": 0, "input": "colour", "reason": "unknown_input"},
+        {"entry": 1, "input": None, "reason": "wrong_type"},
+        {"entry": 2, "input": "product", "reason": "no_such_object"},
+        {"entry": 2, "input": "qty", "reason": "malformed"}], faulty
+    missing = made("Order", "place", {"title": "Bad", "lines": [{"product": a}]})
+    assert missing["entries"] == [{"entry": 0, "input": "qty", "reason": "missing"}], missing
+    listless = made("Order", "place", {"title": "Bad", "lines": {"product": a}})
+    assert (listless["reasons"], "entries" in listless) == ({"lines": "wrong_type"}, False), listless
+    over = made("Order", "place", {"title": "Big", "lines": [line] * 4})
+    assert (over["kind"], over["loop"], over["bound"]) == ("over_limit", "each lines", 3), over
+    # the runner computes them too, which the tee would leave out were they
+    # named not computed
+    _, alone = raw(tee.runner, "POST", "/v1/request", {"actor": op, "type": "Order", "transition": "place",
+                                                       "inputs": {"title": "Big", "lines": [line] * 4}})
+    assert (alone["loop"], alone["bound"], "not_computed" in alone) == ("each lines", 3, False), alone
+    # decided with the inputs' types, before a required input left out
+    untitled = made("Order", "place", {"lines": [line] * 4})
+    assert untitled["kind"] == "over_limit", untitled
+    for k in range(3):
+        lines = [dict(line, product=b if i == k else a) for i in range(3)]
+        refused = made("Order", "place", {"title": "Retired", "lines": lines})
+        assert refused["kind"] == "call_refused", refused
+        assert (refused["step"], refused["entry"], refused["object_id"]) == ("create Line.add", k, None), refused
+        assert refused["verdict"]["clause"] == "Line.product_listed", refused
+    # a proposal's list filed as a request reads it
+    proposed = tee.post("/v1/request", {"actor": op, "type": "Order", "transition": "place", "propose": True,
+                                        "inputs": {"title": "Asked", "lines": [{"product": a}]}})
+    assert proposed["entries"] == [{"entry": 0, "input": "qty", "reason": "missing"}], proposed
+    proposed = tee.post("/v1/request", {"actor": op, "type": "Order", "transition": "place", "propose": True,
+                                        "inputs": {"title": "Asked", "lines": [line] * 4}})
+    assert (proposed["kind"], proposed["loop"]) == ("over_limit", "each lines"), proposed
+    proposed = tee.post("/v1/request", {"actor": op, "type": "Order", "transition": "place", "propose": True,
+                                        "inputs": {"title": "Asked", "lines": [line]}})
+    assert proposed["kind"] == "satisfied", proposed
     assert tee.found[before:] == [], tee.found[before:]

@@ -13711,7 +13711,28 @@ def each_plants():
         "    expect: { verdict: over_limit }\n")
     first = "{ product: a, qty: 2, rush: true }, { product: a, qty: 2, rush: true }"
     assert examples.count(first) == 1
+    # a step's own inputs, the same for every entry, evaluated once before the first and never for an empty list: a
+    # bonus divided by zero refuses the act where a line is given, and the empty list applies
+    bonus = (orders.replace("      title: { type: string, description: Its title. }\n",
+                            "      title: { type: string, description: Its title. }\n"
+                            "      zero: { type: int, default: 0, description: Nothing. }\n")
+             .replace("      rush: { type: bool, optional: true, description: Whether it ships first. }\n",
+                      "      rush: { type: bool, optional: true, description: Whether it ships first. }\n"
+                      "      bonus: { type: int, optional: true, description: A bonus. }\n")
+             .replace("        optional_inputs: [rush]\n", "        optional_inputs: [rush, bonus]\n")
+             .replace("inputs: { order: this }, each: lines", "inputs: { order: this, bonus: 1 / zero }, each: lines"))
+    bonused = (
+        "examples_for: orders\nsetups:\n  products:\n    description: A product.\n    steps:\n"
+        "      - request: { type: Product, transition: list, as: a, inputs: { code: A } }\nexamples:\n"
+        "  no_line_evaluates_nothing:\n    description: The empty list evaluates none of the step's inputs.\n"
+        "    given: products\n    request: { type: Order, transition: place, inputs: { title: Bare } }\n"
+        "    expect: { verdict: applied, state: PLACED, cascaded: [] }\n"
+        "  a_line_evaluates_the_steps_inputs:\n    description: A line given evaluates the step's inputs, here a division by zero.\n"
+        "    given: products\n    request: { type: Order, transition: place, inputs: { title: One, lines: [ { product: a, qty: 1 } ] } }\n"
+        "    expect: { verdict: unsatisfied, clause: value_in_range, remedy: unreachable_from_here }\n")
     cases += [
+        ("an examples file's entries run", [("orders.yaml", orders), ("orders.examples.yaml", examples)], []),
+        ("a step's own inputs evaluated only for an entry", [("orders.yaml", bonus), ("orders.examples.yaml", bonused)], []),
         ("an entry's field no input of the target", [("orders.yaml", orders), ("orders.examples.yaml", examples.replace(
             first, "{ product: a, qty: 2, colour: red }, { product: a, qty: 2, rush: true }"))], ["'lines' takes entries of Line.add, and no field 'colour'"]),
         ("a list written as no list of mappings", [("orders.yaml", orders), ("orders.examples.yaml", examples.replace(
@@ -13726,6 +13747,20 @@ def each_plants():
         hit = got == sorted(want)
         ok &= hit
         print(f"  a create taking each entry, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    # run by the reference runner: each entry makes an object, the empty list none, an entry refused or one too many
+    # refusing the request; each wrong expectation found
+    for old, new in (("cascaded: [Line.add, Line.add]", "cascaded: [Line.add]"),
+                     ("cascaded: []", "cascaded: [Line.add]"),
+                     ("expect: { verdict: call_refused, clause: Line.product_listed, remedy: self_serviceable }",
+                      "expect: { verdict: applied, state: PLACED }"),
+                     ("expect: { verdict: invalid_input }", "expect: { verdict: applied, state: PLACED }"),
+                     ("expect: { verdict: over_limit }", "expect: { verdict: invalid_input }")):
+        assert examples.count(old) == 1, old
+        found, _notes = check([("orders.yaml", orders), ("orders.examples.yaml", examples.replace(old, new))])
+        hit = [x[3] for x in found] == ["example"]
+        ok &= hit
+        print(f"  a create taking each entry, run by the reference runner, expecting {new}: "
+              f"{'found' if hit else 'NOT: ' + str(found)}")
     return ok
 
 

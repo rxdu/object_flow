@@ -2471,12 +2471,27 @@ fn verdict_told(v: &Verdict, told: Option<&Told>) -> J {
         Verdict::Unavailable { state } => json!({ "state": state }),
         Verdict::UnknownTransition { transition } => json!({ "transition": transition }),
         Verdict::UnknownType { type_, .. } => json!({ "type": type_ }),
-        Verdict::InvalidInput { inputs, reasons } => json!({
-            "inputs": inputs,
-            // why each input is at fault (ADR-0173 decision 9)
-            "reasons": inputs.iter().zip(reasons).map(|(i, r)| (i.clone(), json!(r.as_str())))
-                .collect::<serde_json::Map<String, serde_json::Value>>(),
-        }),
+        Verdict::InvalidInput {
+            inputs,
+            reasons,
+            entries,
+        } => {
+            let mut f = json!({
+                "inputs": inputs,
+                // why each input is at fault (ADR-0173 decision 9)
+                "reasons": inputs.iter().zip(reasons).map(|(i, r)| (i.clone(), json!(r.as_str())))
+                    .collect::<serde_json::Map<String, serde_json::Value>>(),
+            });
+            // each fault of an entry of a list an each takes, where one is at
+            // fault (ADR-0290 decision 6)
+            if !entries.is_empty() {
+                f["entries"] = entries
+                    .iter()
+                    .map(|e| json!({"entry": e.entry, "input": e.input, "reason": e.reason.as_str()}))
+                    .collect();
+            }
+            f
+        }
         Verdict::NotRequestable { parents } => json!({ "parents": parents }),
         Verdict::NotProposable => json!({}),
         Verdict::CallRefused {
@@ -2484,26 +2499,34 @@ fn verdict_told(v: &Verdict, told: Option<&Told>) -> J {
             object_id,
             verdict: inner,
             clause,
-        } => match told {
-            // the call's own refusal whole, its clause qualified by the type
-            // it targeted, as an expectation names it (flow-format.md §11.4)
-            Some(t) => {
-                let mut called = verdict_told(inner, Some(t));
-                if let Some(o) = called.as_object_mut() {
-                    o.insert("clause".into(), json!(clause));
-                    // a call is no request a caller files a proposal of
-                    if o.contains_key("proposable") {
-                        o.insert("proposable".into(), json!(false));
+            entry,
+        } => {
+            let mut f = match told {
+                // the call's own refusal whole, its clause qualified by the type
+                // it targeted, as an expectation names it (flow-format.md §11.4)
+                Some(t) => {
+                    let mut called = verdict_told(inner, Some(t));
+                    if let Some(o) = called.as_object_mut() {
+                        o.insert("clause".into(), json!(clause));
+                        // a call is no request a caller files a proposal of
+                        if o.contains_key("proposable") {
+                            o.insert("proposable".into(), json!(false));
+                        }
                     }
+                    json!({"step": step, "object_id": object_id, "verdict": called})
                 }
-                json!({"step": step, "object_id": object_id, "verdict": called})
+                None => json!({
+                    "step": step, "object_id": object_id,
+                    "verdict": {"kind": inner.kind(), "clause": clause, "remedy": remedy(inner.remedy())},
+                    "not_computed": ["the call's verdict beyond its clause"],
+                }),
+            };
+            // the entry a creation an each made was for (ADR-0290 decision 6)
+            if let Some(n) = entry {
+                f["entry"] = json!(n);
             }
-            None => json!({
-                "step": step, "object_id": object_id,
-                "verdict": {"kind": inner.kind(), "clause": clause, "remedy": remedy(inner.remedy())},
-                "not_computed": ["the call's verdict beyond its clause"],
-            }),
-        },
+            f
+        }
         Verdict::OverLimit { loop_, bound } => json!({ "loop": loop_, "bound": bound }),
         Verdict::InvariantViolated { failures, .. } => {
             let mut f = json!({

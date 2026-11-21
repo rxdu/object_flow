@@ -29,7 +29,7 @@ use crate::model::{
 };
 use crate::store::{Allocator, Change, Event};
 use crate::value::{Decimal, Value, parse_duration};
-use crate::verdict::{Flag, InputReason, InvariantFailure, Told, Verdict};
+use crate::verdict::{EntryFault, Flag, InputReason, InvariantFailure, Told, Verdict};
 use crate::wire;
 use crate::world::{Object, Span, World};
 
@@ -762,6 +762,18 @@ fn qualified(clause: &str, type_: &str) -> String {
 /// object it targeted and its own refusal, whose clause is qualified by the
 /// type it targeted (ADR-0122 decision 35).
 fn call_refused(stop: Stop, step: String, type_: &str, target: Option<String>) -> Stop {
+    entry_refused(stop, step, type_, target, None)
+}
+
+/// A refused call or creation, as `call_refused`, naming the entry a
+/// creation an each made was for (ADR-0290 decision 6).
+fn entry_refused(
+    stop: Stop,
+    step: String,
+    type_: &str,
+    target: Option<String>,
+    entry: Option<usize>,
+) -> Stop {
     match stop {
         Stop::Refused(v, r) => {
             let clause = match &v {
@@ -774,6 +786,7 @@ fn call_refused(stop: Stop, step: String, type_: &str, target: Option<String>) -
                     object_id: target,
                     verdict: Box::new(v),
                     clause,
+                    entry,
                 },
                 r,
             )
@@ -832,6 +845,9 @@ struct Ctx<'w> {
     /// The transitions being taken, outermost first, by type and name,
     /// which `only_via` reads its caller from.
     taking: Vec<(String, String)>,
+    /// The entry the creation about to be taken is made for, by an each,
+    /// which its event records and no transition it causes (ADR-0290).
+    entry: Option<usize>,
     /// The spans a correction merged into the one before them: an object,
     /// a dimension, the span's entered position and time, and the
     /// correcting event's position.
@@ -1079,6 +1095,10 @@ fn decide_or_stop(
     }
     let mut inputs: BTreeMap<String, Value> = BTreeMap::new();
     let mut wrong: Vec<(String, InputReason)> = Vec::new();
+    // each entry's faults of a list an each takes, and a list past its limit
+    // (ADR-0290)
+    let mut faults: Vec<EntryFault> = Vec::new();
+    let mut over: Option<(String, i64)> = None;
     for (k, raw) in &req.inputs {
         // an assertion's own: a state, and invariants, by name (§4.13)
         if x.kind == Kind::Assertion && (k == "to" || k == "admits") {
@@ -1100,6 +1120,23 @@ fn decide_or_stop(
         let Some((declared, many, media)) = input_type(t, x, k) else {
             return stop_not_run(format!("the input {k}, which names no attribute of {tn}"));
         };
+        // a list an each takes, read entry by entry (ADR-0290)
+        if let Declared::Entries(e) = declared {
+            match read_entries(raw, e, world, true)? {
+                EntriesRead::Absent => {}
+                EntriesRead::Read(v) => {
+                    inputs.insert(k.clone(), v);
+                }
+                EntriesRead::Wrong(reason, at) => {
+                    wrong.push((k.clone(), reason));
+                    faults.extend(at);
+                }
+                EntriesRead::Over => {
+                    over.get_or_insert((k.clone(), e.limit));
+                }
+            }
+            continue;
+        }
         match wire::decode(raw, declared, many, lib) {
             // a null is not supplied, but where the transition lists the
             // input clearable, which clears its attribute (ADR-0262)
@@ -1119,7 +1156,20 @@ fn decide_or_stop(
         }
     }
     if !wrong.is_empty() {
-        return refused(Verdict::invalid_input(wrong));
+        let (inputs, reasons) = wrong.into_iter().unzip();
+        return refused(Verdict::InvalidInput {
+            inputs,
+            reasons,
+            entries: faults,
+        });
+    }
+    // more entries than the step's limit, refused whole and never
+    // truncated, once the inputs are of their types (ADR-0290 decision 4)
+    if let Some((k, limit)) = over {
+        return refused(Verdict::OverLimit {
+            loop_: format!("each {k}"),
+            bound: limit,
+        });
     }
     let mut ctx = Ctx {
         work: world.clone(),
@@ -1137,6 +1187,7 @@ fn decide_or_stop(
         checking: checking.clone(),
         causes: cause.into_iter().collect(),
         taking: Vec::new(),
+        entry: None,
         merged: Vec::new(),
         wrote: BTreeMap::new(),
         index: Vec::new(),
@@ -1381,6 +1432,114 @@ fn decide_or_stop(
     ))
 }
 
+/// A list an each takes, as a request gives it (ADR-0290).
+pub(crate) enum EntriesRead {
+    /// `null`: not supplied, the empty list.
+    Absent,
+    /// The entries, each the fields it gives, as `Value::Entries`.
+    Read(Value),
+    /// Not a list, its reason alone; or entries at fault, the first fault's
+    /// reason and each fault, by entry and then by field.
+    Wrong(InputReason, Vec<EntryFault>),
+    /// More entries than the step's limit, read no further.
+    Over,
+}
+
+/// The entries of a list an each takes, each read as its target's inputs
+/// the step does not name, as `flowrun.py`'s `entries_value` (ADR-0290
+/// decision 2): a field no input of the target, one not of its type, one
+/// required and left out, a reference naming no object of its type, where
+/// `world` is read for it, and a text marked `not_blank` empty once trimmed,
+/// are each its entry's fault; an entry that is no object is one with no
+/// field. A list of more entries than the limit is read no further.
+pub(crate) fn read_entries(
+    raw: &Json,
+    e: &crate::model::Entries,
+    world: &World<'_>,
+    objects: bool,
+) -> Result<EntriesRead, NotRun> {
+    let lib = world.lib;
+    let items = match raw {
+        Json::Null => return Ok(EntriesRead::Absent),
+        Json::Array(items) => items,
+        _ => return Ok(EntriesRead::Wrong(InputReason::WrongType, Vec::new())),
+    };
+    if i64::try_from(items.len()).unwrap_or(i64::MAX) > e.limit {
+        return Ok(EntriesRead::Over);
+    }
+    let mut out = Vec::new();
+    let mut faults = Vec::new();
+    for (n, item) in items.iter().enumerate() {
+        let Json::Object(given) = item else {
+            faults.push(EntryFault {
+                entry: n,
+                input: None,
+                reason: InputReason::WrongType,
+            });
+            continue;
+        };
+        let names: BTreeSet<&String> = given
+            .keys()
+            .chain(e.fields.iter().map(|(f, _)| f))
+            .collect();
+        let mut values = BTreeMap::new();
+        for f in names {
+            let fault = |reason| EntryFault {
+                entry: n,
+                input: Some(f.clone()),
+                reason,
+            };
+            let Some(spec) = e.field(f) else {
+                faults.push(fault(InputReason::UnknownInput));
+                continue;
+            };
+            let v = given.get(f).unwrap_or(&Json::Null);
+            if v.is_null() {
+                if !spec.optional && spec.default.is_none() {
+                    faults.push(fault(InputReason::Missing));
+                }
+                continue;
+            }
+            let held = match wire::decode(v, &spec.declared, spec.many, lib) {
+                Ok(held) => held,
+                Err(why) => {
+                    faults.push(fault(why.1));
+                    continue;
+                }
+            };
+            if let (Declared::Reference(target), true) = (&spec.declared, objects) {
+                let ids: Vec<&Value> = match &held {
+                    Value::Set(items) => items.iter().collect(),
+                    one => vec![one],
+                };
+                let mut fits = true;
+                for i in ids {
+                    fits &= match i {
+                        Value::Object(id) => world.get(id)?.is_some_and(|o| {
+                            target == crate::model::ANY_TYPE || lib.is_a(&o.type_, target)
+                        }),
+                        _ => false,
+                    };
+                }
+                if !fits {
+                    faults.push(fault(InputReason::NoSuchObject));
+                    continue;
+                }
+            }
+            if spec.not_blank && matches!(&held, Value::Text(s) if s.trim().is_empty()) {
+                faults.push(fault(InputReason::Malformed));
+                continue;
+            }
+            values.insert(f.clone(), held);
+        }
+        out.push(values);
+    }
+    Ok(match faults.first() {
+        Some(first) => EntriesRead::Wrong(first.reason, faults),
+        None => EntriesRead::Read(Value::Entries(out)),
+    })
+}
+
 /// Whether a transition takes an input of a name.
 fn takes(t: &Type, x: &Transition, k: &str) -> bool {
     let _ = t;
@@ -1611,6 +1770,9 @@ fn take_unwound(
     mut inputs: BTreeMap<String, Value>,
     depth: usize,
 ) -> Result<String, Stop> {
+    // the entry an each makes this creation for, which its event records,
+    // and no transition it causes (ADR-0290 decision 3)
+    let entry = ctx.entry.take();
     if depth > CALL_DEPTH {
         return stop_not_run(format!(
             "a chain of transitions each caused by the one before, deeper than {CALL_DEPTH} ({tn}.{xn})"
@@ -2748,6 +2910,11 @@ fn take_unwound(
             if !corrections.is_empty() {
                 p["corrected"] = Json::Object(corrections);
             }
+            // the entry an each made it for, counted from 0, by which an
+            // erasure finds the entry in its act's event (ADR-0290 decision 3)
+            if let Some(n) = entry {
+                p["entry"] = json!(n);
+            }
             // an override's reason, by which overrides are counted, and a
             // correction's, unless the reason is personal (flow-format.md
             // §4.8, declaration-syntax.md §6.4)
@@ -3653,6 +3820,10 @@ fn file(
         .filter(|k| !takes(t, x, k))
         .map(|k| (k.clone(), InputReason::UnknownInput))
         .collect();
+    // each entry's faults of a list an each takes, and a list past its limit,
+    // as a request reads them (ADR-0290)
+    let mut faults: Vec<EntryFault> = Vec::new();
+    let mut over: Option<(String, i64)> = None;
     for (k, raw) in &req.inputs {
         if wrong.iter().any(|(w, _)| w == k) {
             continue;
@@ -3660,6 +3831,19 @@ fn file(
         let Some((declared, many, media)) = input_type(t, x, k) else {
             continue;
         };
+        if let Declared::Entries(e) = declared {
+            match read_entries(raw, e, world, true)? {
+                EntriesRead::Absent | EntriesRead::Read(_) => {}
+                EntriesRead::Wrong(reason, at) => {
+                    wrong.push((k.clone(), reason));
+                    faults.extend(at);
+                }
+                EntriesRead::Over => {
+                    over.get_or_insert((k.clone(), e.limit));
+                }
+            }
+            continue;
+        }
         match wire::decode(raw, declared, many, lib) {
             Ok(v) if !media_taken(media, &v) => {
                 wrong.push((k.clone(), InputReason::WrongMediaType));
@@ -3711,7 +3895,18 @@ fn file(
             .map(|(k, _)| (k.clone(), InputReason::Missing)),
     );
     if !wrong.is_empty() {
-        return refused(Verdict::invalid_input(wrong));
+        let (inputs, reasons) = wrong.into_iter().unzip();
+        return refused(Verdict::InvalidInput {
+            inputs,
+            reasons,
+            entries: faults,
+        });
+    }
+    if let Some((k, limit)) = over {
+        return refused(Verdict::OverLimit {
+            loop_: format!("each {k}"),
+            bound: limit,
+        });
     }
     if let Some(occurred) = req.occurred_at {
         let within = x
@@ -5173,6 +5368,48 @@ fn effects(
                         _ => {}
                     }
                     o.attrs.insert(location.clone(), Value::Set(items));
+                }
+            }
+            // one creation for each entry, in the order given, the step's own
+            // inputs, the same for every entry, evaluated once before the
+            // first; an empty list creates nothing and evaluates nothing
+            // (ADR-0290 decisions 1 and 4)
+            Step::Create {
+                type_,
+                transition,
+                inputs: binds,
+                each: Some((name, limit)),
+                ..
+            } => {
+                let given = match inputs.get(name) {
+                    Some(Value::Entries(es)) => es.clone(),
+                    _ => Vec::new(),
+                };
+                if i64::try_from(given.len()).unwrap_or(i64::MAX) > *limit {
+                    return refused(Verdict::OverLimit {
+                        loop_: format!("each {name}"),
+                        bound: *limit,
+                    });
+                }
+                if given.is_empty() {
+                    continue;
+                }
+                let values = arguments(ctx, t, id, inputs, &env, position, binds)?;
+                for (n, entry) in given.into_iter().enumerate() {
+                    let mut taken = values.clone();
+                    taken.extend(entry);
+                    ctx.entry = Some(n);
+                    let made = take(ctx, alloc, type_, transition, None, taken, depth + 1);
+                    ctx.entry = None;
+                    made.map_err(|s| {
+                        entry_refused(
+                            s,
+                            format!("create {type_}.{transition}"),
+                            type_,
+                            None,
+                            Some(n),
+                        )
+                    })?;
                 }
             }
             Step::Create {
@@ -7079,11 +7316,13 @@ fn unmade(v: Verdict, world: &World<'_>) -> Verdict {
             object_id,
             verdict,
             clause,
+            entry,
         } => Verdict::CallRefused {
             step,
             object_id: object_id.filter(|id| world.get(id).ok().flatten().is_some()),
             verdict: Box::new(unmade(*verdict, world)),
             clause,
+            entry,
         },
         other => other,
     }
@@ -7255,11 +7494,36 @@ fn lid_of(v: &Json) -> Option<Result<&str, String>> {
     )
 }
 
+/// Each list an each takes that a request's transition takes, which holds no
+/// local name, and none of whose entries a batch reads as one (ADR-0290
+/// decision 7): the transition of the type named, or of every type with a
+/// transition of its name where no type is known before the batch runs.
+fn entry_lists(lib: &Library, type_: Option<&str>, transition: &str) -> BTreeSet<String> {
+    let lists = |t: &Type| -> Vec<String> {
+        t.transition(transition)
+            .map(|x| {
+                x.inputs
+                    .iter()
+                    .filter(|(_, i)| matches!(i.declared, Declared::Entries(_)))
+                    .map(|(n, _)| n.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    match type_.and_then(|t| lib.type_(t)) {
+        Some(t) => lists(t).into_iter().collect(),
+        None => lib.types.values().flat_map(lists).collect(),
+    }
+}
+
 /// Each local name a request's inputs hold, as a value or as a set's
-/// element, in its inputs' order.
-fn lids_in(req: &Request) -> Result<Vec<&str>, String> {
+/// element, in its inputs' order, but in a list an each takes.
+fn lids_in<'r>(req: &'r Request, lists: &BTreeSet<String>) -> Result<Vec<&'r str>, String> {
     let mut out = Vec::new();
-    for v in req.inputs.values() {
+    for (k, v) in &req.inputs {
+        if lists.contains(k) {
+            continue;
+        }
         let elements = v.as_array().map_or_else(|| vec![v], |a| a.iter().collect());
         for e in elements {
             if let Some(lid) = lid_of(e) {
@@ -7276,7 +7540,7 @@ fn lids_in(req: &Request) -> Result<Vec<&str>, String> {
 /// lid it creates nothing for, as a request acting on an object does; a
 /// name given twice, by a lid or by `creates`, or empty; and names for
 /// another number of requests than the batch's.
-fn names_fault(reqs: &[Request], names: &[LocalNames]) -> Option<BatchFault> {
+fn names_fault(world: &World<'_>, reqs: &[Request], names: &[LocalNames]) -> Option<BatchFault> {
     if !names.is_empty() && names.len() != reqs.len() {
         return Some(BatchFault::Named {
             index: names.len().min(reqs.len()),
@@ -7289,13 +7553,30 @@ fn names_fault(reqs: &[Request], names: &[LocalNames]) -> Option<BatchFault> {
     }
     let none = LocalNames::default();
     let mut given = BTreeSet::new();
+    // the type each local name a creation gives, or an effect's names by
+    // type, which a request on the object it names takes (ADR-0290)
+    let mut typed: BTreeMap<&str, &str> = BTreeMap::new();
     for (index, req) in reqs.iter().enumerate() {
         let n = names.get(index).unwrap_or(&none);
         let fault = |why: String| Some(BatchFault::Named { index, why });
         if n.object_lid.is_some() && req.object_id.is_some() {
             return fault("names its object both by an object_id and by a lid".into());
         }
-        let named = match lids_in(req) {
+        let type_: Option<String> = req
+            .type_
+            .clone()
+            .or_else(|| {
+                req.object_id
+                    .as_ref()
+                    .and_then(|id| world.get(id).ok().flatten().map(|o| o.type_.clone()))
+            })
+            .or_else(|| {
+                n.object_lid
+                    .as_deref()
+                    .and_then(|l| typed.get(l).map(|t| t.to_string()))
+            });
+        let lists = entry_lists(world.lib, type_.as_deref(), &req.transition);
+        let named = match lids_in(req, &lists) {
             Ok(named) => named,
             Err(why) => return fault(why),
         };
@@ -7317,6 +7598,9 @@ fn names_fault(reqs: &[Request], names: &[LocalNames]) -> Option<BatchFault> {
                 return fault(format!(
                     "gives the lid {lid}, but creates nothing: a lid names the object a creation makes"
                 ));
+            }
+            if let Some(t) = req.type_.as_deref() {
+                typed.insert(lid.as_str(), t);
             }
             if !given.insert(lid.as_str()) {
                 return fault(format!(
@@ -7410,7 +7694,12 @@ fn bind_created(
 /// The request as it runs (ADR-0238 decision 3): each local name it holds
 /// replaced by the id of the object the request giving it made, so it is
 /// judged as that id would be.
-fn resolved(req: &Request, n: Option<&LocalNames>, made: &BTreeMap<String, String>) -> Request {
+fn resolved(
+    world: &World<'_>,
+    req: &Request,
+    n: Option<&LocalNames>,
+    made: &BTreeMap<String, String>,
+) -> Request {
     let id = |v: &Json| match lid_of(v) {
         Some(Ok(lid)) => made.get(lid).map_or_else(|| v.clone(), |id| json!(id)),
         _ => v.clone(),
@@ -7419,7 +7708,18 @@ fn resolved(req: &Request, n: Option<&LocalNames>, made: &BTreeMap<String, Strin
     if let Some(lid) = n.and_then(|n| n.object_lid.as_ref()) {
         out.object_id = made.get(lid).cloned();
     }
-    for v in out.inputs.values_mut() {
+    // a list an each takes holds no local name, and none of its entries is
+    // read as one (ADR-0290 decision 7)
+    let type_ = out.type_.clone().or_else(|| {
+        out.object_id
+            .as_ref()
+            .and_then(|o| world.get(o).ok().flatten().map(|o| o.type_.clone()))
+    });
+    let lists = entry_lists(world.lib, type_.as_deref(), &out.transition);
+    for (k, v) in out.inputs.iter_mut() {
+        if lists.contains(k) {
+            continue;
+        }
         *v = match v.as_array() {
             Some(a) => Json::Array(a.iter().map(id).collect()),
             None => id(v),
@@ -7562,7 +7862,11 @@ pub fn batch_named(
     if reqs.len() > BATCH_MOST {
         return Ok(Err(BatchFault::OverLimit { most: BATCH_MOST }));
     }
-    if let Some(fault) = names_fault(reqs, names) {
+    let fault = {
+        let world = store.snapshot()?;
+        names_fault(&world, reqs, names)
+    };
+    if let Some(fault) = fault {
         return Ok(Err(fault));
     }
     let unread = |e: NotRun| crate::store::StoreError(e.to_string());
@@ -7651,7 +7955,11 @@ pub fn check_batch_named(
     if reqs.len() > BATCH_MOST {
         return Ok(Err(BatchFault::OverLimit { most: BATCH_MOST }));
     }
-    if let Some(fault) = names_fault(reqs, names) {
+    let fault = {
+        let world = store.snapshot()?;
+        names_fault(&world, reqs, names)
+    };
+    if let Some(fault) = fault {
         return Ok(Err(fault));
     }
     {
@@ -7691,7 +7999,13 @@ fn run_batch(
     // each lid given, by the id of the object its request made (ADR-0238)
     let mut made = BTreeMap::new();
     for (index, sent) in reqs.iter().enumerate() {
-        let req = &resolved(sent, names.get(index), &made);
+        let req = &match store.snapshot() {
+            Ok(world) => resolved(&world, sent, names.get(index), &made),
+            Err(e) => {
+                let _ = undo(store, None);
+                return Err(e);
+            }
+        };
         // checked again on the state it runs on, the ones before it applied,
         // in the batch's transaction and with the writer held, so a target
         // the check before the batch could not resolve, as one an earlier
@@ -8411,7 +8725,8 @@ types:
                 book(&mut s, given.clone()),
                 Verdict::InvalidInput {
                     inputs: vec!["days".into()],
-                    reasons: vec![reason]
+                    reasons: vec![reason],
+                    entries: vec![]
                 },
                 "{given}"
             );
@@ -8704,7 +9019,7 @@ types:
         let lib = Library::load(&[("notes.yaml".into(), NOTES.into())]).unwrap();
         let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
         let malformed = |v: &Verdict, input: &str| {
-            matches!(v, Verdict::InvalidInput { inputs, reasons }
+            matches!(v, Verdict::InvalidInput { inputs, reasons, .. }
                 if inputs == &[input.to_string()] && reasons == &[InputReason::Malformed])
         };
         let held = |s: &mut Store, id: &str, a: &str| {
@@ -9656,7 +9971,9 @@ types:
             (&mover, false),
             json!({"label": "Box"}),
         ) {
-            Verdict::InvalidInput { inputs, reasons } => {
+            Verdict::InvalidInput {
+                inputs, reasons, ..
+            } => {
                 assert_eq!(inputs, ["to_whom"]);
                 assert_eq!(reasons, [InputReason::Missing]);
             }
@@ -10468,6 +10785,386 @@ types:
             json!({"login": "ben"}),
         ));
         assert_eq!(next, "user-2");
+    }
+
+    /// An order placed with its lines, each entry the rest of a line's
+    /// inputs (issue #102, ADR-0290).
+    const PLACING: &str = r#"
+module: placing
+categories: [live, closed]
+types:
+  Product:
+    attributes:
+      code: { type: string }
+    states:
+      LISTED: { category: live }
+      RETIRED: { category: closed, final: true }
+    transitions:
+      list: { kind: initial, to: LISTED, required_inputs: [code] }
+      retire: { kind: external, from: [LISTED], to: RETIRED }
+  Order:
+    attributes:
+      title: { type: string }
+    states:
+      PLACED: { category: live }
+    transitions:
+      place:
+        kind: initial
+        to: PLACED
+        required_inputs: [title]
+        proposable: true
+        effect:
+          - create: { type: Line, transition: add, inputs: { order: this }, each: lines, limit: 3 }
+  Line:
+    attributes:
+      order: { reference: Order }
+      product: { reference: Product }
+      qty: { type: int }
+      gift: { type: string, optional: true }
+    conditions:
+      product_listed: { expression: product.state == Product.LISTED, remedy: self_serviceable }
+    states:
+      OPEN: { category: live }
+    transitions:
+      add:
+        kind: initial
+        to: OPEN
+        required_inputs: [order, product, qty]
+        optional_inputs: [gift]
+        guards: { product_listed: deny }
+"#;
+
+    fn placing() -> (Store, String, String) {
+        let lib = Library::load(&[("placing.yaml".into(), PLACING.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let listed = created(&req(
+            &mut s,
+            "list",
+            OPERATOR,
+            ("Product", true),
+            json!({"code": "A"}),
+        ));
+        let retired = created(&req(
+            &mut s,
+            "list",
+            OPERATOR,
+            ("Product", true),
+            json!({"code": "B"}),
+        ));
+        req(&mut s, "retire", OPERATOR, (&retired, false), json!({}));
+        (s, listed, retired)
+    }
+
+    /// Each entry makes one object, in the order given, a repeated entry its
+    /// own, by the step's target with the step's inputs and the entry's; the
+    /// act's event records the list as given, and each object's its entry,
+    /// counted from 0; a list left out, or null, is the empty list, which
+    /// makes nothing (ADR-0290 decisions 1 to 5).
+    #[test]
+    fn each_entry_creates_one_object_in_the_order_given() {
+        let (mut s, a, _) = placing();
+        let lines = json!([
+            {"product": a, "qty": 2, "gift": "wrapped"},
+            {"product": a, "qty": 2, "gift": "wrapped"},
+            {"product": a, "qty": 7},
+        ]);
+        let v = req(
+            &mut s,
+            "place",
+            OPERATOR,
+            ("Order", true),
+            json!({"title": "First", "lines": lines}),
+        );
+        let Verdict::Satisfied {
+            object_id: order,
+            created,
+            ..
+        } = v
+        else {
+            panic!("{v:?}")
+        };
+        assert_eq!(created.len(), 4, "{created:?}");
+        assert_eq!(created[0], order);
+        let w = s.snapshot().unwrap();
+        for (n, id) in created[1..].iter().enumerate() {
+            let l = w.whole(id).unwrap().unwrap();
+            assert_eq!(l.type_, "Line");
+            assert_eq!(l.attr("order"), Value::Object(order.clone()));
+            assert_eq!(l.attr("product"), Value::Object(a.clone()));
+            assert_eq!(l.attr("qty"), Value::Int(if n == 2 { 7 } else { 2 }));
+            assert_eq!(
+                l.attr("gift"),
+                if n == 2 {
+                    Value::Absent
+                } else {
+                    Value::Text("wrapped".into())
+                }
+            );
+            let made = s.history(id).unwrap();
+            assert_eq!(made[0].payload["entry"], json!(n), "{made:?}");
+            assert_eq!(made[0].payload["inputs"]["order"], json!(order));
+        }
+        let placed = s.history(&order).unwrap();
+        assert_eq!(placed[0].payload["inputs"]["lines"], lines);
+        assert!(placed[0].payload.get("entry").is_none());
+        // left out, and null: the empty list, recorded so, nothing made
+        for given in [
+            json!({"title": "Bare"}),
+            json!({"title": "Null", "lines": null}),
+        ] {
+            let Verdict::Satisfied {
+                object_id, created, ..
+            } = req(&mut s, "place", OPERATOR, ("Order", true), given.clone())
+            else {
+                panic!("{given}")
+            };
+            assert_eq!(created, std::slice::from_ref(&object_id), "{given}");
+            assert_eq!(
+                s.history(&object_id).unwrap()[0].payload["inputs"]["lines"],
+                json!([])
+            );
+        }
+    }
+
+    /// A request refused leaves the store as it was, every row and counter,
+    /// one attempt row added: more entries than the limit, refused
+    /// `over_limit` before any rule runs, at the limit applied; an entry at
+    /// fault, refused `invalid_input` naming each fault by entry and field;
+    /// and a creation refused at any entry, the last among them, refused
+    /// `call_refused` naming the entry, none of the entries before it kept
+    /// (PRD F2, ADR-0290 decisions 4 and 6).
+    #[test]
+    fn a_request_refused_at_any_entry_leaves_the_store_as_it_was() {
+        let (mut s, a, b) = placing();
+        let line = |p: &str| json!({"product": p, "qty": 1});
+        let refused = |s: &mut Store, lines: Json| -> Verdict {
+            let before = rows(s);
+            let (position, object) = (counter(s, "position"), counter(s, "object"));
+            let logged = attempts(s).len();
+            let v = req(
+                s,
+                "place",
+                OPERATOR,
+                ("Order", true),
+                json!({"title": "T", "lines": lines}),
+            );
+            assert!(!matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+            assert_eq!(rows(s), before, "a row changed: {v:?}");
+            assert_eq!(
+                (counter(s, "position"), counter(s, "object")),
+                (position, object),
+                "{v:?}"
+            );
+            assert_eq!(attempts(s).len(), logged + 1, "{v:?}");
+            v
+        };
+        // one past the limit, whatever the entries hold; at it, applied
+        let over = refused(
+            &mut s,
+            json!([line(&a), line(&a), line(&a), json!({"colour": "red"})]),
+        );
+        assert_eq!(
+            over,
+            Verdict::OverLimit {
+                loop_: "each lines".into(),
+                bound: 3
+            }
+        );
+        assert_eq!(over.remedy(), Some(Remedy::UnreachableFromHere));
+        // decided with the inputs' types, before a required input left out
+        let v = req(
+            &mut s,
+            "place",
+            OPERATOR,
+            ("Order", true),
+            json!({"lines": [line(&a), line(&a), line(&a), line(&a)]}),
+        );
+        assert!(matches!(v, Verdict::OverLimit { .. }), "{v:?}");
+        // another input of the wrong type is found first
+        let v = req(
+            &mut s,
+            "place",
+            OPERATOR,
+            ("Order", true),
+            json!({"title": 5, "lines": [line(&a), line(&a), line(&a), line(&a)]}),
+        );
+        assert!(
+            matches!(&v, Verdict::InvalidInput { inputs, .. } if inputs == &["title"]),
+            "{v:?}"
+        );
+        assert!(matches!(
+            req(&mut s, "place", OPERATOR, ("Order", true), json!({"title": "Full", "lines": [line(&a), line(&a), line(&a)]})),
+            Verdict::Satisfied { created, .. } if created.len() == 4
+        ));
+        // entries at fault, each by entry and then by field, the list named
+        // with the first fault's reason
+        let fault = |entry: usize, input: Option<&str>, reason| EntryFault {
+            entry,
+            input: input.map(str::to_string),
+            reason,
+        };
+        assert_eq!(
+            refused(
+                &mut s,
+                json!([
+                    {"product": a, "qty": 1, "colour": "red"},
+                    "a line",
+                    {"product": "product-99", "qty": "two"},
+                ])
+            ),
+            Verdict::InvalidInput {
+                inputs: vec!["lines".into()],
+                reasons: vec![InputReason::UnknownInput],
+                entries: vec![
+                    fault(0, Some("colour"), InputReason::UnknownInput),
+                    fault(1, None, InputReason::WrongType),
+                    fault(2, Some("product"), InputReason::NoSuchObject),
+                    fault(2, Some("qty"), InputReason::Malformed),
+                ],
+            }
+        );
+        assert_eq!(
+            refused(&mut s, json!([{"product": a}])),
+            Verdict::InvalidInput {
+                inputs: vec!["lines".into()],
+                reasons: vec![InputReason::Missing],
+                entries: vec![fault(0, Some("qty"), InputReason::Missing)],
+            }
+        );
+        assert_eq!(
+            refused(&mut s, json!({"product": a, "qty": 1})),
+            Verdict::invalid_input([("lines".to_string(), InputReason::WrongType)])
+        );
+        // a creation refused at the first, the middle or the last entry
+        for k in 0..3 {
+            let lines: Vec<Json> = (0..3).map(|i| line(if i == k { &b } else { &a })).collect();
+            let v = refused(&mut s, json!(lines));
+            let Verdict::CallRefused {
+                step,
+                object_id,
+                clause,
+                entry,
+                verdict,
+            } = &v
+            else {
+                panic!("{v:?}")
+            };
+            assert_eq!(step, "create Line.add");
+            assert_eq!((object_id, entry), (&None, &Some(k)));
+            assert_eq!(clause.as_deref(), Some("Line.product_listed"));
+            assert!(matches!(**verdict, Verdict::Unsatisfied { .. }), "{v:?}");
+        }
+    }
+
+    /// A batch reads no local name in a list an each takes: an entry's field
+    /// naming one is no reference, refused as its field's type, and an entry
+    /// shaped as one, of a name no request gives, is no local name the batch
+    /// refuses before running, but an entry refused as one (ADR-0290 decision
+    /// 7).
+    #[test]
+    fn a_batch_reads_no_local_name_in_an_entry() {
+        let (mut s, _, _) = placing();
+        let fault = |input: &str, reason| EntryFault {
+            entry: 0,
+            input: Some(input.to_string()),
+            reason,
+        };
+        for (lines, faults) in [
+            (
+                json!([{"product": {"lid": "p"}, "qty": 1}]),
+                vec![fault("product", InputReason::WrongType)],
+            ),
+            (
+                json!([{"lid": "never_given"}]),
+                vec![
+                    fault("lid", InputReason::UnknownInput),
+                    fault("product", InputReason::Missing),
+                    fault("qty", InputReason::Missing),
+                ],
+            ),
+            // of a name the batch gives, read as an entry still
+            (
+                json!([{"lid": "p"}]),
+                vec![
+                    fault("lid", InputReason::UnknownInput),
+                    fault("product", InputReason::Missing),
+                    fault("qty", InputReason::Missing),
+                ],
+            ),
+        ] {
+            let reqs = [
+                asked("list", ("Product", true), json!({"code": "C"})),
+                asked(
+                    "place",
+                    ("Order", true),
+                    json!({"title": "T", "lines": lines}),
+                ),
+            ];
+            let named = [gives("p"), LocalNames::default()];
+            let before = rows(&s);
+            let Batched::Refused { index, answer } =
+                batch_named(&mut s, &reqs, &named, None).unwrap().unwrap()
+            else {
+                panic!("{lines}: applied")
+            };
+            assert_eq!(index, 1, "{lines}");
+            let (v, _) = (*answer).unwrap();
+            let Verdict::InvalidInput {
+                inputs, entries, ..
+            } = v
+            else {
+                panic!("{lines}: {v:?}")
+            };
+            assert_eq!(
+                (inputs, entries),
+                (vec!["lines".to_string()], faults),
+                "{lines}"
+            );
+            assert_eq!(rows(&s), before, "{lines}");
+        }
+    }
+
+    /// A proposal's list is filed as a request reads it: an entry at fault
+    /// refused naming it, more entries than the limit refused, and a list
+    /// that fits filed (ADR-0290 decisions 4 and 6, `DESIGN.md` §9).
+    #[test]
+    fn a_proposals_list_is_filed_as_a_request_reads_it() {
+        let (mut s, a, _) = placing();
+        let propose = |s: &mut Store, lines: Json| -> Verdict {
+            let r = Request {
+                propose: true,
+                ..asked(
+                    "place",
+                    ("Order", true),
+                    json!({"title": "Asked", "lines": lines}),
+                )
+            };
+            request(s, &r).unwrap().unwrap()
+        };
+        let line = json!({"product": a, "qty": 1});
+        assert_eq!(
+            propose(&mut s, json!([{"product": a}])),
+            Verdict::InvalidInput {
+                inputs: vec!["lines".into()],
+                reasons: vec![InputReason::Missing],
+                entries: vec![EntryFault {
+                    entry: 0,
+                    input: Some("qty".into()),
+                    reason: InputReason::Missing,
+                }],
+            }
+        );
+        assert_eq!(
+            propose(&mut s, json!([line, line, line, line])),
+            Verdict::OverLimit {
+                loop_: "each lines".into(),
+                bound: 3
+            }
+        );
+        assert!(matches!(
+            propose(&mut s, json!([line])),
+            Verdict::Satisfied { .. }
+        ));
     }
 
     const ORDERS: &str = r#"
@@ -14962,7 +15659,9 @@ types:
 
     fn reasons(v: &Verdict) -> Vec<(String, InputReason)> {
         match v {
-            Verdict::InvalidInput { inputs, reasons } => inputs
+            Verdict::InvalidInput {
+                inputs, reasons, ..
+            } => inputs
                 .iter()
                 .cloned()
                 .zip(reasons.iter().copied())

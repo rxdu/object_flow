@@ -95,6 +95,16 @@ pub enum InputReason {
     NotAllowed,
 }
 
+/// One fault of an entry of a list an each takes, beside the list
+/// `invalid_input` names (ADR-0290 decision 6): the entry, counted from 0,
+/// the field at fault, none where the entry is no object, and why.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EntryFault {
+    pub entry: usize,
+    pub input: Option<String>,
+    pub reason: InputReason,
+}
+
 impl InputReason {
     /// Its name on the wire.
     pub fn as_str(self) -> &'static str {
@@ -158,10 +168,14 @@ pub enum Verdict {
         remedy: Option<Remedy>,
     },
     /// Each input at fault, and why, `reasons[i]` being `inputs[i]`'s;
-    /// built by `Verdict::invalid_input`, which keeps them in step.
+    /// built by `Verdict::invalid_input`, which keeps them in step. A list an
+    /// each takes, at fault in its entries, is named with the first fault's
+    /// reason, and each fault is in `entries`, by entry and then by field
+    /// (ADR-0290 decision 6).
     InvalidInput {
         inputs: Vec<String>,
         reasons: Vec<InputReason>,
+        entries: Vec<EntryFault>,
     },
     /// A proposal of a transition not marked proposable (ADR-0173).
     NotProposable,
@@ -185,6 +199,9 @@ pub enum Verdict {
         /// Its clause, qualified by the type it targeted, as an expectation
         /// names it (`flow-format.md` §11.4).
         clause: Option<String>,
+        /// The entry, counted from 0, a creation an each made was for; none
+        /// for any other call or creation (ADR-0290 decision 6).
+        entry: Option<usize>,
     },
     /// A loop or a cascade would take more than its declared limit.
     OverLimit {
@@ -230,7 +247,11 @@ impl Verdict {
         I: IntoIterator<Item = (String, InputReason)>,
     {
         let (inputs, reasons) = pairs.into_iter().unzip();
-        Verdict::InvalidInput { inputs, reasons }
+        Verdict::InvalidInput {
+            inputs,
+            reasons,
+            entries: Vec::new(),
+        }
     }
 
     /// Its remedy class (`DESIGN.md` §5.5): every refusal has one.

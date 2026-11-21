@@ -502,8 +502,25 @@ class Sandbox:
         x = (t.get("transitions") or {}).get(xn) or {}
         specs = dict(t.get("attributes") or {})
         specs.update(x.get("inputs") or {})
-        return {k: values.decode_input(v, specs.get(k), self.runner.enums)
+        lists = x.get(flowrun.ENTRIES) or {}
+        return {k: self.entries_input(v, lists[k]) if k in lists else
+                values.decode_input(v, specs.get(k), self.runner.enums)
                 for k, v in (given or {}).items()}
+
+    def entries_input(self, v: Any, e: dict) -> Any:
+        """A list an each takes from the wire: each entry an object of its
+        fields, each read as its input's type, as `inputs` reads an input;
+        one that is no list, or an entry that is no object, the runner
+        refuses `wrong_type` (ADR-0290)."""
+        if v is None:
+            return None
+        if not isinstance(v, list):
+            return flowrun.WrongKind(v)
+        return [{f: values.decode_input(x, e["fields"].get(f),
+                                        self.runner.enums)
+                 for f, x in entry.items()}
+                if isinstance(entry, dict) else flowrun.WrongKind(entry)
+                for entry in v]
 
     def proposal(self, body: dict, actor: str) -> dict:
         """Filing a request as a proposal, and the built-in proposal's own
@@ -1291,6 +1308,9 @@ class Sandbox:
             if "proposable" in called:
                 called["proposable"] = False
             out.update(step=r.step, object_id=r.object_id, verdict=called)
+            # the entry a creation an each made was for (ADR-0290)
+            if r.entry is not None:
+                out["entry"] = r.entry
             if "not_computed" in called:
                 out["not_computed"] = list(called["not_computed"])
         elif v == "stale":
@@ -1312,12 +1332,19 @@ class Sandbox:
             out["inputs"] = list(r.inputs)
             # why each is at fault (ADR-0173 decision 9)
             out["reasons"] = dict(zip(r.inputs, r.reasons or []))
+            # each fault of an entry of a list an each takes (ADR-0290)
+            if r.entries:
+                out["entries"] = [{"entry": n, "input": f, "reason": why}
+                                  for n, f, why in r.entries]
         elif v == "invalid_input":
             out.update(inputs=[], not_computed=["inputs"])
         elif v == "not_requestable":
             parents = r.parents or (x or {}).get("only_via") or []
             out["parents"] = list(parents) if isinstance(parents, list) \
                 else [parents]
+        elif v == "over_limit" and r.loop is not None:
+            # a list an each takes past its limit (ADR-0290)
+            out.update(loop=r.loop, bound=r.bound)
         elif v == "over_limit":
             out["not_computed"] = ["loop", "bound"]
         return out

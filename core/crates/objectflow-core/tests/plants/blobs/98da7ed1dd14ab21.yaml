@@ -1,0 +1,17 @@
+examples_for: orders
+setups:
+  products:
+    description: A product.
+    steps:
+      - request: { type: Product, transition: list, as: a, inputs: { code: A } }
+examples:
+  no_line_evaluates_nothing:
+    description: The empty list evaluates none of the step's inputs.
+    given: products
+    request: { type: Order, transition: place, inputs: { title: Bare } }
+    expect: { verdict: applied, state: PLACED, cascaded: [] }
+  a_line_evaluates_the_steps_inputs:
+    description: A line given evaluates the step's inputs, here a division by zero.
+    given: products
+    request: { type: Order, transition: place, inputs: { title: One, lines: [ { product: a, qty: 1 } ] } }
+    expect: { verdict: unsatisfied, clause: value_in_range, remedy: unreachable_from_here }

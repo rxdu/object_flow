@@ -138,7 +138,8 @@ class Refused(Exception):
     refusal (library-api.md §4), which the Flow Studio's server reports (ADR-0150)."""
 
     def __init__(self, verdict, clause=None, remedy=None, detail="", object_id=None, object_type=None, step=None,
-                 inner=None, unknown=False, inputs=None, parents=None, reasons=None, objects=None, failures=None):
+                 inner=None, unknown=False, inputs=None, parents=None, reasons=None, objects=None, failures=None,
+                 entries=None, entry=None, loop=None, bound=None):
         super().__init__(f"{verdict} {clause or ''} {remedy or ''} {detail}".strip())
         self.verdict, self.clause, self.remedy, self.detail = verdict, clause, remedy, detail
         self.object_id, self.object_type, self.step, self.inner = object_id, object_type, step, inner
@@ -149,6 +150,10 @@ class Refused(Exception):
         # the objects the remedy points at, in ascending id order, and an invariant violation's every failure as
         # (object, type, invariant, remedy) (DESIGN.md §5.5, library-api.md §4)
         self.objects, self.failures = list(objects or ()), failures
+        # an `invalid_input`'s fault in each entry of a list an each takes, as (entry, input, reason); a refused
+        # call's entry, where the creation was one an each made for it; and an `over_limit` of an each's list, its
+        # loop and bound (ADR-0290)
+        self.entries, self.entry, self.loop, self.bound = entries, entry, loop, bound
 
 
 class OutOfRange(Refused):
@@ -2555,6 +2560,49 @@ class Runner:
             return int(v)   # an integer past 2^53, which the wire carries as a string (wire.md), held as the integer
         return v
 
+    def entries_value(self, store, e, given, aliases):
+        """The entries of a list an each takes, each read as its target's inputs the step does not name, as the core's
+        `read_entries` (ADR-0290): the entries, each a mapping of the fields given, and each fault as (entry, input,
+        reason), by entry and then by input: a field no input of the target, one not of its type, one required and
+        left out, a reference naming no object of its type, a text marked not_blank empty once trimmed; an entry that
+        is no mapping is (entry, None, wrong_type)."""
+        out, faults = [], []
+        fields = e["fields"]
+        for n, entry in enumerate(given):
+            if isinstance(entry, WrongKind) or not isinstance(entry, dict):
+                faults.append((n, None, "wrong_type"))
+                continue
+            values = {}
+            for f in sorted(set(entry) | set(fields)):
+                v = entry.get(f)
+                if f not in fields:
+                    faults.append((n, f, "unknown_input"))
+                    continue
+                spec = fields[f]
+                if v is None:
+                    if not spec.get("optional") and "default" not in spec:
+                        faults.append((n, f, "missing"))
+                    continue
+                why = input_fault(spec, v, self.enums, self.kinds)
+                if why:
+                    faults.append((n, f, why))
+                    continue
+                if "reference" in spec:
+                    want = spec["reference"].rstrip("[]")
+                    if not all(a in aliases and aliases[a] in store.objects
+                               and (want == ANY_TYPE or store.is_a(store.type_of(aliases[a]), want))
+                               for a in (v if isinstance(v, (list, tuple)) else [v])):
+                        faults.append((n, f, "no_such_object"))
+                        continue
+                value = self.value_of(store, spec, v, aliases)
+                if blank_fault(spec, value):
+                    faults.append((n, f, "malformed"))
+                    continue
+                if value is not ABSENT:
+                    values[f] = value
+            out.append(values)
+        return tuple(out), faults
+
     def owner_end(self, spec):
         """Whether a reference is a part's end back to its whole: its opposite is a composite end."""
         if not spec or "reference" not in spec:
@@ -2616,13 +2664,14 @@ class Runner:
         inputs = {}
         attrs = t.get("attributes") or {}
         declared = x.get("inputs") or {}
-        taken = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared)
+        lists = x.get(ENTRIES) or {}
+        taken = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared) | set(lists)
         own = x["kind"] == "assertion" and {"to", "admits"} or set()
         # the inputs it does not take, every one, then every one not of its type, by name, as the core orders them
         unknown = [(k, "unknown_input") for k in sorted(raw_inputs or {}) if k not in taken and k not in own]
         if unknown:
             raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in unknown], reasons=[w for _, w in unknown])
-        wrong = []
+        wrong, faults, over = [], [], None
         for k in sorted(raw_inputs or {}):
             v = raw_inputs[k]
             if k in own:
@@ -2630,6 +2679,23 @@ class Runner:
                     inputs[k] = tuple(v) if k == "admits" else v      # a state, and invariants, by name (§4.13)
                 else:
                     wrong.append((k, "wrong_type"))
+                continue
+            # a list an each takes: an array of entries, no more than its limit, each entry its target's inputs, its
+            # faults named entry by entry; null is not supplied, the empty list (ADR-0290)
+            if k in lists:
+                if v is None:
+                    continue
+                if isinstance(v, WrongKind) or not isinstance(v, (list, tuple)):
+                    wrong.append((k, "wrong_type"))
+                elif len(v) > (lists[k]["limit"] or 0):
+                    over = over or (k, lists[k]["limit"])
+                else:
+                    got, why = self.entries_value(work, lists[k], v, aliases)
+                    if why:
+                        wrong.append((k, why[0][2]))
+                        faults += why
+                    else:
+                        inputs[k] = got
                 continue
             spec = declared.get(k) if k in declared else attrs.get(k)
             # a null is not supplied (ADR-0122 decision 10), as the core decodes it, but where the transition lists the
@@ -2649,7 +2715,13 @@ class Runner:
             if value is not ABSENT:
                 inputs[k] = value
         if wrong:
-            raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in wrong], reasons=[w for _, w in wrong])
+            raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in wrong], reasons=[w for _, w in wrong],
+                          entries=faults or None)
+        # more entries than the step's limit, refused whole and never truncated, once the inputs are of their types
+        # (ADR-0290 decision 4)
+        if over:
+            raise Refused("over_limit", remedy="unreachable_from_here", loop=f"each {over[0]}", bound=over[1],
+                          detail=f"the list {over[0]} holds more entries than its limit of {over[1]}")
         try:
             root = self.take(ctx, tn, xn, oid, inputs, depth=0)
             self.clear_intervals(ctx)
@@ -2773,6 +2845,9 @@ class Runner:
             return spec.get("reference") or str(spec.get("type", ""))
         out = {k: typed(attrs.get(k)) for k in x.get("required_inputs", []) + x.get("optional_inputs", []) if k not in leave}
         out.update({k: typed(spec) for k, spec in (x.get("inputs") or {}).items()})
+        # a list an each takes, typed by the transition each entry creates by, whose fields `declaration` gives
+        # (ADR-0290 decision 5)
+        out.update({k: f"entries({e['target']})" for k, e in (x.get(ENTRIES) or {}).items()})
         if x["kind"] == "assertion":
             out.update({"to": "state", "admits": "invariant[]"})
         return out
@@ -2976,7 +3051,8 @@ class Runner:
             raise Refused("unknown_transition", remedy="self_serviceable")
         attrs = t.get("attributes") or {}
         declared = x.get("inputs") or {}
-        taken = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared)
+        lists = x.get(ENTRIES) or {}
+        taken = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared) | set(lists)
         if depth:
             self.check_state(work, x, oid)
             unknown = [(k, "unknown_input") for k in sorted(inputs) if k not in taken]
@@ -3380,6 +3456,23 @@ class Runner:
                     o.attrs[spec["location"]] = current + (v,)
                 elif kind == "remove" and v in current:
                     o.attrs[spec["location"]] = tuple(c for c in current if c != v)
+            elif kind == "create" and "each" in spec:
+                # one creation for each entry, in the order given, the step's own inputs, the same for every entry,
+                # evaluated once before the first; an empty list creates nothing and evaluates nothing (ADR-0290). The
+                # entry each records is its event's payload's, which this runner keeps none of
+                given = inputs.get(spec["each"]) or ()
+                if len(given) > (spec.get("limit") or 0):
+                    raise Refused("over_limit", remedy="unreachable_from_here", loop=f"each {spec['each']}",
+                                  bound=spec.get("limit"), detail=f"the list {spec['each']} holds more entries than its limit")
+                if not given:
+                    continue
+                values = arguments(spec)
+                for n, entry in enumerate(given):
+                    try:
+                        self.take(ctx, spec["type"], spec["transition"], None, dict(values, **entry), depth + 1)
+                    except Refused as r:
+                        raise self.call_refused(r, f"create {spec['type']}.{spec['transition']}", spec["type"], None, entry=n)
+                reached = True
             elif kind == "create":
                 values = arguments(spec)
                 try:
@@ -3429,12 +3522,13 @@ class Runner:
         return reached
 
     @staticmethod
-    def call_refused(r, step, target_type, target):
+    def call_refused(r, step, target_type, target, entry=None):
         """A refused call or creation refuses the request, naming the step, the object it targeted and its own
-        refusal (ADR-0122 decision 35); an expectation reads that refusal's clause and remedy."""
+        refusal (ADR-0122 decision 35), and the entry a creation an each made was for (ADR-0290); an expectation reads
+        that refusal's clause and remedy."""
         inner_clause = r.clause if r.verdict == "call_refused" else qualified(r.clause, target_type)
         return Refused("call_refused", inner_clause, r.remedy, detail=f"{step} on {target or 'a new object'}: {r.verdict}",
-                       object_id=target, step=step, inner=r)
+                       object_id=target, step=step, inner=r, entry=entry)
 
     def cascades(self, ctx, t, tn, xn, o, inputs, depth):
         """The parts each composite end drives on this transition, in ascending id order, those already in a
@@ -4519,15 +4613,29 @@ def file_proposal(runner, store, st, aliases):
             raise Refused("not_proposable", remedy="self_serviceable")    # send it as a request instead (ADR-0173)
         # filing checks the inputs as a request would, and leaves the object's state and the guards to approval (ADR-0146)
         attrs, declared = (runner.kinds.get(tn) or {}).get("attributes") or {}, x.get("inputs") or {}
-        taken = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared)
+        lists = x.get(ENTRIES) or {}
+        taken = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared) | set(lists)
         given_inputs = r.get("inputs") or {}
         wrong = [(k, "unknown_input") for k in sorted(given_inputs) if k not in taken]
+        faults, over = [], None
         for k in sorted(given_inputs):
             if k not in taken:
                 continue
             v, spec = given_inputs[k], declared.get(k) if k in declared else attrs.get(k)
             if v is None:
                 continue            # a null is not supplied, or clears a clearable input, as the core files it (ADR-0262)
+            # a list an each takes, read as a request reads it (ADR-0290)
+            if k in lists:
+                if isinstance(v, WrongKind) or not isinstance(v, (list, tuple)):
+                    wrong.append((k, "wrong_type"))
+                elif len(v) > (lists[k]["limit"] or 0):
+                    over = over or (k, lists[k]["limit"])
+                else:
+                    _got, why = runner.entries_value(store, lists[k], v, aliases)
+                    if why:
+                        wrong.append((k, why[0][2]))
+                        faults += why
+                continue
             why = input_fault(spec, v, runner.enums, runner.kinds) or media_fault(spec, v) or blank_fault(spec, v)
             if why is None and "reference" in (spec or {}) and not all(
                     a in aliases and store.is_a(store.type_of(aliases[a]), spec["reference"].rstrip("[]"))
@@ -4541,7 +4649,11 @@ def file_proposal(runner, store, st, aliases):
         wrong += [(k, "missing") for k, sp in declared.items() if k not in given and not (sp or {}).get("optional")
                   and "default" not in (sp or {})]
         if wrong:
-            raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in wrong], reasons=[w for _, w in wrong])   # as a request would (ADR-0147)
+            raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in wrong], reasons=[w for _, w in wrong],
+                          entries=faults or None)   # as a request would (ADR-0147)
+        if over:
+            raise Refused("over_limit", remedy="unreachable_from_here", loop=f"each {over[0]}", bound=over[1],
+                          detail=f"the list {over[0]} holds more entries than its limit of {over[1]}")
         # a proposal keeps the occurred time the request gives, held to the bound when it is filed, since that is when
         # the store was told; the check against the current interval runs at approval (ADR-0147)
         occurred = runner.value_of(store, {"type": "timestamp"}, r["occurred_at"], aliases) if "occurred_at" in r else None
