@@ -6067,6 +6067,7 @@ fn follows(
         return Ok(());
     };
     let target = Value::Object(id.to_string());
+    let on_erasure = t.transition(xn).is_some_and(|x| x.kind == Kind::Erasure);
     for f in clauses {
         let Some((ft, clause)) = lib.type_(&f.type_).and_then(|ft| {
             ft.attribute(&f.reference)
@@ -6075,6 +6076,20 @@ fn follows(
         }) else {
             continue;
         };
+        // a follow naming an erasure, which both checkers refuse and only a
+        // library loaded without them holds, is not run: no erasure taken,
+        // nor followers driven inside one, that no request asked for
+        // (ADR-0292 decision 4; the integrity review's finding 4)
+        if on_erasure
+            || ft
+                .transition(&clause.transition)
+                .is_some_and(|x| x.kind == Kind::Erasure)
+        {
+            return stop_not_run(format!(
+                "a follow naming an erasure ({}.{} following {}.{xn})",
+                f.type_, clause.transition, t.name
+            ));
+        }
         let mut driven: Vec<(i64, String)> = Vec::new();
         for o in ctx.work.with_key(
             &f.type_,
@@ -23052,5 +23067,99 @@ types:
         let (slot, _, _) = cancelled_with_copies(&mut s, "moving");
         erase(&mut s, &slot);
         assert_eq!(recorded(&s, &slot, "cancel"), json!({"why": null}));
+    }
+
+    /// A follow naming an erasure, which both checkers refuse at step 3, is
+    /// not run in a library loaded without them: a follow taking an erasure
+    /// stops its trigger's request, as does a follow on one, and nothing is
+    /// erased or driven that no request asked for (ADR-0292 decision 4; the
+    /// integrity review's finding 4). On both backends.
+    #[test]
+    fn a_follow_naming_an_erasure_is_not_run() {
+        const ERASING: &str = r#"
+module: erasing
+categories: [live, closed]
+types:
+  Slot:
+    attributes:
+      label: { type: string }
+    states:
+      OPEN: { category: live }
+      SHUT: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label] }
+      cancel: { kind: external, from: [OPEN], to: SHUT }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Hold:
+    attributes:
+      slot: { reference: Slot, follows: [ CLAUSE ] }
+      memo: { type: string, optional: true, personal: true }
+    states:
+      HELD: { category: live }
+      GONE: { category: closed, final: true }
+    transitions:
+      take: { kind: initial, to: HELD, required_inputs: [slot], optional_inputs: [memo] }
+      release: { kind: external, from: [HELD], to: GONE }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"#;
+        for (clause, xn, inputs) in [
+            (
+                "{ on: [cancel], transition: forget, inputs: { reason: '\"cancelled\"' }, limit: 5 }",
+                "cancel",
+                json!({}),
+            ),
+            (
+                "{ on: [forget], transition: release, limit: 5 }",
+                "forget",
+                json!({"reason": "asked"}),
+            ),
+        ] {
+            let text = ERASING.replace("CLAUSE", clause);
+            assert_ne!(text, ERASING);
+            let lib = Library::load(&[("erasing.yaml".into(), text)]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let slot = created(&req(
+                &mut s,
+                "open",
+                OPERATOR,
+                ("Slot", true),
+                json!({"label": "A"}),
+            ));
+            let hold = created(&req(
+                &mut s,
+                "take",
+                OPERATOR,
+                ("Hold", true),
+                json!({"slot": slot, "memo": "kept"}),
+            ));
+            let r = Request {
+                transition: xn.into(),
+                actor: OPERATOR.into(),
+                object_id: Some(slot.clone()),
+                type_: None,
+                inputs: inputs
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+                occurred_at: None,
+                propose: false,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            let v = request(&mut s, &r).unwrap();
+            assert!(matches!(v, Err(NoVerdict::NotRun(_))), "{xn}: {v:?}");
+            assert_eq!(
+                held_as(&s, &hold, "memo"),
+                ("HELD".to_string(), Value::Text("kept".into())),
+                "{xn}"
+            );
+            assert_eq!(held_as(&s, &slot, "label").0, "OPEN", "{xn}");
+        }
     }
 }

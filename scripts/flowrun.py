@@ -3646,7 +3646,14 @@ class Runner:
         final state passed over and not counted; each driven as a cascade's part is, its clause's inputs read over
         it, `inputs.<name>` the triggering transition's (decisions 2, 6 and 7)."""
         work = ctx.work
+        on_erasure = (((self.kinds.get(tn) or {}).get("transitions") or {}).get(xn) or {}).get("kind") == "erasure"
         for fn, an, clause in self.followed(tn, xn):
+            # a follow naming an erasure, which both checkers refuse and only a library loaded without them holds, is
+            # not run: no erasure taken, nor followers driven inside one, that no request asked for (ADR-0292
+            # decision 4; the integrity review's finding 4)
+            taken = (((self.kinds.get(fn) or {}).get("transitions") or {}).get(clause.get("transition")) or {})
+            if on_erasure or taken.get("kind") == "erasure":
+                raise NotRunnable(f"a follow naming an erasure ({fn}.{clause.get('transition')} following {tn}.{xn})")
             driven = [x.id for x in sorted(work.objects.values(), key=lambda x: x.id_order)
                       if x.id != o.id and work.is_a(x.type, fn) and x.attrs.get(an) == o.id and not work.final(x)]
             if not driven:
@@ -5439,6 +5446,36 @@ def self_test():
     r, s, order, _ = fresh(1, cascade_too=True)
     check("an effect's creation before the cascade to parts", r.attempt(s, "Order", "tangle", order, OPERATOR, {}, {}, {})[3],
           ["Line.add", "Line.void", "Line.void"])
+    # a follow naming an erasure, which both checkers refuse at step 3, is not run in a library loaded without them:
+    # nothing erased or driven that no request asked for (ADR-0292 decision 4; the integrity review's finding 4)
+    def following(clause):
+        return {"Operator": kinds["Operator"],
+                "Slot": {"attributes": {"label": {"type": "string"}},
+                         "states": {"OPEN": {"category": "live"}, "SHUT": {"category": "closed", "final": True}},
+                         "transitions": {"open": {"kind": "initial", "to": "OPEN", "required_inputs": ["label"]},
+                                         "cancel": {"kind": "external", "from": ["OPEN"], "to": "SHUT"},
+                                         "forget": {"kind": "erasure", "inputs": {"reason": {"type": "string"}}}}},
+                "Hold": {"attributes": {"slot": {"reference": "Slot", "follows": [clause]},
+                                        "memo": {"type": "string", "optional": True, "personal": True}},
+                         "states": {"HELD": {"category": "live"}, "GONE": {"category": "closed", "final": True}},
+                         "transitions": {"take": {"kind": "initial", "to": "HELD", "required_inputs": ["slot"],
+                                                  "optional_inputs": ["memo"]},
+                                         "release": {"kind": "external", "from": ["HELD"], "to": "GONE"},
+                                         "forget": {"kind": "erasure", "inputs": {"reason": {"type": "string"}}}}}}
+    for clause, xn, given in (({"on": ["cancel"], "transition": "forget", "inputs": {"reason": '"cancelled"'}, "limit": 5},
+                               "cancel", {}),
+                              ({"on": ["forget"], "transition": "release", "limit": 5}, "forget", {"reason": "asked"})):
+        k = following(clause)
+        r, s = Runner(k, {}), Store(k, {})
+        slot = r.attempt(s, "Slot", "open", None, OPERATOR, {"label": "A"}, {}, {})[1]
+        hold = r.attempt(s, "Hold", "take", None, OPERATOR, {"slot": slot, "memo": "kept"}, {}, {})[1]
+        try:
+            r.attempt(s, "Slot", xn, slot, OPERATOR, given, {}, {})
+            got = "taken"
+        except NotRunnable:
+            got = "not run"
+        check(f"a follow naming an erasure, on {xn}", (got, s.objects[hold].state, s.objects[hold].attrs.get("memo")),
+              ("not run", "HELD", "kept"))
     # a metric read by a transition the request causes counts the log as the request found it (ADR-0084 §6)
     k = copy.deepcopy(kinds)
     k["Line"]["conditions"]["few_packed"] = {"expression": 'metric(Line.transition_counts, transition := "pack") < 2', "remedy": "dependent"}
