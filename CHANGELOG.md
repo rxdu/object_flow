@@ -2,9 +2,9 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
-## 0.32.0, 2026-11-21
+## 0.32.0, 2026-11-22
 
-A release before 1.0.0, as 0.31.0 was (ADR-0214), with a `create` making one object for each entry of a list its act is given (issue #102, ADR-0290, ADR-0291) and `query` ordering by its objects' state (issue #101, ADR-0289). It refuses nothing 0.31.0 accepted. It changes neither the store's own tables nor its built-ins, so its step from 0.31.0 records the release alone.
+A release before 1.0.0, as 0.31.0 was (ADR-0214), with a `create` making one object for each entry of a list its act is given (issue #102, ADR-0290, ADR-0291), `query` ordering by its objects' state (issue #101, ADR-0289), and an object following a transition of the object it refers to (issue #103, ADR-0292, ADR-0293). It fixes three gaps a cascade had before it, each found with the follow: an erasure, an attempt row and a refusal's read set each missed what a cascade's parts were passed or read. It refuses nothing 0.31.0 accepted. It changes neither the store's own tables nor its built-ins, so its step from 0.31.0 records the release alone.
 
 ### Added
 
