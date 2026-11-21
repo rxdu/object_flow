@@ -23766,4 +23766,130 @@ types:
         );
         assert!(!input_personal(&lib, whole, "keep", "why"));
     }
+
+    /// A refused request's `each` list whose field the target transition
+    /// passes, one hop on, into another object's personal attribute is
+    /// withheld whole from its attempt row, named and no value of it kept,
+    /// as an erasure reads such a field (`entry_field_personal`), where the
+    /// list was kept in clear (`DESIGN.md` §8; issue #102). Refused over its
+    /// limit and by a guard alike; and a proposal filed with it exports no
+    /// value of the field, where the text of the inputs it proposed kept the
+    /// list. A list no field of which is personal is kept. On both backends.
+    #[test]
+    fn a_refused_list_whose_field_a_hop_makes_personal_is_withheld() {
+        const LISTED: &str = r#"
+module: listed
+categories: [live, closed]
+types:
+  Contact:
+    attributes:
+      phone: { type: string, optional: true, personal: true }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, optional_inputs: [phone] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Order:
+    attributes:
+      title: { type: string }
+    conditions:
+      titled: { expression: title != "no", remedy: unreachable_from_here }
+    states:
+      PLACED: { category: live }
+    transitions:
+      place:
+        kind: initial
+        to: PLACED
+        required_inputs: [title]
+        proposable: true
+        guards: { titled: deny }
+        effect:
+          - create: { type: Line, transition: add, inputs: { order: this }, each: lines, limit: 2 }
+  Line:
+    attributes:
+      order: { reference: Order }
+      qty: { type: int }
+    states:
+      OPEN: { category: live }
+    transitions:
+      add:
+        kind: initial
+        to: OPEN
+        required_inputs: [order, qty]
+        inputs: { contact: { type: string, optional: true } }
+        effect:
+          - create: { type: Contact, transition: add, inputs: { phone: inputs.contact } }
+"#;
+        let line = json!({"qty": 1, "contact": "555-0100"});
+        let mut failed = Vec::new();
+        for personal in [true, false] {
+            let text = if personal {
+                LISTED.to_string()
+            } else {
+                let open = LISTED.replace("optional: true, personal: true", "optional: true");
+                assert_ne!(open, LISTED);
+                open
+            };
+            let lib = Library::load(&[("listed.yaml".into(), text)]).unwrap();
+            let mut s = Store::sandbox(lib, 0).unwrap();
+            for (how, inputs) in [
+                (
+                    "over its limit",
+                    json!({"title": "T", "lines": [line, line, line]}),
+                ),
+                ("by a guard", json!({"title": "no", "lines": [line]})),
+            ] {
+                let before = s.snapshot().unwrap().attempts().unwrap().len();
+                let refused = req(&mut s, "place", OPERATOR, ("Order", true), inputs);
+                assert!(
+                    matches!(
+                        refused,
+                        Verdict::OverLimit { .. } | Verdict::Unsatisfied { .. }
+                    ),
+                    "{how}: {refused:?}"
+                );
+                let w = s.snapshot().unwrap();
+                let rows = w.attempts().unwrap();
+                assert_eq!(rows.len(), before + 1, "{how}");
+                let row = rows
+                    .iter()
+                    .rfind(|a| a.transition.as_deref() == Some("place"))
+                    .unwrap();
+                let kept = row.request_values["inputs"].get("lines").is_some()
+                    || row.request_values.to_string().contains("555-0100");
+                let named = row.withheld.contains(&"lines".to_string());
+                if personal && (kept || !named) {
+                    failed.push(format!(
+                        "{how}: withheld {:?}, kept {}",
+                        row.withheld, row.request_values
+                    ));
+                }
+                if !personal && (!kept || named) {
+                    failed.push(format!(
+                        "{how}, no field personal: withheld {:?}, kept {}",
+                        row.withheld, row.request_values
+                    ));
+                }
+            }
+            // a proposal filed with the list exports none of the field
+            let filed = Request {
+                propose: true,
+                ..asked(
+                    "place",
+                    ("Order", true),
+                    json!({"title": "T", "lines": [line]}),
+                )
+            };
+            created(&request(&mut s, &filed).unwrap().unwrap());
+            let w = s.snapshot().unwrap();
+            let log = crate::export::export(&w, "log", None)
+                .unwrap()
+                .lines
+                .join("\n");
+            if personal == log.contains("555-0100") {
+                failed.push(format!("filed, personal {personal}: exported {log}"));
+            }
+        }
+        assert!(failed.is_empty(), "{failed:#?}");
+    }
 }

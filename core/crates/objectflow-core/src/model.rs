@@ -2033,7 +2033,8 @@ fn expand_rest(
                         continue;
                     };
                     // a field written into a personal attribute of the target
-                    // is personal too (check 10)
+                    // is personal too (check 10); one the target passes on,
+                    // `Library::load` adds once the library is whole
                     personal |= input.personal || crate::request::personal_by_own(k, y, j);
                     fields.push((j.clone(), input));
                     served.insert(j.clone(), spec);
@@ -3302,6 +3303,38 @@ impl Library {
             }
         }
         lib.followed = followed;
+        // an `each` list is personal where any of its fields is, as an
+        // erasure reads a field (`entry_field_personal`): marked so, the
+        // target's personal attribute, or passed by the target transition,
+        // one hop on, into another object's, which needs the library whole.
+        // So a refused request's attempt row, and every other reader of the
+        // list's marking, withholds the list whole, where one whose field
+        // the target passed on was kept in clear (issue #102)
+        let mut lists = Vec::new();
+        for (tn, t) in &lib.types {
+            for (xn, x) in &t.transitions {
+                for (n, i) in &x.inputs {
+                    if let Declared::Entries(e) = &i.declared
+                        && !i.personal
+                        && e.fields.iter().any(|(f, _)| {
+                            crate::request::entry_field_personal(&lib, x, n, f) == Some(true)
+                        })
+                    {
+                        lists.push((tn.clone(), xn.clone(), n.clone()));
+                    }
+                }
+            }
+        }
+        for (tn, xn, n) in lists {
+            if let Some((_, i)) = lib
+                .types
+                .get_mut(&tn)
+                .and_then(|t| t.transitions.iter_mut().find(|(k, _)| *k == xn))
+                .and_then(|(_, x)| x.inputs.iter_mut().find(|(k, _)| *k == n))
+            {
+                i.personal = true;
+            }
+        }
         Ok(lib)
     }
 
