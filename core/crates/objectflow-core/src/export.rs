@@ -471,7 +471,7 @@ fn event_row(world: &World<'_>, then: &mut TypesThen<'_, '_>, e: &Event) -> Resu
             values.retain(|k, _| {
                 (part == "inputs" && lists.contains(k))
                     || (!personal(world.lib, type_.as_deref(), &transition, k)
-                        && !was.personal(world.lib, part == "inputs", k))
+                        && !was.personal(part == "inputs", k))
             });
         }
     }
@@ -483,8 +483,7 @@ fn event_row(world: &World<'_>, then: &mut TypesThen<'_, '_>, e: &Event) -> Resu
         && let Ok(mut held) = serde_json::from_str::<serde_json::Map<String, Json>>(&text)
     {
         held.retain(|k, _| {
-            !personal(world.lib, type_.as_deref(), &transition, k)
-                && !was.personal(world.lib, true, k)
+            !personal(world.lib, type_.as_deref(), &transition, k) && !was.personal(true, k)
         });
         payload["wrote"]["inputs"] = Json::String(Json::Object(held).to_string());
     }
@@ -577,8 +576,7 @@ fn personal(lib: &Library, type_: Option<&str>, transition: &str, name: &str) ->
         return false;
     };
     t.attribute(name).is_some_and(|a| a.personal)
-        || t.transition(transition)
-            .is_some_and(|x| crate::request::input_personal(lib, t, x, name))
+        || crate::request::input_personal(lib, t, transition, name)
 }
 
 /// What an event's payload held that was personal as the versions it was
@@ -592,6 +590,8 @@ struct WrittenUnder<'l> {
     declared: Option<&'l Type>,
     /// The type as the event's version declared it, and its transition.
     recorded: Option<(&'l Type, &'l crate::model::Transition)>,
+    /// The transition the event recorded, by its name.
+    transition: String,
     /// The installed type's personal attributes, as the version the writes
     /// were declared by named them, where a rename changed the name since.
     renamed: std::collections::BTreeSet<String>,
@@ -628,20 +628,22 @@ impl<'l> WrittenUnder<'l> {
             then_lib: world.library_at(e.declaration_version),
             declared: world.type_at(under, then_under),
             recorded,
+            transition: transition.to_string(),
             renamed,
         }
     }
 
     /// Whether the value named, an input's or a written one's, was personal
     /// when its event was written.
-    fn personal(&self, lib: &Library, input: bool, name: &str) -> bool {
+    fn personal(&self, input: bool, name: &str) -> bool {
         if self.renamed.contains(name) {
             return true;
         }
         if input {
-            self.recorded.is_some_and(|(t, x)| {
+            // the clauses of the event's version, read in its own library
+            self.recorded.is_some_and(|(t, _)| {
                 t.attribute(name).is_some_and(|a| a.personal)
-                    || crate::request::input_personal(lib, t, x, name)
+                    || crate::request::input_personal(self.then_lib, t, &self.transition, name)
             })
         } else {
             self.declared

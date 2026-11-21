@@ -1134,7 +1134,7 @@ struct Personal<'l> {
     anywhere: BTreeSet<String>,
     /// The transition whose guards are judged, and its type, whose inputs
     /// `inputs.<name>` reads: none for a query, whose filter has none.
-    inputs: Option<(&'l Type, &'l Transition)>,
+    inputs: Option<(&'l Type, &'l str, &'l Transition)>,
     /// The inputs of that transition a call, a creation or a cascade of the
     /// request passes a personal value (ADR-0263 decision 1).
     passed: BTreeSet<String>,
@@ -1142,6 +1142,14 @@ struct Personal<'l> {
     /// computes or writes is judged: the request's own inputs are its
     /// caller's, whose refusal tells nothing held (ADR-0264).
     passed_only: bool,
+}
+
+/// A type's transition with its name, each as the library holds it.
+fn named<'l>(t: &'l Type, xn: &str) -> Option<(&'l str, &'l Transition)> {
+    t.transitions
+        .iter()
+        .find(|(n, _)| n == xn)
+        .map(|(n, x)| (n.as_str(), x))
 }
 
 /// The names an expression binds, each to the type its objects are of,
@@ -1195,14 +1203,14 @@ impl<'l> Personal<'l> {
     /// a personal value by a call, a creation or a cascade of the request
     /// (ADR-0263 decision 1).
     fn input(&self, m: &str) -> bool {
-        let Some((t, x)) = self.inputs else {
+        let Some((t, xn, x)) = self.inputs else {
             return self.anywhere.contains(m);
         };
         if self.passed_only {
             return self.passed.contains(m);
         }
         self.passed.contains(m)
-            || crate::request::input_personal(self.lib, t, x, m)
+            || crate::request::input_personal(self.lib, t, xn, m)
             || (self.identities
                 && x.inputs.iter().any(|(n, i)| {
                     n == m && matches!(&i.declared, Declared::Scalar(ty) if ty == "identity")
@@ -1357,7 +1365,7 @@ pub fn transition_reads_personal(lib: &Library, type_: &str, transition: &str) -
         return false;
     };
     let mut personal = Personal::of(lib);
-    let Some(x) = t.transition(transition) else {
+    let Some((xn, x)) = named(t, transition) else {
         // a transition the type does not declare: its type's invariants, as
         // ever, its inputs by name
         return t
@@ -1383,7 +1391,7 @@ pub fn transition_reads_personal(lib: &Library, type_: &str, transition: &str) -
         // each guard a transition taken enforces, its inputs by that
         // transition and by what the request passes them (ADR-0263
         // decision 1)
-        personal.inputs = Some((tt, xx));
+        personal.inputs = named(tt, xn).map(|(n, x)| (tt, n, x));
         personal.passed = passed_to(tn, xn);
         let read = tt
             .conditions
@@ -1433,7 +1441,7 @@ pub fn transition_reads_personal(lib: &Library, type_: &str, transition: &str) -
     // reaches one and does not read its own object alone, which on an object
     // no request writes holds or stands admitted; its inputs by the
     // transition requested
-    personal.inputs = Some((t, x));
+    personal.inputs = Some((t, xn, x));
     personal.passed = passed_to(&t.name, transition);
     // an attribute a creation taken writes from an input the request passes
     // a personal value, which may be absent (decision 4)
@@ -1744,10 +1752,11 @@ fn passed_personal<'l>(
     loop {
         let mut grew = false;
         for (tn, xn) in taken {
-            let Some((t, x)) = lib.type_(tn).and_then(|t| t.transition(xn).map(|x| (t, x))) else {
+            let Some((t, (n, x))) = lib.type_(tn).and_then(|t| named(t, xn).map(|nx| (t, nx)))
+            else {
                 continue;
             };
-            personal.inputs = Some((t, x));
+            personal.inputs = Some((t, n, x));
             personal.passed = passed
                 .get(&(tn.clone(), xn.clone()))
                 .cloned()

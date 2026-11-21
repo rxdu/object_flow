@@ -1219,7 +1219,7 @@ fn decide_or_stop(
     // a caller stayed in the admission (the audit's personal data S29)
     let reason = match lib.type_(&tn).and_then(|t| {
         t.transition(&req.transition)
-            .map(|x| input_personal(lib, t, x, "reason"))
+            .map(|_| input_personal(lib, t, &req.transition, "reason"))
     }) {
         Some(true) => crate::eval::PERSONAL.to_string(),
         _ => inputs.get("reason").map(text_of).unwrap_or_default(),
@@ -2584,7 +2584,7 @@ fn take_unwound(
                         tv.transition(&e.transition),
                         lib,
                         t,
-                        t.transition(&e.transition),
+                        &e.transition,
                         name,
                         &recorded[name],
                     ) {
@@ -2608,7 +2608,12 @@ fn take_unwound(
                     {
                         ctx.redacted_inputs.push((e.position, name.clone()));
                         tainted.insert(name.clone());
-                    } else if input_personal(lib, tv, ex, name) || input_personal(lib, t, ex, name)
+                    } else if input_personal(
+                        ctx.work.library_at(e.declaration_version),
+                        tv,
+                        &e.transition,
+                        name,
+                    ) || input_personal(lib, t, &e.transition, name)
                     {
                         ctx.redacted_inputs.push((e.position, name.clone()));
                     }
@@ -2954,7 +2959,7 @@ fn take_unwound(
             // correction's, unless the reason is personal (flow-format.md
             // §4.8, declaration-syntax.md §6.4)
             if (x.kind == Kind::Assertion || !x.corrects.is_empty())
-                && !input_personal(ctx.work.lib, t, x, "reason")
+                && !input_personal(ctx.work.lib, t, xn, "reason")
                 && let Some(r) = inputs.get("reason")
             {
                 p["reason"] = wire::encode(r);
@@ -3535,9 +3540,8 @@ pub(crate) fn entry_field_personal(
         e.field(field).is_some_and(|f| f.personal)
             || target.is_some_and(|tt| {
                 tt.attribute(field).is_some_and(|a| a.personal)
-                    || tt
-                        .transition(&e.transition)
-                        .is_some_and(|tx| input_personal(lib, tt, tx, field))
+                    || tt.transition(&e.transition).is_some()
+                        && input_personal(lib, tt, &e.transition, field)
             }),
     )
 }
@@ -3559,7 +3563,8 @@ enum EntryRedaction {
 }
 
 /// What an erasure redacts of a value an event recorded under `list`,
-/// judged under the event's version (`then`) and the installed one (`now`):
+/// judged under the event's version (`then`, its transition `then_x`) and
+/// the installed one (`now`, its type's transition named `xn`):
 /// its entries' fields only where the event's own version took `list` as a
 /// list an each takes and the value is an array (ADR-0290 decision 3).
 fn entry_fields_personal(
@@ -3567,10 +3572,11 @@ fn entry_fields_personal(
     then_x: Option<&Transition>,
     now: &Library,
     now_t: &Type,
-    now_x: Option<&Transition>,
+    xn: &str,
     list: &str,
     recorded: &Json,
 ) -> EntryRedaction {
+    let now_x = now_t.transition(xn);
     let takes = |lib: &Library, x: Option<&Transition>| {
         x.is_some_and(|x| entry_field_personal(lib, x, list, "").is_some())
     };
@@ -3579,7 +3585,7 @@ fn entry_fields_personal(
     };
     if !takes(now, now_x)
         && (now_t.attribute(list).is_some_and(|a| a.personal)
-            || now_x.is_some_and(|x| input_personal(now, now_t, x, list)))
+            || (now_x.is_some() && input_personal(now, now_t, xn, list)))
     {
         return EntryRedaction::Whole;
     }
@@ -3600,12 +3606,15 @@ fn entry_fields_personal(
     EntryRedaction::Fields(out)
 }
 
-/// Whether an input is personal (`declaration-syntax.md` §10, check 10):
-/// marked so, or written by the transition's effect into a personal
-/// attribute, which makes it personal without the marking; or passed, one
-/// hop on, into another object's personal attribute by a step of the
-/// effect, a cascade clause on the transition or a follows clause on it.
-pub(crate) fn input_personal(lib: &Library, t: &Type, x: &Transition, name: &str) -> bool {
+/// Whether an input of the transition named is personal
+/// (`declaration-syntax.md` §10, check 10): marked so, or written by the
+/// transition's effect into a personal attribute, which makes it personal
+/// without the marking; or passed, one hop on, into another object's
+/// personal attribute by a step of the effect, a cascade clause on the
+/// transition or a follows clause on it. The transition is read by its
+/// name in `t`, and the clauses in `lib`, which is to be the library `t`
+/// belongs to; one `t` does not declare passes nothing.
+pub(crate) fn input_personal(lib: &Library, t: &Type, xn: &str, name: &str) -> bool {
     // what a create or a call passes it into, one hop on, as `writes_of`
     // reads a step (D547): an argument the taken transition holds personal,
     // where the input was recorded in clear on the caller's event and
@@ -3638,16 +3647,31 @@ pub(crate) fn input_personal(lib: &Library, t: &Type, x: &Transition, name: &str
             return false;
         };
         inputs.iter().any(|(arg, e)| {
-            let mut read = BTreeSet::new();
-            e.inputs_read(&mut read);
-            read.contains(name)
+            reads(e, name)
                 && (tt.attribute(arg).is_some_and(|a| a.personal) || personal_by_own(tt, tx, arg))
         })
     }
+    fn reads(e: &Expr, name: &str) -> bool {
+        let mut read = BTreeSet::new();
+        e.inputs_read(&mut read);
+        read.contains(name)
+    }
+    // a clause's argument, passed to the transition it takes on each type
+    // it may reach: an argument reading the input errs to holding it
+    // personal where no type it reaches takes the transition, which only a
+    // library loaded without the checker holds
+    fn clause_passes(types: &[&Type], xn: &str, inputs: &[(String, Expr)], name: &str) -> bool {
+        let takers: Vec<&&Type> = types
+            .iter()
+            .filter(|tt| tt.transition(xn).is_some())
+            .collect();
+        if takers.is_empty() {
+            return inputs.iter().any(|(_, e)| reads(e, name));
+        }
+        takers.iter().any(|tt| into(tt, xn, inputs, name))
+    }
     // and what a cascade clause of its type, or a follows clause, on the
-    // transition passes, one hop on as a step's: the transition read by its
-    // name in its type, which a version's other library may not hold, then
-    // no clause is read (#103)
+    // transition passes, one hop on as a step's (#103)
     fn clauses_pass(lib: &Library, t: &Type, xn: &str, name: &str) -> bool {
         let cascaded = t.attributes.iter().any(|(_, end)| {
             let Declared::Reference(part) = &end.declared else {
@@ -3671,21 +3695,22 @@ pub(crate) fn input_personal(lib: &Library, t: &Type, x: &Transition, name: &str
                 .into_iter()
                 .flatten()
                 .any(|f| {
-                    lib.type_(&f.type_).is_some_and(|ft| {
+                    match lib.type_(&f.type_).and_then(|ft| {
                         ft.attribute(&f.reference)
                             .and_then(|a| a.follows.get(f.clause))
-                            .is_some_and(|c| into(ft, &c.transition, &c.inputs, name))
-                    })
+                            .map(|c| (ft, c))
+                    }) {
+                        Some((ft, c)) => clause_passes(&[ft], &c.transition, &c.inputs, name),
+                        // a clause the index names that the library does
+                        // not hold errs to holding the input personal
+                        None => true,
+                    }
                 })
     }
-    let xn = t
-        .transitions
-        .iter()
-        .find(|(_, y)| std::ptr::eq(y, x))
-        .map(|(n, _)| n.as_str());
-    personal_by_own(t, x, name)
-        || passes(lib, &x.effect, name)
-        || xn.is_some_and(|xn| clauses_pass(lib, t, xn, name))
+    let Some(x) = t.transition(xn) else {
+        return false;
+    };
+    personal_by_own(t, x, name) || passes(lib, &x.effect, name) || clauses_pass(lib, t, xn, name)
 }
 
 /// Whether an input is personal by its own transition alone: marked so, or
@@ -8771,7 +8796,7 @@ pub(crate) fn refused_attempt(
             .map(|(_, i)| i.personal)
             .or_else(|| t.and_then(|t| t.attribute(k)).map(|a| a.personal))
             .unwrap_or(false)
-            || matches!((t, x), (Some(t), Some(x)) if input_personal(lib, t, x, k))
+            || t.is_some_and(|t| input_personal(lib, t, &asked.transition, k))
     };
     let declared = |k: &str| {
         x.is_some_and(|x| {
@@ -23161,5 +23186,241 @@ types:
             );
             assert_eq!(held_as(&s, &slot, "label").0, "OPEN", "{xn}");
         }
+    }
+
+    /// The slot, shift and hold of the erasure tests as a published flow
+    /// writes them, with descriptions, which a publish checks.
+    const KEPT_HUB: &str = r#"
+module: hub
+categories: [live, closed]
+types:
+  Slot:
+    description: A slot work is planned in.
+    tracking: record
+    attributes:
+      label: { type: string, description: Its label. }
+      contact: { type: string, optional: true, personal: true, description: Who to call. }
+      shifts:
+        reference: "Shift[]"
+        opposite: slot
+        aggregation: composite
+        description: Its shifts.
+        cascade:
+          - { on: [cancel], transition: end, inputs: { memo: contact, cause: inputs.why }, limit: 10 }
+    states:
+      OPEN: { category: live, description: Open. }
+      CANCELLED: { category: closed, final: true, description: Cancelled. }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label], optional_inputs: [contact], description: Opens it. }
+      staff: { kind: internal, from: [OPEN], effect: [ { create: { type: Shift, transition: add, inputs: { slot: this } } } ], description: Adds a shift. }
+      cancel:
+        kind: external
+        from: [OPEN]
+        to: CANCELLED
+        description: Cancels it.
+        inputs:
+          why: { type: string, optional: true, description: Why it is cancelled. }
+      forget:
+        kind: erasure
+        description: Forgets it, and its shifts.
+        inputs: { reason: { type: string, description: Why. } }
+        effect:
+          - foreach: { item: f, array: shifts, limit: 10, steps: [ { call: { target: f, transition: forget, inputs: { reason: inputs.reason } } } ] }
+  Shift:
+    description: A shift of a slot.
+    tracking: record
+    attributes:
+      slot: { reference: Slot, opposite: shifts, description: Its slot. }
+      memo: { type: string, optional: true, personal: true, description: Its slot's contact. }
+      cause: { type: string, optional: true, personal: true, description: Why it ended. }
+    states:
+      ON: { category: live, description: On. }
+      OFF: { category: closed, final: true, description: Off. }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [slot], only_via: [Slot.staff], description: Adds it. }
+      end: { kind: external, from: [ON], to: OFF, optional_inputs: [memo, cause], description: Ends it. }
+      forget: { kind: erasure, inputs: { reason: { type: string, description: Why. } }, description: Forgets it. }
+"#;
+
+    const KEPT_HOLDS: &str = r#"
+module: holds
+imports: { hub: [Slot] }
+categories: [live, closed]
+types:
+  Hold:
+    description: A hold on a slot.
+    tracking: record
+    attributes:
+      slot: { reference: Slot, follows: [ { on: [cancel], transition: release, inputs: { note: slot.contact, cause: inputs.why }, limit: 5 } ], description: The slot held. }
+      note: { type: string, optional: true, personal: true, description: Its slot's contact. }
+      cause: { type: string, optional: true, personal: true, description: Why it ended. }
+    states:
+      HELD: { category: live, description: Held. }
+      RELEASED: { category: closed, final: true, description: Released. }
+    transitions:
+      take: { kind: initial, to: HELD, required_inputs: [slot], description: Takes it. }
+      release: { kind: external, from: [HELD], to: RELEASED, optional_inputs: [note, cause], description: Releases it. }
+      forget: { kind: erasure, inputs: { reason: { type: string, description: Why. } }, description: Forgets it. }
+"#;
+
+    /// An input a follow or a cascade passed into a personal attribute, as
+    /// the version its event was written under declared them or as the
+    /// installed one does, is withheld from the log exported and redacted
+    /// from that event by an erasure, after a later version changed what
+    /// passes it: each version's clauses read in its own library (the
+    /// security review's A, of `input_personal`). Four cases: a follow
+    /// dropped since, a part's attribute unmarked since, and a follow and
+    /// a cascade added since. On both backends.
+    #[test]
+    fn an_input_a_clause_passed_then_or_passes_now_is_erased() {
+        let edit = |text: &str, from: &str, to: &str| {
+            let out = text.replace(from, to);
+            assert_ne!(out, text, "{from}");
+            out
+        };
+        let unpassed = |text: &str| edit(text, ", cause: inputs.why }", " }");
+        let unmarked = |text: &str| {
+            edit(
+                text,
+                "cause: { type: string, optional: true, personal: true,",
+                "cause: { type: string, optional: true,",
+            )
+        };
+        let (hub, holds) = (KEPT_HUB.to_string(), KEPT_HOLDS.to_string());
+        let neither = (unpassed(&hub), unpassed(&holds));
+        let by_follow = (unpassed(&hub), holds.clone());
+        let by_cascade = (hub.clone(), unpassed(&holds));
+        let cases = [
+            ("a follow dropped since", by_follow.clone(), neither.clone()),
+            (
+                "a part's attribute unmarked since",
+                by_cascade.clone(),
+                (unmarked(&hub), unpassed(&holds)),
+            ),
+            ("a follow added since", neither.clone(), by_follow),
+            ("a cascade added since", neither, by_cascade),
+        ];
+        let mut failed = Vec::new();
+        for (case, (hub1, holds1), (hub2, holds2)) in cases {
+            let lib =
+                Library::load(&[("hub.yaml".into(), hub1), ("holds.yaml".into(), holds1)]).unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let slot = created(&req(
+                &mut s,
+                "open",
+                OPERATOR,
+                ("Slot", true),
+                json!({"label": "A", "contact": "a@b"}),
+            ));
+            applied(&req(&mut s, "staff", OPERATOR, (&slot, false), json!({})));
+            created(&req(
+                &mut s,
+                "take",
+                OPERATOR,
+                ("Hold", true),
+                json!({"slot": slot}),
+            ));
+            applied(&req(
+                &mut s,
+                "cancel",
+                OPERATOR,
+                (&slot, false),
+                json!({"why": "moving"}),
+            ));
+            let change = created(&req(
+                &mut s,
+                "draft",
+                OPERATOR,
+                (DECLARATION_CHANGE, true),
+                json!({"source": {"hub": hub2, "holds": holds2}, "source_ref": "test:changed"}),
+            ));
+            let submitted = req(&mut s, "submit", OPERATOR, (&change, false), json!({}));
+            let Verdict::Satisfied { version, .. } = submitted else {
+                panic!("{case}: the change not submitted: {submitted:?}")
+            };
+            let published = s.publish(OPERATOR, &change, version).unwrap().unwrap().0;
+            assert!(
+                matches!(published, Verdict::Satisfied { .. }),
+                "{case}: {published:?}"
+            );
+            // the log exported withholds it, judged as an erasure judges it
+            let w = s.snapshot().unwrap();
+            let log: Vec<Json> = crate::export::export(&w, "log", None)
+                .unwrap()
+                .lines
+                .iter()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+            let cancel = log
+                .iter()
+                .find(|e| e["object_id"] == json!(slot) && e["transition"] == json!("cancel"))
+                .unwrap();
+            if cancel["payload"]["inputs"] != json!({}) {
+                failed.push(format!("{case}: exported {}", cancel["payload"]["inputs"]));
+            }
+            erase(&mut s, &slot);
+            let kept = recorded(&s, &slot, "cancel");
+            if kept != json!({"why": null}) {
+                failed.push(format!("{case}: erased {kept}"));
+            }
+        }
+        assert!(failed.is_empty(), "{failed:#?}");
+    }
+
+    /// A follow the library cannot read errs to holding the input it may
+    /// pass personal, where a library loaded without the checker holds a
+    /// clause whose transition the follower does not take, or the index
+    /// names a clause the follower's reference does not hold (the security
+    /// review's A, a lookup miss). An input no clause passes is not.
+    #[test]
+    fn a_follow_the_library_cannot_read_errs_to_holding_its_input_personal() {
+        const TAGS: &str = r#"
+module: tags
+categories: [live, closed]
+types:
+  Whole:
+    attributes:
+      label: { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      open: { kind: initial, to: OPEN }
+      mark: { kind: internal, from: [OPEN], inputs: { why: { type: string, optional: true } } }
+      flag: { kind: internal, from: [OPEN], inputs: { why: { type: string, optional: true } } }
+      keep: { kind: internal, from: [OPEN], inputs: { why: { type: string, optional: true } } }
+  Tag:
+    attributes:
+      whole: { reference: Whole, follows: [ { on: [mark], transition: note, limit: 5 }, { on: [flag], transition: gone, inputs: { memo: inputs.why }, limit: 5 } ] }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [whole] }
+      note: { kind: internal, from: [ON] }
+"#;
+        let mut lib = Library::load(&[("tags.yaml".into(), TAGS.into())]).unwrap();
+        let whole = lib.type_("Whole").unwrap();
+        assert!(
+            input_personal(&lib, whole, "flag", "why"),
+            "a transition the follower does not take"
+        );
+        assert!(
+            !input_personal(&lib, whole, "mark", "why"),
+            "a follow passing nothing"
+        );
+        assert!(!input_personal(&lib, whole, "keep", "why"));
+        // the clauses dropped from the follower's reference, the index kept
+        let tag = lib.types.get_mut("Tag").unwrap();
+        let (_, end) = tag
+            .attributes
+            .iter_mut()
+            .find(|(n, _)| n == "whole")
+            .unwrap();
+        end.follows.clear();
+        let whole = lib.type_("Whole").unwrap();
+        assert!(
+            input_personal(&lib, whole, "mark", "why"),
+            "a clause the reference does not hold"
+        );
+        assert!(!input_personal(&lib, whole, "keep", "why"));
     }
 }

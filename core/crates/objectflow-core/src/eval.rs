@@ -2072,14 +2072,14 @@ pub(crate) fn personal_names(lib: &crate::model::Library) -> BTreeSet<String> {
                 .filter(|(_, a)| a.personal)
                 .map(|(n, _)| n.clone()),
         );
-        for (_, x) in &t.transitions {
+        for (xn, x) in &t.transitions {
             let named = x
                 .required_inputs
                 .iter()
                 .chain(&x.optional_inputs)
                 .chain(x.inputs.iter().map(|(n, _)| n));
             for n in named {
-                if crate::request::input_personal(lib, t, x, n) {
+                if crate::request::input_personal(lib, t, xn, n) {
                     out.insert(n.clone());
                 }
             }
