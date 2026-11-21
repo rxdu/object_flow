@@ -1082,3 +1082,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** On 2026-11-16, building ADR-0280, a self-test meant to show six rules `k<n> > 0 or item.f<n>` past 4,096 cases when joined read six required `int` attributes. A planted defect joining them was not caught: `fixed` drops each case where a required value is absent, so each rule kept three cases, and 3⁶ = 729 stayed within the bound.
 - **Correction:** A step 5 test that must expand past the bound reads optional values or opaque parts, whose cases nothing drops. Count its cases after `fixed`, not from the expression, and confirm a planted defect turns the answer.
 - **Context:** `scripts/flowlogic.py`'s self-test and its mirror in `check/logic.rs`.
+
+### A plant command written for bash and run by sh tested nothing it was meant to
+- **Pattern:** On 2026-11-21, building #103, a plant runner ran each command with Python's `subprocess.run(…, shell=True)`, which is `/bin/sh`. The command read `${PIPESTATUS[0]}`, which `sh` refuses as a bad substitution, so it exited 2 before the Studio's test in it ran. Eight plants read as caught, on the first half of the command alone, and four as surviving, which only that test could catch.
+- **Correction:** Run a plant's command with the shell its syntax is written for, `["bash", "-c", "set -o pipefail; " + cmd]`, and read the deciding line of every plant, caught or not, before counting it: a status of 2 from a test command is the shell's, not the test's.
+- **Context:** Planted-defect runs over cargo, pytest and the plant runners in this repository.

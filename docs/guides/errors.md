@@ -54,7 +54,7 @@ Every refusal carries a `remedy`: what the caller can do about it.
 | `not_proposable` | A proposal (`"propose": true`) of a transition not marked `proposable`, or of a change's or a proposal's own transitions. | none |
 | `stale` | The object moved on, or the store stayed locked. | `cause`: `expected_version` with `expected` and `actual` (re-read, then decide again; an approval's `target_version` is refused the same way), or `retries_exhausted` (remedy `temporal`: another process held the store's write lock too long) |
 | `not_found` | The object does not exist, or is not of the `type` named beside its id, a proposal's or a change's included. | none |
-| `over_limit` | A loop or cascade would pass its declared bound, or a list a `create`'s `each` takes holds more entries than its `limit`, `loop` then `each <name>`, decided with the inputs before any rule runs. Nothing was done. | `loop`, `bound` |
+| `over_limit` | A loop, a cascade or a follow would pass its declared bound, `loop` naming a cascade `the cascade on <attribute>` and a follow `the follow on <Type>.<reference>` (ADR-0292), or a list a `create`'s `each` takes holds more entries than its `limit`, `loop` then `each <name>`, decided with the inputs before any rule runs. Nothing was done. | `loop`, `bound` |
 | `call_refused` | A transition this one calls on another object was refused. | `step`, `object_id`, `verdict` (that transition's own verdict, whole), and `entry`, counted from 0, where the creation was one a `create`'s `each` made for an entry (ADR-0290) |
 
 ### Input reasons
