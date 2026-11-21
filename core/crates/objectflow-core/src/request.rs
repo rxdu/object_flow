@@ -3987,6 +3987,11 @@ fn file(
         .filter(|k| !takes(t, x, k))
         .map(|k| (k.clone(), InputReason::UnknownInput))
         .collect();
+    // whether an input the transition does not take, or one not of its type,
+    // is among them, which the request refuses before a list past its limit;
+    // a reference naming nothing, a blank text and an input left out it
+    // refuses after (`DESIGN.md` §6)
+    let mut early = !wrong.is_empty();
     // each entry's faults of a list an each takes, and a list past its limit,
     // as a request reads them (ADR-0290)
     let mut faults: Vec<EntryFault> = Vec::new();
@@ -4004,6 +4009,7 @@ fn file(
                 EntriesRead::Wrong(reason, at) => {
                     wrong.push((k.clone(), reason));
                     faults.extend(at);
+                    early = true;
                 }
                 EntriesRead::Over => {
                     over.get_or_insert((k.clone(), e.limit));
@@ -4014,6 +4020,7 @@ fn file(
         match wire::decode(raw, declared, many, lib) {
             Ok(v) if !media_taken(media, &v) => {
                 wrong.push((k.clone(), InputReason::WrongMediaType));
+                early = true;
             }
             // a text marked `not_blank` is refused blank as the request would
             // be (ADR-0257)
@@ -4041,39 +4048,51 @@ fn file(
                     }
                 }
             }
-            Err(e) => wrong.push((k.clone(), e.1)),
+            Err(e) => {
+                wrong.push((k.clone(), e.1));
+                early = true;
+            }
         }
     }
     let given = |k: &String| req.inputs.get(k).is_some_and(|v| !v.is_null());
-    wrong.extend(
-        x.required_inputs
-            .iter()
-            .filter(|k| !given(k))
-            .filter(|k| {
-                t.attribute(k)
-                    .is_none_or(|a| !a.optional && a.default.is_none())
-            })
-            .map(|k| (k.clone(), InputReason::Missing)),
-    );
-    wrong.extend(
+    let mut missing: Vec<(String, InputReason)> = x
+        .required_inputs
+        .iter()
+        .filter(|k| !given(k))
+        .filter(|k| {
+            t.attribute(k)
+                .is_none_or(|a| !a.optional && a.default.is_none())
+        })
+        .map(|k| (k.clone(), InputReason::Missing))
+        .collect();
+    missing.extend(
         x.inputs
             .iter()
             .filter(|(k, spec)| !given(k) && !spec.optional && spec.default.is_none())
             .map(|(k, _)| (k.clone(), InputReason::Missing)),
     );
-    if !wrong.is_empty() {
+    // in the order the request refuses them (`DESIGN.md` §6): an input the
+    // transition does not take or not of its type, every other input at
+    // fault named with it; then a list past its limit (ADR-0290 decision 4);
+    // then a reference naming nothing, a blank text or an input left out. A
+    // proposal of a transition taking no list is refused as it always was
+    let refuse = |wrong: Vec<(String, InputReason)>, entries: Vec<EntryFault>| {
         let (inputs, reasons) = wrong.into_iter().unzip();
-        return refused(Verdict::InvalidInput {
+        refused(Verdict::InvalidInput {
             inputs,
             reasons,
-            entries: faults,
-        });
-    }
-    if let Some((k, limit)) = over {
+            entries,
+        })
+    };
+    if !early && let Some((k, limit)) = over {
         return refused(Verdict::OverLimit {
             loop_: format!("each {k}"),
             bound: limit,
         });
+    }
+    wrong.extend(missing);
+    if !wrong.is_empty() {
+        return refuse(wrong, faults);
     }
     if let Some(occurred) = req.occurred_at {
         let within = x
@@ -10972,6 +10991,7 @@ types:
   Order:
     attributes:
       title: { type: string }
+      rep: { reference: Product, optional: true }
     states:
       PLACED: { category: live }
     transitions:
@@ -10979,9 +10999,18 @@ types:
         kind: initial
         to: PLACED
         required_inputs: [title]
+        optional_inputs: [rep]
         proposable: true
         effect:
           - create: { type: Line, transition: add, inputs: { order: this }, each: lines, limit: 3 }
+      note:
+        kind: external
+        from: [PLACED]
+        to: PLACED
+        proposable: true
+        inputs:
+          memo: { type: string }
+          rank: { type: int }
   Line:
     attributes:
       order: { reference: Order }
@@ -11020,6 +11049,95 @@ types:
         ));
         req(&mut s, "retire", OPERATOR, (&retired, false), json!({}));
         (s, listed, retired)
+    }
+
+    /// A filed proposal is refused in the order an executed request is
+    /// (`DESIGN.md` §6): an input not of its type first, every other input
+    /// at fault named with it when filed; then a list past its limit
+    /// (ADR-0290 decision 4); then a reference naming nothing or an input
+    /// left out. So a list past its limit with a required input left out, or
+    /// a reference naming nothing, is `over_limit`, executed or filed, and a
+    /// proposal of a transition taking no list is refused as it always was.
+    #[test]
+    fn a_proposal_is_refused_in_the_order_a_request_is() {
+        let (mut s, listed, _) = placing();
+        let line = json!({"product": listed, "qty": 1});
+        let four = json!([line, line, line, line]);
+        let filed = |inputs: Json| Request {
+            propose: true,
+            ..asked("place", ("Order", true), inputs)
+        };
+        let over = Verdict::OverLimit {
+            loop_: "each lines".into(),
+            bound: 3,
+        };
+        // a list past its limit and the title left out, or a reference
+        // naming nothing: over_limit, both ways
+        for both in [
+            json!({"lines": four}),
+            json!({"title": "T", "rep": "nothing", "lines": four}),
+        ] {
+            let executed = asked("place", ("Order", true), both.clone());
+            assert_eq!(request(&mut s, &executed).unwrap().unwrap(), over, "{both}");
+            assert_eq!(
+                request(&mut s, &filed(both.clone())).unwrap().unwrap(),
+                over,
+                "{both}"
+            );
+        }
+        // a list past its limit and the title of the wrong type: the type
+        // first, both ways
+        let typed = json!({"title": 5, "lines": four});
+        for r in [asked("place", ("Order", true), typed.clone()), filed(typed)] {
+            match request(&mut s, &r).unwrap().unwrap() {
+                Verdict::InvalidInput { inputs, .. } => assert_eq!(inputs, vec!["title"]),
+                v => panic!("{v:?}"),
+            }
+        }
+        // the title left out and a reference naming nothing, a list within
+        // its limit: both named, filed
+        let late = filed(json!({"rep": "nothing", "lines": [line]}));
+        match request(&mut s, &late).unwrap().unwrap() {
+            Verdict::InvalidInput {
+                inputs, reasons, ..
+            } => {
+                assert_eq!(inputs, vec!["rep", "title"]);
+                assert_eq!(
+                    reasons,
+                    vec![InputReason::NoSuchObject, InputReason::Missing]
+                );
+            }
+            v => panic!("{v:?}"),
+        }
+        // a transition taking no list: a type fault and an input left out,
+        // named together as before
+        let order = created(&req(
+            &mut s,
+            "place",
+            OPERATOR,
+            ("Order", true),
+            json!({"title": "First"}),
+        ));
+        let r = Request {
+            propose: true,
+            ..asked("note", (&order, false), json!({"rank": "high"}))
+        };
+        match request(&mut s, &r).unwrap().unwrap() {
+            Verdict::InvalidInput {
+                inputs,
+                reasons,
+                entries,
+            } => {
+                assert_eq!(inputs, vec!["rank", "memo"]);
+                assert_eq!(reasons, vec![InputReason::Malformed, InputReason::Missing]);
+                assert!(entries.is_empty());
+            }
+            v => panic!("{v:?}"),
+        }
+        // and nothing filed by any of them
+        let world = s.snapshot().unwrap();
+        let pending = world.of_type(PROPOSAL).unwrap();
+        assert!(pending.is_empty(), "{pending:?}");
     }
 
     /// Each entry makes one object, in the order given, a repeated entry its

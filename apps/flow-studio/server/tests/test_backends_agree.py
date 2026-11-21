@@ -718,3 +718,56 @@ def test_entries_are_declared_offered_and_published_alike(tee):
     report = tee.post("/v1/publish", {"actor": op, "change": change, "dry_run": True})["report"]
     assert report["affected"]["proposals_invalidated"] == [proposed["object_id"]], report
     assert tee.found[before:] == [], tee.found[before:]
+
+
+def test_a_proposal_is_refused_in_the_order_a_request_is_alike(tee):
+    """Both backends refuse a filed proposal in the order an executed
+    request is refused (`DESIGN.md` §6): an input not of its type first,
+    every other input at fault named with it when filed; then a list past
+    its limit (ADR-0290 decision 4); then a reference naming nothing or an
+    input left out. A list past its limit with a required input left out,
+    or a reference naming nothing, is `over_limit`, executed or filed, and
+    a proposal of a transition taking no list is refused as before."""
+    tee.module = "placing (order of refusals)"
+    before = len(tee.found)
+    op = {"id": "operator"}
+    priced = PLACING.replace(
+        "      code: { type: string, description: Its code. }\n",
+        "      code: { type: string, description: Its code. }\n"
+        "      price: { type: int, description: Its price. }\n").replace(
+        "      list: { kind: initial, to: LISTED, required_inputs: [code], description: Lists it. }",
+        "      list: { kind: initial, to: LISTED, required_inputs: [code, price], proposable: true, "
+        "description: Lists it. }").replace(
+        "      title: { type: string, description: Its title. }\n",
+        "      title: { type: string, description: Its title. }\n"
+        "      rep: { reference: Product, optional: true, description: Its representative product. }\n").replace(
+        "        required_inputs: [title]\n        description: Places it with its lines.\n",
+        "        required_inputs: [title]\n        optional_inputs: [rep]\n"
+        "        description: Places it with its lines.\n")
+    assert priced.count("price") == 3 and priced.count("rep:") == priced.count("[rep]") == 1, priced
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "placing.yaml", "text": priced}]})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+
+    def asked(t, xn, inputs, propose=False):
+        body = {"actor": op, "type": t, "transition": xn, "inputs": inputs}
+        if propose:
+            body["propose"] = True
+        return tee.post("/v1/request", body)
+
+    a = asked("Product", "list", {"code": "A", "price": 1})["object_id"]
+    four = [{"product": a, "qty": 1}] * 4
+    for propose in (False, True):
+        for given in ({"lines": four}, {"title": "T", "rep": "nothing", "lines": four}):
+            v = asked("Order", "place", given, propose)
+            assert (v["kind"], v["loop"], v["bound"]) == ("over_limit", "each lines", 3), (given, v)
+        v = asked("Order", "place", {"title": 5, "lines": four}, propose)
+        assert (v["kind"], v["inputs"]) == ("invalid_input", ["title"]), v
+    v = asked("Order", "place", {"rep": "nothing", "lines": four[:1]}, True)
+    assert (v["kind"], v["inputs"], v["reasons"]) == (
+        "invalid_input", ["rep", "title"], {"rep": "no_such_object", "title": "missing"}), v
+    v = asked("Product", "list", {"price": "high"}, True)
+    assert (v["kind"], v["inputs"], v["reasons"]) == (
+        "invalid_input", ["price", "code"], {"price": "malformed", "code": "missing"}), v
+    assert "entries" not in v, v
+    assert tee.found[before:] == [], tee.found[before:]

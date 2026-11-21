@@ -4617,6 +4617,9 @@ def file_proposal(runner, store, st, aliases):
         taken = set(x.get("required_inputs", [])) | set(x.get("optional_inputs", [])) | set(declared) | set(lists)
         given_inputs = r.get("inputs") or {}
         wrong = [(k, "unknown_input") for k in sorted(given_inputs) if k not in taken]
+        # whether an input not taken, or one not of its type, is among them, which a request refuses before a list past
+        # its limit; a reference naming nothing, a blank text and an input left out it refuses after (DESIGN.md §6)
+        early = bool(wrong)
         faults, over = [], None
         for k in sorted(given_inputs):
             if k not in taken:
@@ -4628,6 +4631,7 @@ def file_proposal(runner, store, st, aliases):
             if k in lists:
                 if isinstance(v, WrongKind) or not isinstance(v, (list, tuple)):
                     wrong.append((k, "wrong_type"))
+                    early = True
                 elif len(v) > (lists[k]["limit"] or 0):
                     over = over or (k, lists[k]["limit"])
                 else:
@@ -4635,8 +4639,11 @@ def file_proposal(runner, store, st, aliases):
                     if why:
                         wrong.append((k, why[0][2]))
                         faults += why
+                        early = True
                 continue
-            why = input_fault(spec, v, runner.enums, runner.kinds) or media_fault(spec, v) or blank_fault(spec, v)
+            why = input_fault(spec, v, runner.enums, runner.kinds) or media_fault(spec, v)
+            early = early or why is not None
+            why = why or blank_fault(spec, v)
             if why is None and "reference" in (spec or {}) and not all(
                     a in aliases and store.is_a(store.type_of(aliases[a]), spec["reference"].rstrip("[]"))
                     for a in (v if isinstance(v, (list, tuple)) else [v])):
@@ -4644,16 +4651,20 @@ def file_proposal(runner, store, st, aliases):
             if why:
                 wrong.append((k, why))
         given = {k for k, v in given_inputs.items() if v is not None}
-        wrong += [(k, "missing") for k in x.get("required_inputs", []) if k not in given
-                  and not (attrs.get(k) or {}).get("optional") and "default" not in (attrs.get(k) or {})]
-        wrong += [(k, "missing") for k, sp in declared.items() if k not in given and not (sp or {}).get("optional")
-                  and "default" not in (sp or {})]
+        missing = [(k, "missing") for k in x.get("required_inputs", []) if k not in given
+                   and not (attrs.get(k) or {}).get("optional") and "default" not in (attrs.get(k) or {})]
+        missing += [(k, "missing") for k, sp in declared.items() if k not in given and not (sp or {}).get("optional")
+                    and "default" not in (sp or {})]
+        # in the order the request refuses them (DESIGN.md §6): an input not taken or not of its type, every other input
+        # at fault named with it; then a list past its limit (ADR-0290 decision 4); then a reference naming nothing, a
+        # blank text or an input left out. A proposal of a transition taking no list is refused as it always was
+        if over and not early:
+            raise Refused("over_limit", remedy="unreachable_from_here", loop=f"each {over[0]}", bound=over[1],
+                          detail=f"the list {over[0]} holds more entries than its limit of {over[1]}")
+        wrong += missing
         if wrong:
             raise Refused("invalid_input", remedy="self_serviceable", inputs=[k for k, _ in wrong], reasons=[w for _, w in wrong],
                           entries=faults or None)   # as a request would (ADR-0147)
-        if over:
-            raise Refused("over_limit", remedy="unreachable_from_here", loop=f"each {over[0]}", bound=over[1],
-                          detail=f"the list {over[0]} holds more entries than its limit of {over[1]}")
         # a proposal keeps the occurred time the request gives, held to the bound when it is filed, since that is when
         # the store was told; the check against the current interval runs at approval (ADR-0147)
         occurred = runner.value_of(store, {"type": "timestamp"}, r["occurred_at"], aliases) if "occurred_at" in r else None
