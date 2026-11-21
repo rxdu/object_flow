@@ -871,6 +871,10 @@ struct Ctx<'w> {
     /// Each past event's personal input an erasure redacts, by the event's
     /// position and the input's name.
     redacted_inputs: Vec<(i64, String)>,
+    /// Each personal field of an entry of a past event's list an erasure
+    /// redacts: the event's position, the list, the entry and the field
+    /// (ADR-0290 decision 3).
+    redacted_entries: Vec<(i64, String, usize, String)>,
     /// What an erasure's walk down clears on another object: the object,
     /// the attribute, and the event that carried the erased value in; and
     /// the interval spans so redacted, by object, dimension and entry.
@@ -1197,6 +1201,7 @@ fn decide_or_stop(
         renamed: Vec::new(),
         in_group: false,
         redacted_inputs: Vec::new(),
+        redacted_entries: Vec::new(),
         external: Vec::new(),
         external_removed: Vec::new(),
         cleared: Vec::new(),
@@ -1423,6 +1428,7 @@ fn decide_or_stop(
             attempts: observed,
             merged: ctx.merged,
             redacted_inputs: ctx.redacted_inputs,
+            redacted_entries: ctx.redacted_entries,
             external: ctx.external,
             external_removed: ctx.external_removed,
             redacted_spans: ctx.redacted_spans,
@@ -2487,6 +2493,7 @@ fn take_unwound(
         }
         o.parts_mut()?.erased = true;
         let redacted_since = ctx.redacted_inputs.len();
+        let entries_since = ctx.redacted_entries.len();
         // what the erased object holds that is personal, the source of
         // every value the walks follow
         let own_versions: BTreeSet<i64> = own.iter().map(|e| e.declaration_version).collect();
@@ -2568,6 +2575,23 @@ fn take_unwound(
             let lib = ctx.work.lib;
             if let Some(recorded) = e.payload["inputs"].as_object() {
                 for name in recorded.keys() {
+                    // a list an each takes: each personal field of each entry,
+                    // as the version its event was written under or the
+                    // installed one declares it, the list itself kept
+                    // (ADR-0290 decision 3)
+                    if let Some(fields) = entry_fields_personal(
+                        ctx.work.library_at(e.declaration_version),
+                        tv.transition(&e.transition),
+                        lib,
+                        t.transition(&e.transition),
+                        name,
+                        &recorded[name],
+                    ) {
+                        for (n, f) in fields {
+                            ctx.redacted_entries.push((e.position, name.clone(), n, f));
+                        }
+                        continue;
+                    }
                     if personal_by_own(tv, ex, name)
                         || tv.attribute(name).is_some_and(|a| a.personal)
                         || personal_by_own(t, ex, name)
@@ -2595,7 +2619,7 @@ fn take_unwound(
         }
         // every other object whose value it redacted gets an event
         // (DESIGN.md §8)
-        redact_others(ctx, alloc, &o.id, redacted_since)?;
+        redact_others(ctx, alloc, &o.id, redacted_since, entries_since)?;
         if let Some((a, v)) = identity
             && erased.contains(&a)
         {
@@ -3009,6 +3033,26 @@ fn caller_taint(
                 ctx.redacted_inputs.push((caller.position, n.clone()));
             }
         }
+        // an entry's field the callee took from the entry an each made it
+        // for, held in the caller's list, which the caller had from its
+        // request and passed no further (ADR-0290 decision 3)
+        if let (Some(n), Some(t)) = (callee.payload["entry"].as_u64(), callee_type.as_deref())
+            && let Some((list, named)) = each_taking(lib, &cx.effect, &callee.transition, t)
+            && let Some(entry) = caller.payload["inputs"][list.as_str()]
+                .get(usize::try_from(n).unwrap_or(usize::MAX))
+                .and_then(Json::as_object)
+        {
+            for f in &tainted {
+                if !named.contains(f) && entry.contains_key(f) {
+                    ctx.redacted_entries.push((
+                        caller.position,
+                        list.clone(),
+                        usize::try_from(n).unwrap_or(usize::MAX),
+                        f.clone(),
+                    ));
+                }
+            }
+        }
         tainted = passed;
         callee = caller;
     }
@@ -3177,9 +3221,16 @@ fn redact_others(
     alloc: &mut Allocator,
     erased: &str,
     since: usize,
+    entries_since: usize,
 ) -> Result<(), NotRun> {
     let mut names: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for (position, n) in &ctx.redacted_inputs[since..] {
+    // an entry's field is named by its list, the input the event holds
+    // (ADR-0290)
+    let lists: Vec<(i64, String)> = ctx.redacted_entries[entries_since..]
+        .iter()
+        .map(|(p, list, _, _)| (*p, list.clone()))
+        .collect();
+    for (position, n) in ctx.redacted_inputs[since..].iter().chain(&lists) {
         if let Some(e) = ctx.work.event_at(*position)?
             && e.object_id != erased
         {
@@ -3306,6 +3357,94 @@ fn steps_taking<'s>(
         }
     }
     out
+}
+
+/// The each step of `steps` creating by `transition` an object of `type_`,
+/// its list's name and the inputs the step names, which no entry holds
+/// (ADR-0290); none where no such step is.
+fn each_taking(
+    lib: &Library,
+    steps: &[Step],
+    transition: &str,
+    type_: &str,
+) -> Option<(String, BTreeSet<String>)> {
+    steps.iter().find_map(|st| match st {
+        Step::Create {
+            type_: created,
+            transition: tr,
+            inputs,
+            each: Some((list, _)),
+            ..
+        } if tr == transition && lib.is_a(type_, created) => Some((
+            list.clone(),
+            inputs.iter().map(|(n, _)| n.clone()).collect(),
+        )),
+        _ => None,
+    })
+}
+
+/// Whether a field of an entry of a list `x` takes is personal under the
+/// library given: marked so, its target's attribute of its name marked so,
+/// or written by the target's effect into a personal attribute (check 10);
+/// none where `list` is no list an each takes (ADR-0290 decision 3).
+pub(crate) fn entry_field_personal(
+    lib: &Library,
+    x: &Transition,
+    list: &str,
+    field: &str,
+) -> Option<bool> {
+    let e = x.inputs.iter().find_map(|(n, i)| match &i.declared {
+        Declared::Entries(e) if n == list => Some(e),
+        _ => None,
+    })?;
+    let target = lib.type_(&e.type_);
+    Some(
+        e.field(field).is_some_and(|f| f.personal)
+            || target.is_some_and(|tt| {
+                tt.attribute(field).is_some_and(|a| a.personal)
+                    || tt
+                        .transition(&e.transition)
+                        .is_some_and(|tx| input_personal(lib, tt, tx, field))
+            }),
+    )
+}
+
+/// Each personal field of each entry of a list an event recorded, as the
+/// version it was written under or the installed one declares it, by entry
+/// and field; none where `list` is a list neither version's transition takes
+/// (ADR-0290 decision 3).
+fn entry_fields_personal(
+    then: &Library,
+    then_x: Option<&Transition>,
+    now: &Library,
+    now_x: Option<&Transition>,
+    list: &str,
+    recorded: &Json,
+) -> Option<Vec<(usize, String)>> {
+    let personal = |f: &str| {
+        let at = |lib: &Library, x: Option<&Transition>| {
+            x.and_then(|x| entry_field_personal(lib, x, list, f))
+        };
+        match (at(then, then_x), at(now, now_x)) {
+            (None, None) => None,
+            (a, b) => Some(a.unwrap_or(false) || b.unwrap_or(false)),
+        }
+    };
+    let takes = |lib: &Library, x: Option<&Transition>| {
+        x.is_some_and(|x| entry_field_personal(lib, x, list, "").is_some())
+    };
+    if !takes(then, then_x) && !takes(now, now_x) {
+        return None;
+    }
+    let mut out = Vec::new();
+    for (n, entry) in recorded.as_array().into_iter().flatten().enumerate() {
+        for f in entry.as_object().into_iter().flat_map(|o| o.keys()) {
+            if personal(f) == Some(true) {
+                out.push((n, f.clone()));
+            }
+        }
+    }
+    Some(out)
 }
 
 /// Whether an input is personal (`declaration-syntax.md` §10, check 10):
@@ -11165,6 +11304,121 @@ types:
             propose(&mut s, json!([line])),
             Verdict::Satisfied { .. }
         ));
+    }
+
+    /// An erased actor's identity, where its type marks it personal, is
+    /// replaced by its object's id in an entry's field of type identity, in
+    /// the act's event and in a refused request's attempt row, as in an
+    /// input of that type, and in no other entry (ADR-0290, ADR-0203
+    /// decision 1).
+    #[test]
+    fn an_erased_identity_is_replaced_in_an_entrys_field() {
+        const NOTED: &str = r#"
+module: noted
+categories: [live, closed]
+types:
+  Person:
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true, personal: true, optional: true }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [login] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+  Memo:
+    attributes:
+      title: { type: string }
+    states:
+      OPEN: { category: live }
+    transitions:
+      write:
+        kind: initial
+        to: OPEN
+        required_inputs: [title]
+        proposable: true
+        effect:
+          - create: { type: Note, transition: add, inputs: { memo: this }, each: notes, limit: 2 }
+  Note:
+    attributes:
+      memo: { reference: Memo }
+      owner: { type: identity, optional: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      add: { kind: initial, to: OPEN, required_inputs: [memo], optional_inputs: [owner] }
+"#;
+        let lib = Library::load(&[("noted.yaml".into(), NOTED.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ann = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("Person", true),
+            json!({"login": "ann.secret@corp.example"}),
+        ));
+        let notes = json!([{"owner": "Ann.Secret@corp.example"}, {"owner": "bo@corp.example"}]);
+        let memo = created(&req(
+            &mut s,
+            "write",
+            OPERATOR,
+            ("Memo", true),
+            json!({"title": "T", "notes": notes}),
+        ));
+        // refused, its attempt row keeping the list as sent
+        assert!(matches!(
+            req(
+                &mut s,
+                "write",
+                OPERATOR,
+                ("Memo", true),
+                json!({"title": "T", "notes": [{"owner": "ann.secret@corp.example"}, {}, {}]})
+            ),
+            Verdict::OverLimit { .. }
+        ));
+        // filed, its proposal keeping the list as sent
+        let filed = Request {
+            propose: true,
+            ..asked(
+                "write",
+                ("Memo", true),
+                json!({"title": "T", "notes": [{"owner": "ann.secret@corp.example"}]}),
+            )
+        };
+        assert!(matches!(
+            request(&mut s, &filed).unwrap().unwrap(),
+            Verdict::Satisfied { .. }
+        ));
+        req(
+            &mut s,
+            "forget",
+            OPERATOR,
+            (&ann, false),
+            json!({"reason": "asked"}),
+        );
+        let held: String = s
+            .connection()
+            .query_row("SELECT inputs FROM t_proposal", [], |r| r.get(0))
+            .unwrap();
+        let held: Json = serde_json::from_str(&held).unwrap();
+        assert_eq!(held["notes"], json!([{"owner": ann}]), "{held}");
+        assert_eq!(
+            s.history(&memo).unwrap()[0].payload["inputs"]["notes"],
+            json!([{"owner": ann}, {"owner": "bo@corp.example"}])
+        );
+        let sent: String = s
+            .connection()
+            .query_row(
+                "SELECT request_values FROM of_attempt WHERE verdict = 'over_limit'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let sent: Json = serde_json::from_str(&sent).unwrap();
+        assert_eq!(
+            sent["values"]["inputs"]["notes"][0]["owner"],
+            json!(ann),
+            "{sent}"
+        );
     }
 
     const ORDERS: &str = r#"

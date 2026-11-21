@@ -411,6 +411,9 @@ pub struct IdentityHeld {
     pub attrs: Held,
     pub sets: Held,
     pub inputs: Held,
+    /// Each field of an entry of a list an each takes that holds an
+    /// identity, as (type, list, field) (ADR-0290).
+    pub entries: Vec<(String, String, String)>,
 }
 
 impl Library {
@@ -422,6 +425,7 @@ impl Library {
         let identity = |d: &Declared| matches!(d, Declared::Scalar(s) if s == "identity");
         let mut held = IdentityHeld::default();
         let mut inputs = BTreeSet::new();
+        let mut entries = BTreeSet::new();
         for t in self.types.values().filter(|t| !t.abstract_) {
             for (n, a) in &t.attributes {
                 if identity(&a.declared) {
@@ -438,6 +442,13 @@ impl Library {
                     if identity(&i.declared) {
                         inputs.insert((t.name.clone(), n.clone()));
                     }
+                    if let Declared::Entries(e) = &i.declared {
+                        for (f, fi) in &e.fields {
+                            if identity(&fi.declared) {
+                                entries.insert((t.name.clone(), n.clone(), f.clone()));
+                            }
+                        }
+                    }
                 }
                 for n in x.required_inputs.iter().chain(&x.optional_inputs) {
                     if t.attribute(n).is_some_and(|a| identity(&a.declared)) {
@@ -447,6 +458,7 @@ impl Library {
             }
         }
         held.inputs = inputs.into_iter().collect();
+        held.entries = entries.into_iter().collect();
         held
     }
 

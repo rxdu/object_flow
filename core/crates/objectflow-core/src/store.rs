@@ -500,6 +500,10 @@ pub struct Change {
     /// Each past event's personal input an erasure redacts, by the event's
     /// position and the input's name (§9 step 8).
     pub redacted_inputs: Vec<(i64, String)>,
+    /// Each personal field of an entry of a past event's list an erasure
+    /// redacts: the event's position, the list, the entry and the field
+    /// (ADR-0290 decision 3).
+    pub redacted_entries: Vec<(i64, String, usize, String)>,
     /// Each past event's write of a copy an erasure clears, by the event's
     /// position and the attribute (ADR-0209 decision 2).
     pub redacted_writes: Vec<(i64, String)>,
@@ -8133,6 +8137,58 @@ fn write(
                 |_, values| replaced_at(values, &["values", "inputs", key.as_str()], renamed),
             )?;
         }
+        // and each held in a field of an entry of a list an each takes, in
+        // the events, a proposal's inputs and a refused request's (ADR-0290)
+        for (tn, list, field) in &held.entries {
+            let key = list.replace('"', "");
+            let in_entries = |v: &mut serde_json::Value| -> bool {
+                let mut changed = false;
+                for entry in v.as_array_mut().into_iter().flatten() {
+                    if let Some(slot) = entry.get_mut(field.as_str())
+                        && let Some(next) = renamed(slot)
+                    {
+                        *slot = next;
+                        changed = true;
+                    }
+                }
+                changed
+            };
+            rewrite_json(
+                tx,
+                "of_event",
+                "position",
+                "payload",
+                &format!(
+                    "SELECT position, payload FROM of_event \
+                     WHERE object_id IN (SELECT id FROM {}) AND json_type(payload, ?1) = 'array'",
+                    table(tn)
+                ),
+                params![format!("$.inputs.\"{key}\"")],
+                |_, payload| at_path(payload, &["inputs", key.as_str()]).is_some_and(in_entries),
+            )?;
+            rewrite_json(
+                tx,
+                "t_proposal",
+                "id",
+                "inputs",
+                "SELECT id, inputs FROM t_proposal \
+                 WHERE target_type = ?2 AND json_valid(inputs) AND json_type(inputs, ?1) = 'array'",
+                params![format!("$.\"{key}\""), tn],
+                |_, inputs| at_path(inputs, &[key.as_str()]).is_some_and(in_entries),
+            )?;
+            rewrite_json(
+                tx,
+                "of_attempt",
+                "id",
+                "request_values",
+                "SELECT id, request_values FROM of_attempt WHERE type = ?2 AND json_valid(request_values) \
+                 AND json_type(request_values, ?1) = 'array'",
+                params![format!("$.values.inputs.\"{key}\""), tn],
+                |_, values| {
+                    at_path(values, &["values", "inputs", key.as_str()]).is_some_and(in_entries)
+                },
+            )?;
+        }
         for (tn, name) in &held.attrs {
             tx.execute(
                 &format!(
@@ -8317,6 +8373,16 @@ fn write(
                 .push((part, name.replace('"', "")));
         }
     }
+    // and each personal field of an entry of a list, nulled in the same pass
+    // (ADR-0290 decision 3)
+    let mut in_entries: BTreeMap<i64, Vec<(String, usize, String)>> = BTreeMap::new();
+    for (position, list, n, field) in &change.redacted_entries {
+        in_entries
+            .entry(*position)
+            .or_default()
+            .push((list.clone(), *n, field.clone()));
+        single.entry(*position).or_default();
+    }
     let positions: Vec<i64> = single.keys().copied().collect();
     for chunk in positions.chunks(SPAN_ROWS) {
         rewrite_json(
@@ -8353,11 +8419,28 @@ fn write(
                         nulled = true;
                     }
                 }
+                for (list, n, field) in in_entries.get(at).into_iter().flatten() {
+                    if let Some(entry) = payload
+                        .get_mut("inputs")
+                        .and_then(|i| i.get_mut(list.as_str()))
+                        .and_then(|l| l.get_mut(*n))
+                        .and_then(serde_json::Value::as_object_mut)
+                        && let Some(slot) = entry.get_mut(field.as_str())
+                    {
+                        *slot = serde_json::Value::Null;
+                        nulled = true;
+                    }
+                }
                 nulled
             },
         )?;
     }
-    for (position, _) in &change.redacted_inputs {
+    let entry_positions: Vec<(i64, String)> = change
+        .redacted_entries
+        .iter()
+        .map(|(p, list, _, _)| (*p, list.clone()))
+        .collect();
+    for (position, _) in change.redacted_inputs.iter().chain(&entry_positions) {
         // the key of the request that sent it, its digest made before
         // personal values were masked in one, replays its verdict whatever
         // is sent under it, so its digest confirms no guess of what was

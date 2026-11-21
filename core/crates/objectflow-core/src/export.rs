@@ -461,13 +461,17 @@ fn event_row(world: &World<'_>, then: &mut TypesThen<'_, '_>, e: &Event) -> Resu
     }
     let was = WrittenUnder::of(world, type_.as_deref(), &transition, e, under, &written);
     let mut payload = e.payload.clone();
+    // each personal field of each entry of a list an each takes, judged as an
+    // erasure judges it, the list itself kept (ADR-0290 decision 3)
+    let lists = strip_entry_fields(world, type_.as_deref(), &transition, &was, &mut payload);
     // a personal attribute's value, as an input, a correction or a write
     // (ADR-0209 decision 3), personal now or when it was written
     for part in ["inputs", "corrected", "wrote"] {
         if let Some(values) = payload.get_mut(part).and_then(Json::as_object_mut) {
             values.retain(|k, _| {
-                !personal(world.lib, type_.as_deref(), &transition, k)
-                    && !was.personal(world.lib, part == "inputs", k)
+                (part == "inputs" && lists.contains(k))
+                    || (!personal(world.lib, type_.as_deref(), &transition, k)
+                        && !was.personal(world.lib, part == "inputs", k))
             });
         }
     }
@@ -516,6 +520,47 @@ fn event_row(world: &World<'_>, then: &mut TypesThen<'_, '_>, e: &Event) -> Resu
     Ok(row)
 }
 
+/// Each list an each takes that an event's inputs hold, each entry's
+/// personal fields left out, as an erasure judges them: under the installed
+/// version and under the version its event was written under; the lists so
+/// read, which the payload keeps (ADR-0290 decision 3).
+fn strip_entry_fields(
+    world: &World<'_>,
+    type_: Option<&str>,
+    transition: &str,
+    was: &WrittenUnder<'_>,
+    payload: &mut Json,
+) -> std::collections::BTreeSet<String> {
+    let now = type_
+        .and_then(|t| world.lib.type_(t))
+        .and_then(|t| t.transition(transition));
+    let then = was.recorded.map(|(_, x)| x);
+    let mut lists = std::collections::BTreeSet::new();
+    let Some(inputs) = payload.get_mut("inputs").and_then(Json::as_object_mut) else {
+        return lists;
+    };
+    for (k, v) in inputs.iter_mut() {
+        let personal = |f: &str| {
+            let a = now.and_then(|x| crate::request::entry_field_personal(world.lib, x, k, f));
+            let b = then.and_then(|x| crate::request::entry_field_personal(was.then_lib, x, k, f));
+            match (a, b) {
+                (None, None) => None,
+                (a, b) => Some(a.unwrap_or(false) || b.unwrap_or(false)),
+            }
+        };
+        if personal("").is_none() {
+            continue;
+        }
+        lists.insert(k.clone());
+        for entry in v.as_array_mut().into_iter().flatten() {
+            if let Some(fields) = entry.as_object_mut() {
+                fields.retain(|f, _| personal(f) != Some(true));
+            }
+        }
+    }
+    lists
+}
+
 /// Whether an input an event's payload holds is personal under the
 /// transition it recorded: an attribute marked so, an input marked so, or
 /// one its effect writes into a personal attribute (check 10).
@@ -542,6 +587,9 @@ struct WrittenUnder<'l> {
     /// The installed type's personal attributes, as the version the writes
     /// were declared by named them, where a rename changed the name since.
     renamed: std::collections::BTreeSet<String>,
+    /// The library of the event's version, which an entry's field is judged
+    /// under (ADR-0290).
+    then_lib: &'l Library,
 }
 
 impl<'l> WrittenUnder<'l> {
@@ -569,6 +617,7 @@ impl<'l> WrittenUnder<'l> {
             })
             .unwrap_or_default();
         WrittenUnder {
+            then_lib: world.library_at(e.declaration_version),
             declared: world.type_at(under, then_under),
             recorded,
             renamed,
@@ -1636,17 +1685,22 @@ types:
 
     /// The shelf's next version, drafted, submitted and approved.
     fn published(s: &mut Store, text: &str) {
+        published_as(s, "shelf", text);
+    }
+
+    /// A module's next version, drafted, submitted and approved.
+    fn published_as(s: &mut Store, module: &str, text: &str) {
         let change = asked(
             s,
             "draft",
             (crate::model::DECLARATION_CHANGE, true),
-            json!({"source": {"shelf": text}, "source_ref": "test:shelf"}),
+            json!({"source": {module: text}, "source_ref": "test:shelf"}),
         );
         let report = crate::publish::dry_run(
             &s.snapshot().unwrap(),
             &crate::publish::Draft {
                 change_id: Some(&change),
-                source: &[("shelf".to_string(), text.to_string())],
+                source: &[(module.to_string(), text.to_string())],
                 source_ref: Some("test:shelf"),
                 source_digest: None,
                 actor: OPERATOR,
@@ -1666,6 +1720,264 @@ types:
         assert!(
             matches!(verdict, Verdict::Satisfied { .. }),
             "{verdict:?} {report:#?}"
+        );
+    }
+
+    /// An order placed with its lines, a line's note personal and its gift
+    /// not, each entry the rest of a line's inputs (issue #102, ADR-0290).
+    const ORDERED: &str = r#"
+module: ordered
+categories: [live, closed]
+types:
+  Order:
+    description: An order placed with its lines.
+    tracking: record
+    attributes:
+      title: { type: string, description: Its title. }
+    states:
+      PLACED: { description: Placed., category: live }
+      CLOSED: { description: Closed., category: closed, final: true }
+    transitions:
+      place:
+        kind: initial
+        to: PLACED
+        required_inputs: [title]
+        description: Places it with its lines.
+        effect:
+          - create: { type: Line, transition: add, inputs: { order: this }, each: lines, limit: 3 }
+      close: { kind: external, from: [PLACED], to: CLOSED, description: Closes it. }
+      forget: { kind: erasure, description: Erases what it holds of a person., inputs: { reason: { type: string } } }
+  Line:
+    description: A line of an order.
+    tracking: record
+    attributes:
+      order: { reference: Order, description: Its order. }
+      qty: { type: int, description: How many units. }
+      note: { type: string, optional: true, personal: true, description: A note for the buyer. }
+      gift: { type: string, optional: true, description: A gift message. }
+      secret: { type: string, optional: true, personal: true, description: What the memo says. }
+    states:
+      OPEN: { description: Open., category: live }
+      CLOSED: { description: Closed., category: closed, final: true }
+    transitions:
+      add:
+        kind: initial
+        to: OPEN
+        required_inputs: [order, qty]
+        optional_inputs: [note, gift]
+        inputs:
+          memo: { type: string, optional: true, description: A memo kept as the secret. }
+        description: Adds it.
+        effect:
+          - assign: { location: secret, expr: inputs.memo }
+      close: { kind: external, from: [OPEN], to: CLOSED, description: Closes it. }
+      forget: { kind: erasure, description: Erases its note., inputs: { reason: { type: string } } }
+"#;
+
+    /// The order's placing, under a key of its own.
+    fn placing() -> Request {
+        Request {
+            transition: "place".into(),
+            actor: OPERATOR.into(),
+            object_id: None,
+            type_: Some("Order".into()),
+            inputs: [
+                ("title".to_string(), json!("First")),
+                (
+                    "lines".to_string(),
+                    json!([
+                        {"qty": 1, "note": "ring first", "gift": "for Ana", "memo": "m0"},
+                        {"qty": 2, "note": "leave at door", "gift": "for Bo", "memo": "m1"},
+                    ]),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: Some("place-1".into()),
+            context: None,
+        }
+    }
+
+    fn ordered(s: &mut Store) -> (String, Vec<String>) {
+        match request(s, &placing()).unwrap().unwrap() {
+            Verdict::Satisfied {
+                object_id, created, ..
+            } => (object_id, created[1..].to_vec()),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn placed_lines(s: &Store, order: &str) -> Json {
+        s.history(order).unwrap()[0].payload["inputs"]["lines"].clone()
+    }
+
+    /// An erasure reaches a personal field inside an entry, and only it
+    /// (ADR-0290 decision 3): the order's own, each entry's note in its
+    /// event, its gift and quantity kept; a line's, its own note, and the
+    /// note of its entry alone in the order's event, the order told by a
+    /// `redact` naming the list; and an export leaves each entry's note out
+    /// of the log and keeps the list.
+    #[test]
+    fn an_erasure_and_an_export_reach_an_entrys_personal_field() {
+        let lib = Library::load(&[("ordered.yaml".into(), ORDERED.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let (order, lines) = ordered(&mut s);
+        assert!(matches!(
+            request(&mut s, &placing()).unwrap().unwrap(),
+            Verdict::Satisfied { replayed: true, .. }
+        ));
+        // exported: each entry's note left out, the rest kept
+        let log = rows_of(&s, "log");
+        let row = log
+            .iter()
+            .find(|r| r["object_id"] == json!(order) && r["transition"] == json!("place"))
+            .unwrap();
+        assert_eq!(
+            row["payload"]["inputs"]["lines"],
+            json!([{"qty": 1, "gift": "for Ana"}, {"qty": 2, "gift": "for Bo"}])
+        );
+        // a line erased: its entry's note in the order's event, no other
+        asked(
+            &mut s,
+            "forget",
+            (&lines[1], false),
+            json!({"reason": "asked"}),
+        );
+        assert_eq!(
+            placed_lines(&s, &order),
+            json!([
+                {"qty": 1, "note": "ring first", "gift": "for Ana", "memo": "m0"},
+                {"qty": 2, "note": null, "gift": "for Bo", "memo": null},
+            ])
+        );
+        let told = s.history(&order).unwrap();
+        let redact = told.last().unwrap();
+        assert_eq!(redact.transition, "redact");
+        assert_eq!(redact.payload["redacted"], json!(["lines"]));
+        // its key replays nothing once what it sent is erased, as for an input
+        // (ADR-0205 decision 3)
+        assert!(
+            matches!(
+                request(&mut s, &placing()).unwrap(),
+                Err(crate::request::NoVerdict::KeyReused { .. })
+            ),
+            "the key replayed"
+        );
+        assert_eq!(
+            s.history(&lines[1]).unwrap()[0].payload["inputs"]["note"],
+            Json::Null
+        );
+        assert_eq!(
+            s.history(&lines[0]).unwrap()[0].payload["inputs"]["note"],
+            json!("ring first")
+        );
+        // the order erased: each entry's note in its own event
+        asked(
+            &mut s,
+            "forget",
+            (&order, false),
+            json!({"reason": "asked"}),
+        );
+        assert_eq!(
+            placed_lines(&s, &order),
+            json!([
+                {"qty": 1, "note": null, "gift": "for Ana", "memo": null},
+                {"qty": 2, "note": null, "gift": "for Bo", "memo": null},
+            ])
+        );
+    }
+
+    /// A field a later version makes personal is redacted in an entry
+    /// recorded before, as the installed version judges it, and one it no
+    /// longer marks personal is judged as the version its event was written
+    /// under declared it; an export leaves each out (ADR-0290 decision 3,
+    /// `storage-schema.md` §9).
+    #[test]
+    fn a_field_a_later_version_makes_personal_is_erased_in_earlier_entries() {
+        let place = |s: &Store, order: &str| -> Json {
+            rows_of(s, "log")
+                .into_iter()
+                .find(|r| r["object_id"] == json!(order) && r["transition"] == json!("place"))
+                .unwrap()["payload"]["inputs"]["lines"]
+                .clone()
+        };
+        let later = |old: &str, new: &str| -> String {
+            assert_eq!(ORDERED.matches(old).count(), 1, "{old}");
+            ORDERED.replace(old, new)
+        };
+        // the gift made personal
+        let lib = Library::load(&[("ordered.yaml".into(), ORDERED.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let (order, _) = ordered(&mut s);
+        published_as(
+            &mut s,
+            "ordered",
+            &later(
+                "      gift: { type: string, optional: true, description: A gift message. }\n",
+                "      gift: { type: string, optional: true, personal: true, description: A gift message. }\n",
+            ),
+        );
+        assert_eq!(place(&s, &order), json!([{"qty": 1}, {"qty": 2}]));
+        assert!(matches!(
+            request(&mut s, &placing()).unwrap().unwrap(),
+            Verdict::Satisfied { replayed: true, .. }
+        ));
+        asked(
+            &mut s,
+            "forget",
+            (&order, false),
+            json!({"reason": "asked"}),
+        );
+        // the order's own erasure redacts the entries' fields alone, and its
+        // key replays nothing after (ADR-0205 decision 3)
+        assert!(
+            matches!(
+                request(&mut s, &placing()).unwrap(),
+                Err(crate::request::NoVerdict::KeyReused { .. })
+            ),
+            "the key replayed"
+        );
+        assert_eq!(
+            placed_lines(&s, &order),
+            json!([
+                {"qty": 1, "note": null, "gift": null, "memo": null},
+                {"qty": 2, "note": null, "gift": null, "memo": null},
+            ])
+        );
+        // the note no longer personal
+        let lib = Library::load(&[("ordered.yaml".into(), ORDERED.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let (order, _) = ordered(&mut s);
+        published_as(
+            &mut s,
+            "ordered",
+            &later(
+                "      note: { type: string, optional: true, personal: true, description: A note for the buyer. }\n",
+                "      note: { type: string, optional: true, description: A note for the buyer. }\n",
+            ),
+        );
+        assert_eq!(
+            place(&s, &order),
+            json!([{"qty": 1, "gift": "for Ana"}, {"qty": 2, "gift": "for Bo"}])
+        );
+        asked(
+            &mut s,
+            "forget",
+            (&order, false),
+            json!({"reason": "asked"}),
+        );
+        assert_eq!(
+            placed_lines(&s, &order),
+            json!([
+                {"qty": 1, "note": null, "gift": "for Ana", "memo": null},
+                {"qty": 2, "note": null, "gift": "for Bo", "memo": null},
+            ])
         );
     }
 
