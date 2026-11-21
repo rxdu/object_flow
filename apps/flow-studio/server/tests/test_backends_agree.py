@@ -794,6 +794,7 @@ types:
     transitions:
       open: { kind: initial, to: OPEN, required_inputs: [label], optional_inputs: [cap], description: Opens it. }
       rename: { kind: internal, from: [OPEN], required_inputs: [label], description: Renames it. }
+      recount: { kind: internal, from: [OPEN], description: Counts its holds again. }
       staff: { kind: internal, from: [OPEN], effect: [ { create: { type: Shift, transition: add, inputs: { slot: this } } } ], description: Adds a shift. }
       cancel:
         kind: external
@@ -842,11 +843,14 @@ types:
         follows:
           - { on: [cancel], transition: release, inputs: { note: inputs.why, seen: slot.label, own: label }, limit: 2 }
           - { on: [rename], transition: relabel, inputs: { label: slot.label }, limit: 5 }
+          - { on: [recount], transition: tally, inputs: { n: "1 / zero" }, limit: 5 }
       label: { type: string, optional: true, description: Its label. }
       note: { type: string, optional: true, description: Why it ended. }
       seen: { type: string, optional: true, description: Its slot's label when it ended. }
       own: { type: string, optional: true, description: Its own label when it ended. }
       blocked: { type: bool, default: false, description: Whether it may not end. }
+      zero: { type: int, default: 0, description: Nothing. }
+      n: { type: int, optional: true, description: A count. }
     states:
       HELD: { category: live, description: Held. }
       PAUSED: { category: live, description: Paused. }
@@ -859,6 +863,7 @@ types:
       take: { kind: initial, to: HELD, required_inputs: [slot], optional_inputs: [label, blocked], description: Takes it. }
       pause: { kind: external, from: [HELD], to: PAUSED, description: Pauses it. }
       relabel: { kind: internal, from: [HELD, PAUSED], required_inputs: [label], description: Relabels it. }
+      tally: { kind: internal, from: [HELD, PAUSED], optional_inputs: [n], description: Counts it. }
       drop: { kind: external, from: [HELD, PAUSED], to: RELEASED, description: Drops it. }
       release: { kind: external, from: [HELD], to: RELEASED, optional_inputs: [note, seen, own], guards: { not_blocked: deny }, only_via: [Slot.cancel], description: Releases it. }
   Tag:
@@ -885,7 +890,9 @@ def test_followers_are_driven_and_refused_alike(tee):
     `the follow on Hold.slot`, three final followers passed over and not
     counted; a paused follower `unavailable` in its own state, and a blocked
     one `unsatisfied` naming `Hold.not_blocked`, and one whose invariant the
-    follow breaks with what the request gave `self_serviceable`; a proposal
+    follow breaks with what the request gave `self_serviceable`; a clause's
+    input a division by zero left with none `value_in_range`, naming the
+    follower (ADR-0293 decision 1); a proposal
     driving them
     once approved; and a guard of the slot reading its referrers counting
     them."""
@@ -962,6 +969,13 @@ def test_followers_are_driven_and_refused_alike(tee):
     made("Hold", "take", {"slot": g})
     v = act(g, "cancel", {"why": "bad"})
     assert (v["kind"], v["remedy"], v["failures"][0]["invariant"]) == ("invariant_violated", "self_serviceable", "fair"), v
+    # a clause's input a division by zero left with none refuses, unqualified, naming the follower (ADR-0293)
+    r = made("Slot", "open", {"label": "J"})
+    rh = made("Hold", "take", {"slot": r})
+    made("Hold", "take", {"slot": r})
+    v = act(r, "recount")
+    assert (v["kind"], v["clause"], v["objects"]) == ("unsatisfied", "value_in_range", [rh]), v
+    assert get(rh)["attributes"].get("n") is None
     # a guard reading the referrers counts the followers; a proposal drives
     # them once approved
     crowded = made("Slot", "open", {"label": "G", "cap": 1})

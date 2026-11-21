@@ -21940,6 +21940,7 @@ types:
     transitions:
       open: { kind: initial, to: OPEN, required_inputs: [label], optional_inputs: [cap] }
       rename: { kind: internal, from: [OPEN], required_inputs: [label] }
+      recount: { kind: internal, from: [OPEN] }
       staff: { kind: internal, from: [OPEN], effect: [ { create: { type: Shift, transition: add, inputs: { slot: this } } } ] }
       cancel:
         kind: external
@@ -21981,11 +21982,14 @@ types:
         follows:
           - { on: [cancel], transition: release, inputs: { note: inputs.why, seen: slot.label, own: label }, limit: 2 }
           - { on: [rename], transition: relabel, inputs: { label: slot.label }, limit: 5 }
+          - { on: [recount], transition: tally, inputs: { n: "1 / zero" }, limit: 5 }
       label: { type: string, optional: true }
       note: { type: string, optional: true }
       seen: { type: string, optional: true }
       own: { type: string, optional: true }
       blocked: { type: bool, default: false }
+      zero: { type: int, default: 0 }
+      n: { type: int, optional: true }
     states:
       HELD: { category: live }
       PAUSED: { category: live }
@@ -21998,6 +22002,7 @@ types:
       take: { kind: initial, to: HELD, required_inputs: [slot], optional_inputs: [label, blocked] }
       pause: { kind: external, from: [HELD], to: PAUSED }
       relabel: { kind: internal, from: [HELD, PAUSED], required_inputs: [label] }
+      tally: { kind: internal, from: [HELD, PAUSED], optional_inputs: [n] }
       drop: { kind: external, from: [HELD, PAUSED], to: RELEASED }
       release: { kind: external, from: [HELD], to: RELEASED, optional_inputs: [note, seen, own], guards: { not_blocked: deny }, only_via: [Slot.cancel] }
   Tag:
@@ -22187,10 +22192,35 @@ types:
     /// A request a follow refuses leaves the store as it was: every row, the
     /// counters and the log, one attempt more (PRD F2).
     fn cancel_refused_whole(s: &mut Store, slot: &str, inputs: Json) -> Verdict {
+        refused_whole(s, slot, "cancel", inputs).0
+    }
+
+    /// The same, of any transition of the slot, with what the refusal tells.
+    fn refused_whole(s: &mut Store, slot: &str, xn: &str, inputs: Json) -> (Verdict, Told) {
         let before = rows(s);
         let (position, object) = (counter(s, "position"), counter(s, "object"));
         let logged = attempts(s).len();
-        let v = req(s, "cancel", OPERATOR, (slot, false), inputs);
+        let r = Request {
+            transition: xn.into(),
+            actor: OPERATOR.into(),
+            object_id: Some(slot.to_string()),
+            type_: None,
+            inputs: inputs
+                .as_object()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: None,
+            idempotency_key: None,
+            context: None,
+        };
+        let (v, told) = request_told(s, &r).unwrap().unwrap();
         assert!(!matches!(v, Verdict::Satisfied { .. }), "{v:?}");
         assert_eq!(rows(s), before, "a row changed: {v:?}");
         assert_eq!(
@@ -22199,7 +22229,44 @@ types:
             "{v:?}"
         );
         assert_eq!(attempts(s).len(), logged + 1, "{v:?}");
-        v
+        (v, told)
+    }
+
+    /// A follow clause's input a division by zero left with no value refuses
+    /// the request as `value_in_range`, unqualified, naming the follower its
+    /// expression is read over and not the slot, and writes nothing: neither
+    /// follower, nor the slot's own transition (ADR-0293 decision 1, PRD F2).
+    /// On both backends.
+    #[test]
+    fn a_follows_input_left_with_no_value_refuses_naming_the_follower() {
+        let mut s = following_store();
+        let a = created(&req(
+            &mut s,
+            "open",
+            OPERATOR,
+            ("Slot", true),
+            json!({"label": "A"}),
+        ));
+        let take = |s: &mut Store| {
+            created(&req(
+                s,
+                "take",
+                OPERATOR,
+                ("Hold", true),
+                json!({"slot": a}),
+            ))
+        };
+        let first = take(&mut s);
+        take(&mut s);
+        let (v, told) = refused_whole(&mut s, &a, "recount", json!({}));
+        assert_eq!(
+            v,
+            Verdict::Unsatisfied {
+                clause: "value_in_range".into(),
+                remedy: Some(Remedy::UnreachableFromHere)
+            }
+        );
+        assert_eq!(told.objects, vec![first]);
     }
 
     /// A follow drives at most its limit of followers, those in a final state
