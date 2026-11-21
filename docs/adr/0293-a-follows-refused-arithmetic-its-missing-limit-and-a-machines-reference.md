@@ -1,6 +1,6 @@
 # ADR-0293: A follow's refused arithmetic, its missing limit and a machine's reference
 
-- **Status:** **Decided** 2026-11-22, accepted in advance under the author's direction of 2026-09-28 as confident recommendations, the build of ADR-0292 having found each point open in its text. Each may still change before 0.32.0 is cut, and is fixed once it is (ADR-0180 decision 2).
+- **Status:** **Decided** 2026-11-22, accepted in advance under the author's direction of 2026-09-28 as confident recommendations, the build of ADR-0292 having found each point open in its text. Each may still change before 0.32.0 is cut, and is fixed once it is (ADR-0180 decision 2). Built: decisions 2 and 3 with ADR-0292, `dd1d3f7b`, and decision 1 in `248cb576`, held by a test since `2af6baf0`.
 - **Date:** 2026-11-22
 - **Refines:** ADR-0292 decisions 1, 5 and 10; ADR-0277 decision 2
 - **Relates to:** ADR-0185 (an effect's value an arithmetic left with none refuses); `docs/guides/errors.md`; issue #103
