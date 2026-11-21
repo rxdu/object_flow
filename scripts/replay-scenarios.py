@@ -172,7 +172,7 @@ def port_version(doc, machines):
     its invariants, derived attributes, observations and metrics, and its states, a bound machine's copied, and
     declares the external identifier `legacy_key`, where it declares none, which the import fills with the legacy
     key; and it drops every transition but an erasure, the conditions only those read, and a composite end's
-    cascade, which name transitions it no longer has (`declaration-syntax.md` §2), a minted identifier, since the
+    cascade and a reference's follows, which name transitions it no longer has (`declaration-syntax.md` §2), a minted identifier, since the
     import gives every value and nothing mints, and the machines no type binds."""
     doc = copy.deepcopy(doc)
     doc.pop("machines", None)
@@ -187,7 +187,7 @@ def port_version(doc, machines):
                 out[k] = v
                 out["mirror"] = True
             elif k == "attributes":
-                attrs = {a: {kk: vv for kk, vv in spec.items() if kk not in ("cascade", "survives", "identifier")}
+                attrs = {a: {kk: vv for kk, vv in spec.items() if kk not in ("cascade", "survives", "follows", "identifier")}
                          if isinstance(spec, dict) else spec for a, spec in v.items()}
                 if not t.get("abstract") and not any(isinstance(sp, dict) and sp.get("external")
                                                       for sp in attrs.values()):

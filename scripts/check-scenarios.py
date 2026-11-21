@@ -762,6 +762,12 @@ class Store:
                 for cl in a.get("cascade") or []:
                     if cl["transition"] == xn and self.attr_ref(ctn, an) == tn:
                         rows += [{"cause": f"{ctn}.{on}", "through": an, "where": None, "limit": cl["limit"]} for on in cl["on"]]
+                # a follow, printed where it lands, on the follower's own transition, its cause the transition of the
+                # object its reference names (ADR-0292 decision 9)
+                for cl in (a.get("follows") or []) if ctn == tn else []:
+                    if cl["transition"] == xn:
+                        rows += [{"cause": f"{self.attr_ref(ctn, an)}.{on}", "through": an, "where": None,
+                                  "limit": cl["limit"]} for on in cl["on"]]
         printed = "caused by" if self.types[tn]["transitions"][xn].get("only_via") else "also caused by"
         return [{**r, "printed": printed} for r in rows]
 
@@ -1665,8 +1671,37 @@ PLANTS = [
 ]
 
 
-def self_test(text, journey_text):
+def follows_printed():
+    """A follow prints where it lands, under the follower's transition, as `caused by` where that transition is only
+    via the one it follows and `also caused by` otherwise, its cause the transition of the object its reference names,
+    through the reference, and its bound (renderers.md §2, ADR-0292 decision 9); a transition nothing follows prints
+    none."""
+    bare = Store.__new__(Store)
+    bare.types = {
+        "Slot": {"attributes": {"label": {"type": "string"}},
+                 "transitions": {"cancel": {"kind": "external"}, "move": {"kind": "internal"}}},
+        "Hold": {"attributes": {"slot": {"reference": "Slot", "follows": [
+                     {"on": ["cancel"], "transition": "release", "limit": 5},
+                     {"on": ["move"], "transition": "shift", "limit": 3}]}},
+                 "transitions": {"release": {"kind": "external", "only_via": ["Slot.cancel"]},
+                                 "shift": {"kind": "internal"}, "drop": {"kind": "external"}}},
+    }
+    want = {
+        "release": [{"cause": "Slot.cancel", "through": "slot", "where": None, "limit": 5, "printed": "caused by"}],
+        "shift": [{"cause": "Slot.move", "through": "slot", "where": None, "limit": 3, "printed": "also caused by"}],
+        "drop": [],
+    }
     ok = True
+    for xn, rows in want.items():
+        got = bare.causes_of("Hold", xn)
+        hit = got == rows
+        ok &= hit
+        print(f"  a follow printed under Hold.{xn}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
+def self_test(text, journey_text):
+    ok = follows_printed()
     for name, old, new in PLANTS:
         if callable(new):
             planted = re.sub(old, new, text, count=1, flags=re.M)
