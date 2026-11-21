@@ -1193,6 +1193,15 @@ class Sandbox:
                     served[j] = jsonable(
                         {k: v for k, v in spec.items() if k != flows.DERIVED})
                     served[j]["derived_from"] = spec[flows.DERIVED][0]
+        # each list a create's `each` takes, beside the act's own inputs, by
+        # its entries' fields, its limit, its default and its target, and no
+        # type, as the core serves it (ADR-0290 decision 5)
+        for xn, x in (t.get("transitions") or {}).items():
+            for n, e in ((x or {}).get(flows.ENTRIES) or {}).items():
+                served = out["transitions"][xn].setdefault("inputs", {})
+                served[n] = {"entries": jsonable(e["fields"]),
+                             "limit": e["limit"], "default": [],
+                             "derived_from": e["target"]}
         # the members of each enumeration the type's attributes are of, which
         # its rules are read against
         used = {str((spec or {}).get("type", "")).removesuffix("[]")
@@ -1200,6 +1209,11 @@ class Sandbox:
         used |= {str((spec or {}).get("type", "")).removesuffix("[]")
                  for x in (t.get("transitions") or {}).values()
                  for spec in (x.get("inputs") or {}).values()}
+        # and those an entry's fields are of (ADR-0290)
+        used |= {str((spec or {}).get("type", "")).removesuffix("[]")
+                 for x in (t.get("transitions") or {}).values()
+                 for e in ((x or {}).get(flows.ENTRIES) or {}).values()
+                 for spec in e["fields"].values()}
         out["enumerations"] = {e: list(runner.enums[e])
                                for e in sorted(used)
                                if e in runner.enums}

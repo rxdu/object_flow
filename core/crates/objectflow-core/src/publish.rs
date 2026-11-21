@@ -2111,6 +2111,13 @@ fn proposals(world: &World<'_>, new: &Library, found: &mut Found) -> Result<usiz
                         // is a value it no longer holds (ADR-0239)
                         match declared {
                             None => true,
+                            // a list an each takes: more entries than its
+                            // limit, or an entry holding a field it no longer
+                            // takes or a value its field no longer holds
+                            // (ADR-0290)
+                            Some((crate::model::Declared::Entries(e), _, _)) => {
+                                entries_break(v, e, new)
+                            }
                             Some((d, many, media)) => crate::wire::decode(v, d, many, new)
                                 .map_or(true, |v| !crate::request::media_taken(media, &v)),
                         }
@@ -2128,6 +2135,28 @@ fn proposals(world: &World<'_>, new: &Library, found: &mut Found) -> Result<usiz
         }
     }
     Ok(n)
+}
+
+/// Whether a pending proposal's list no longer fits the list an each takes
+/// under a new version: more entries than its limit, an entry that is no
+/// object, or one holding a field the target no longer takes or a value its
+/// field no longer holds, each judged as an input's value is, by its type
+/// alone (ADR-0290).
+fn entries_break(v: &serde_json::Value, e: &crate::model::Entries, new: &Library) -> bool {
+    let Some(items) = v.as_array() else {
+        return !v.is_null();
+    };
+    i64::try_from(items.len()).unwrap_or(i64::MAX) > e.limit
+        || items.iter().any(|entry| {
+            entry.as_object().is_none_or(|given| {
+                given.iter().any(|(f, x)| match e.field(f) {
+                    None => true,
+                    Some(_) if x.is_null() => false,
+                    Some(i) => crate::wire::decode(x, &i.declared, i.many, new)
+                        .map_or(true, |v| !crate::request::media_taken(&i.media_types, &v)),
+                })
+            })
+        })
 }
 
 /// Whether a new list of media types takes less than the installed one: it
@@ -4340,6 +4369,141 @@ types:
         let change = lab_draft(&mut s, &widened);
         let r = run_on(&s, &change, "lab", &widened);
         assert_eq!(ids(&r, "proposals_invalidated"), Vec::<String>::new());
+    }
+
+    /// A pending proposal's list a new version no longer takes as it stands
+    /// is one the version invalidates, in the core as in the reference: an
+    /// entry holding a field the target no longer takes, or more entries
+    /// than the new limit; one that still fits is not (ADR-0290).
+    #[test]
+    fn a_proposal_holding_entries_the_version_no_longer_takes_is_invalidated() {
+        const PLACED: &str = r#"module: placed
+categories: [live, closed]
+types:
+  Product:
+    description: A product an order's line takes.
+    tracking: record
+    attributes:
+      code: { type: string, description: Its code. }
+    states:
+      LISTED: { description: Listed., category: live }
+      RETIRED: { description: Retired., category: closed, final: true }
+    transitions:
+      list: { kind: initial, to: LISTED, required_inputs: [code], description: Lists it. }
+      retire: { kind: external, from: [LISTED], to: RETIRED, description: Retires it. }
+  Order:
+    description: An order placed with its lines.
+    tracking: record
+    attributes:
+      title: { type: string, description: Its title. }
+    states:
+      PLACED: { description: Placed., category: live }
+      CLOSED: { description: Closed., category: closed, final: true }
+    transitions:
+      place:
+        kind: initial
+        to: PLACED
+        required_inputs: [title]
+        proposable: true
+        description: Places it with its lines.
+        effect:
+          - create: { type: Line, transition: add, inputs: { order: this }, each: lines, limit: 3 }
+      close: { kind: external, from: [PLACED], to: CLOSED, description: Closes it. }
+  Line:
+    description: A line of an order.
+    tracking: record
+    attributes:
+      order: { reference: Order, description: Its order. }
+      product: { reference: Product, description: Its product. }
+      qty: { type: int, description: How many units. }
+      rush: { type: bool, optional: true, description: Whether it ships first. }
+    states:
+      OPEN: { description: Open., category: live }
+      CLOSED: { description: Closed., category: closed, final: true }
+    transitions:
+      add:
+        kind: initial
+        to: OPEN
+        description: Adds it.
+        required_inputs: [order, product, qty]
+        optional_inputs: [rush]
+      close: { kind: external, from: [OPEN], to: CLOSED, description: Closes it. }
+"#;
+        let lib = Library::load(&[("placed.yaml".into(), PLACED.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let product = created(&req(
+            &mut s,
+            "list",
+            ("Product", true),
+            json!({"code": "A"}),
+        ));
+        let propose = |s: &mut Store, lines: Json| -> String {
+            let r = Request {
+                transition: "place".into(),
+                actor: OPERATOR.into(),
+                object_id: None,
+                type_: Some("Order".into()),
+                inputs: [
+                    ("title".to_string(), json!("Asked")),
+                    ("lines".to_string(), lines),
+                ]
+                .into_iter()
+                .collect(),
+                occurred_at: None,
+                propose: true,
+                expires_at: None,
+                expected_version: None,
+                target_version: None,
+                principal: None,
+                idempotency_key: None,
+                context: None,
+            };
+            created(&request(s, &r).unwrap().unwrap())
+        };
+        let rushed = propose(
+            &mut s,
+            json!([{"product": product, "qty": 1, "rush": true}]),
+        );
+        let plain = propose(
+            &mut s,
+            json!([{"product": product, "qty": 1}, {"product": product, "qty": 2}]),
+        );
+        let draft = |s: &mut Store, text: &str| -> String {
+            created(&req(
+                s,
+                "draft",
+                (crate::model::DECLARATION_CHANGE, true),
+                json!({"source": {"placed": text}, "source_ref": "git:placed@2"}),
+            ))
+        };
+        let later = |old: &str, new: &str| -> String {
+            assert_eq!(PLACED.matches(old).count(), 1, "{old}");
+            PLACED.replace(old, new)
+        };
+        // the line's rush dropped: an entry holding it no longer fits
+        let dropped = later(
+            "      rush: { type: bool, optional: true, description: Whether it ships first. }\n",
+            "",
+        )
+        .replace("        optional_inputs: [rush]\n", "");
+        let change = draft(&mut s, &dropped);
+        let r = run_on(&s, &change, "placed", &dropped);
+        assert_eq!(
+            ids(&r, "proposals_invalidated"),
+            vec![rushed.clone()],
+            "{:?}",
+            r.findings
+        );
+        // the limit lowered: a list past it no longer fits
+        let lowered = later("each: lines, limit: 3", "each: lines, limit: 1");
+        let change = draft(&mut s, &lowered);
+        let r = run_on(&s, &change, "placed", &lowered);
+        assert_eq!(
+            ids(&r, "proposals_invalidated"),
+            vec![plain],
+            "{:?}",
+            r.findings
+        );
     }
 
     #[test]

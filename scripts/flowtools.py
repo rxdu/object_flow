@@ -12,7 +12,7 @@ that kind (decision 1).
 import re
 
 import flowexpr
-from flowrun import MINOR_UNITS
+from flowrun import ENTRIES, MINOR_UNITS
 
 ACTOR_KINDS = ("human", "agent", "service")
 PAGE_DEFAULT, PAGE_LIMIT = 100, 1000     # a page of objects as the wire answers it (ADR-0179)
@@ -98,6 +98,17 @@ def inputs_schema(t, x, enums):
         props[name] = schema_of(spec, enums)
         if not (spec or {}).get("optional") and "default" not in (spec or {}):
             required.append(name)
+    # a list an each takes, never required: at most its limit, each entry an object of its fields, each its own input's
+    # type (ADR-0290)
+    for name, e in (x.get(ENTRIES) or {}).items():
+        fields = e["fields"]
+        kind = e["target"].split(".")[0]
+        props[name] = {"type": "array", "maxItems": e["limit"],
+                       "items": {"type": "object", "properties": {f: schema_of(fields[f], enums) for f in sorted(fields)},
+                                 "required": [f for f in sorted(fields)
+                                              if not fields[f].get("optional") and "default" not in fields[f]],
+                                 "additionalProperties": False},
+                       "description": f"at most {e['limit']} entries, one {kind} created by {e['target']} for each"}
     out = {"type": "object", "properties": props, "additionalProperties": False}
     if required:
         out["required"] = sorted(set(required))

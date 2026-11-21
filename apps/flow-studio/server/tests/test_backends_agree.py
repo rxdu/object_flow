@@ -659,3 +659,62 @@ def test_entries_are_taken_and_refused_alike(tee):
                                         "inputs": {"title": "Asked", "lines": [line]}})
     assert proposed["kind"] == "satisfied", proposed
     assert tee.found[before:] == [], tee.found[before:]
+
+
+def test_entries_are_declared_offered_and_published_alike(tee):
+    """A list a create's `each` takes (ADR-0290) is served alike by both
+    backends: `declaration` describes it by its entries' fields, its limit,
+    its default and its target, and lists the enumerations its fields read;
+    an offer types it `entries(<Type>.<transition>)` and takes it as no
+    required input; an agent's tool takes it as an array of objects; and a
+    publish invalidates a pending proposal whose entry holds a field the
+    version no longer takes."""
+    tee.module = "placing (declared)"
+    before = len(tee.found)
+    op = {"id": "operator"}
+    extended = PLACING.replace(
+        "      close: { kind: external, from: [PLACED], to: CLOSED, description: Closes it. }\n  Line:",
+        "      close: { kind: external, from: [PLACED], to: CLOSED, description: Closes it. }\n"
+        "      extend:\n        kind: internal\n        from: [PLACED]\n        description: Adds lines to it.\n"
+        "        effect:\n"
+        "          - create: { type: Line, transition: add, inputs: { order: this }, each: more, limit: 2 }\n"
+        "  Line:")
+    assert extended != PLACING
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "placing.yaml",
+                                                   "text": extended}]})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+    decl = tee.post("/v1/declaration", {"type": "Order"})
+    assert decl["transitions"]["place"]["inputs"]["lines"] == {
+        "entries": {
+            "product": {"reference": "Product", "description": "Its product."},
+            "qty": {"type": "int", "description": "How many units."},
+            "rush": {"type": "bool", "description": "Whether it ships first.", "optional": True},
+            "size": {"type": "Size", "description": "Its size.", "optional": True}},
+        "limit": 3, "default": [], "derived_from": "Line.add"}, decl
+    assert decl["enumerations"] == {"Size": ["S", "M", "L"]}, decl
+    a = tee.post("/v1/request", {"actor": op, "type": "Product", "transition": "list",
+                                 "inputs": {"code": "A"}})["object_id"]
+    order = tee.post("/v1/request", {"actor": op, "type": "Order", "transition": "place",
+                                     "inputs": {"title": "First"}})["object_id"]
+    offers = {o["transition"]: o for o in tee.post("/v1/availability", {"actor": op, "id": order})}
+    assert offers["extend"]["inputs"] == {"more": "entries(Line.add)"}, offers["extend"]
+    assert offers["extend"]["availability"] == "available", offers["extend"]
+    tools = {t["name"]: t for t in tee.post("/v1/tools", {"actor_kind": "human"})["tools"]}
+    lines = tools["order_place"]["input_schema"]["properties"]["inputs"]["properties"]["lines"]
+    assert (lines["type"], lines["maxItems"], lines["items"]["required"]) == ("array", 3, ["product", "qty"]), lines
+    assert "lines" not in tools["order_place"]["input_schema"]["properties"]["inputs"].get("required", []), lines
+    proposed = tee.post("/v1/request", {"actor": op, "type": "Order", "transition": "place", "propose": True,
+                                        "inputs": {"title": "Asked",
+                                                   "lines": [{"product": a, "qty": 1, "rush": True}]}})
+    assert proposed["kind"] == "satisfied", proposed
+    dropped = extended.replace(
+        "      rush: { type: bool, optional: true, description: Whether it ships first. }\n", "").replace(
+        "        optional_inputs: [rush, size]\n", "        optional_inputs: [size]\n")
+    assert dropped.count("rush") == 0, dropped
+    change = tee.post("/v1/request", {"actor": op, "type": "DeclarationChange", "transition": "draft",
+                                      "inputs": {"source": {"placing": dropped},
+                                                 "source_ref": "git:placing@2"}})["object_id"]
+    report = tee.post("/v1/publish", {"actor": op, "change": change, "dry_run": True})["report"]
+    assert report["affected"]["proposals_invalidated"] == [proposed["object_id"]], report
+    assert tee.found[before:] == [], tee.found[before:]

@@ -4564,11 +4564,17 @@ async fn declaration(State(shared): State<Shared>, Body(body): Body) -> Answer {
         }
         // the members of each enumeration the type's attributes and inputs are of
         let mut used = Map::new();
-        let decl = t.attributes.iter().map(|(_, a)| &a.declared).chain(
-            t.transitions
+        // and those an entry's fields of a list an each takes are of (ADR-0290)
+        let decl =
+            t.attributes
                 .iter()
-                .flat_map(|(_, x)| x.inputs.iter().map(|(_, i)| &i.declared)),
-        );
+                .map(|(_, a)| &a.declared)
+                .chain(t.transitions.iter().flat_map(|(_, x)| {
+                    x.inputs.iter().flat_map(|(_, i)| match &i.declared {
+                        Declared::Entries(e) => e.fields.iter().map(|(_, f)| &f.declared).collect(),
+                        d => vec![d],
+                    })
+                }));
         for d in decl {
             if let Declared::Scalar(e) = d
                 && let Some(members) = lib.enumerations.get(e)

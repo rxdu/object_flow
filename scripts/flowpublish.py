@@ -1223,10 +1223,16 @@ def proposals(store, kinds, found):
         breaks = x is None or not x.get("proposable")
         if not breaks:
             declared, attrs = x.get("inputs") or {}, t.get("attributes") or {}
-            taken = set(x.get("required_inputs") or []) | set(x.get("optional_inputs") or []) | set(declared)
+            lists = x.get(flowrun.ENTRIES) or {}
+            taken = set(x.get("required_inputs") or []) | set(x.get("optional_inputs") or []) | set(declared) | set(lists)
             breaks = any(k not in taken for k in (p.get("inputs") or {}))
             breaks = breaks or any(flowrun.media_fault(declared.get(k) if k in declared else attrs.get(k), v)
-                                   for k, v in (p.get("inputs") or {}).items())
+                                   for k, v in (p.get("inputs") or {}).items() if k not in lists)
+            # a list an each takes: more entries than its limit, or an entry holding a field it no longer takes (ADR-0290)
+            breaks = breaks or any(
+                isinstance(v, (list, tuple)) and (len(v) > (lists[k]["limit"] or 0) or any(
+                    not isinstance(entry, dict) or any(f not in lists[k]["fields"] for f in entry) for entry in v))
+                for k, v in (p.get("inputs") or {}).items() if k in lists)
         if breaks:
             n += 1
             found.add("notice", "proposals_invalidated", "pending proposals the version invalidates", pid)
