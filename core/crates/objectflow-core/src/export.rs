@@ -523,7 +523,10 @@ fn event_row(world: &World<'_>, then: &mut TypesThen<'_, '_>, e: &Event) -> Resu
 /// Each list an each takes that an event's inputs hold, each entry's
 /// personal fields left out, as an erasure judges them: under the installed
 /// version and under the version its event was written under; the lists so
-/// read, which the payload keeps (ADR-0290 decision 3).
+/// read, which the payload keeps (ADR-0290 decision 3). A value is read so
+/// only where the event's own version took its name as a list and it is an
+/// array, and the installed version holds the name as no other kind of
+/// personal input; any other is judged whole as an input is.
 fn strip_entry_fields(
     world: &World<'_>,
     type_: Option<&str>,
@@ -540,21 +543,26 @@ fn strip_entry_fields(
         return lists;
     };
     for (k, v) in inputs.iter_mut() {
-        let personal = |f: &str| {
-            let a = now.and_then(|x| crate::request::entry_field_personal(world.lib, x, k, f));
-            let b = then.and_then(|x| crate::request::entry_field_personal(was.then_lib, x, k, f));
-            match (a, b) {
-                (None, None) => None,
-                (a, b) => Some(a.unwrap_or(false) || b.unwrap_or(false)),
-            }
+        let at = |lib: &Library, x: Option<&crate::model::Transition>, f: &str| {
+            x.and_then(|x| crate::request::entry_field_personal(lib, x, k, f))
         };
-        if personal("").is_none() {
+        // the event's own version took no list of that name, or recorded no
+        // array: the input's own rules judge it whole, as any input
+        if at(was.then_lib, then, "").is_none() || !v.is_array() {
+            continue;
+        }
+        // the installed version takes it as another kind of input, personal
+        // there: left out whole, since what is unclear is left out
+        if at(world.lib, now, "").is_none() && personal(world.lib, type_, transition, k) {
             continue;
         }
         lists.insert(k.clone());
+        let personal = |f: &str| {
+            at(world.lib, now, f).unwrap_or(false) || at(was.then_lib, then, f).unwrap_or(false)
+        };
         for entry in v.as_array_mut().into_iter().flatten() {
             if let Some(fields) = entry.as_object_mut() {
-                fields.retain(|f, _| personal(f) != Some(true));
+                fields.retain(|f, _| !personal(f));
             }
         }
     }
@@ -1979,6 +1987,61 @@ types:
                 {"qty": 2, "note": null, "gift": "for Bo", "memo": null},
             ])
         );
+    }
+
+    /// A name one version takes as a declared input and another as a list
+    /// an each takes is judged by the version its event was written under:
+    /// a personal text recorded before the list is erased whole and left
+    /// out of an export, and a list recorded before the name became a
+    /// personal input is too, since what is unclear is redacted (ADR-0290
+    /// decision 3, fail closed).
+    #[test]
+    fn a_name_another_version_reads_otherwise_is_erased_whole() {
+        let step = "        effect:\n          - create: { type: Line, transition: add, inputs: { order: this }, each: lines, limit: 3 }\n";
+        assert_eq!(ORDERED.matches(step).count(), 1);
+        let texted = ORDERED.replace(
+            step,
+            "        inputs:\n          lines: { type: string, optional: true, personal: true, description: The lines as told. }\n",
+        );
+        let place = |s: &Store, order: &str| -> Option<Json> {
+            rows_of(s, "log")
+                .into_iter()
+                .find(|r| r["object_id"] == json!(order) && r["transition"] == json!("place"))
+                .unwrap()["payload"]["inputs"]
+                .get("lines")
+                .cloned()
+        };
+        // a personal text before, a list after
+        let lib = Library::load(&[("ordered.yaml".into(), texted.clone())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let order = asked(
+            &mut s,
+            "place",
+            ("Order", true),
+            json!({"title": "First", "lines": "ring Ana first"}),
+        );
+        published_as(&mut s, "ordered", ORDERED);
+        assert_eq!(place(&s, &order), None);
+        asked(
+            &mut s,
+            "forget",
+            (&order, false),
+            json!({"reason": "asked"}),
+        );
+        assert_eq!(placed_lines(&s, &order), Json::Null);
+        // a list before, a personal text after
+        let lib = Library::load(&[("ordered.yaml".into(), ORDERED.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+        let (order, _) = ordered(&mut s);
+        published_as(&mut s, "ordered", &texted);
+        assert_eq!(place(&s, &order), None);
+        asked(
+            &mut s,
+            "forget",
+            (&order, false),
+            json!({"reason": "asked"}),
+        );
+        assert_eq!(placed_lines(&s, &order), Json::Null);
     }
 
     /// Every row of a source, read whole.

@@ -8166,6 +8166,19 @@ fn write(
                 params![format!("$.inputs.\"{key}\"")],
                 |_, payload| at_path(payload, &["inputs", key.as_str()]).is_some_and(in_entries),
             )?;
+            // a proposal of a transition of the type: its own events, which
+            // hold the inputs it proposed (S18)
+            rewrite_json(
+                tx,
+                "of_event",
+                "position",
+                "payload",
+                "SELECT position, payload FROM of_event \
+                 WHERE object_id IN (SELECT id FROM t_proposal WHERE target_type = ?2) \
+                 AND json_type(payload, ?1) = 'array'",
+                params![format!("$.inputs.\"{key}\""), tn],
+                |_, payload| at_path(payload, &["inputs", key.as_str()]).is_some_and(in_entries),
+            )?;
             rewrite_json(
                 tx,
                 "t_proposal",
@@ -8175,6 +8188,28 @@ fn write(
                  WHERE target_type = ?2 AND json_valid(inputs) AND json_type(inputs, ?1) = 'array'",
                 params![format!("$.\"{key}\""), tn],
                 |_, inputs| at_path(inputs, &[key.as_str()]).is_some_and(in_entries),
+            )?;
+            // and those inputs as its events wrote them, text (ADR-0209
+            // decision 2)
+            rewrite_written(
+                tx,
+                &format!(
+                    "SELECT position, payload FROM of_event WHERE object_id IN \
+                     (SELECT id FROM t_proposal WHERE target_type = '{}') AND json_type(payload, ?1) = 'text'",
+                    tn.replace('\'', "''")
+                ),
+                "$.wrote.inputs",
+                "/wrote/inputs",
+                |v| {
+                    let mut held: serde_json::Map<String, serde_json::Value> =
+                        serde_json::from_str(v.as_str()?).ok()?;
+                    if !in_entries(held.get_mut(list.as_str())?) {
+                        return None;
+                    }
+                    Some(serde_json::Value::String(
+                        serde_json::Value::Object(held).to_string(),
+                    ))
+                },
             )?;
             rewrite_json(
                 tx,

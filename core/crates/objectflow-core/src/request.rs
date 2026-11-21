@@ -2579,18 +2579,26 @@ fn take_unwound(
                     // as the version its event was written under or the
                     // installed one declares it, the list itself kept
                     // (ADR-0290 decision 3)
-                    if let Some(fields) = entry_fields_personal(
+                    match entry_fields_personal(
                         ctx.work.library_at(e.declaration_version),
                         tv.transition(&e.transition),
                         lib,
+                        t,
                         t.transition(&e.transition),
                         name,
                         &recorded[name],
                     ) {
-                        for (n, f) in fields {
-                            ctx.redacted_entries.push((e.position, name.clone(), n, f));
+                        EntryRedaction::Fields(fields) => {
+                            for (n, f) in fields {
+                                ctx.redacted_entries.push((e.position, name.clone(), n, f));
+                            }
+                            continue;
                         }
-                        continue;
+                        EntryRedaction::Whole => {
+                            ctx.redacted_inputs.push((e.position, name.clone()));
+                            continue;
+                        }
+                        EntryRedaction::Input => {}
                     }
                     if personal_by_own(tv, ex, name)
                         || tv.attribute(name).is_some_and(|a| a.personal)
@@ -3409,42 +3417,62 @@ pub(crate) fn entry_field_personal(
     )
 }
 
-/// Each personal field of each entry of a list an event recorded, as the
-/// version it was written under or the installed one declares it, by entry
-/// and field; none where `list` is a list neither version's transition takes
-/// (ADR-0290 decision 3).
+/// How an erasure redacts what an event recorded under a name that may be a
+/// list an each takes (ADR-0290 decision 3).
+enum EntryRedaction {
+    /// No list the event's own version took, or no array recorded: the
+    /// input's own rules judge it whole, as any input.
+    Input,
+    /// A list the event's version took, which the installed version takes
+    /// as another kind of input it holds personal: redacted whole, since
+    /// what is unclear is redacted (fail closed).
+    Whole,
+    /// Each personal field of each entry, by entry and field, as the
+    /// version its event was written under or the installed one declares
+    /// it.
+    Fields(Vec<(usize, String)>),
+}
+
+/// What an erasure redacts of a value an event recorded under `list`,
+/// judged under the event's version (`then`) and the installed one (`now`):
+/// its entries' fields only where the event's own version took `list` as a
+/// list an each takes and the value is an array (ADR-0290 decision 3).
 fn entry_fields_personal(
     then: &Library,
     then_x: Option<&Transition>,
     now: &Library,
+    now_t: &Type,
     now_x: Option<&Transition>,
     list: &str,
     recorded: &Json,
-) -> Option<Vec<(usize, String)>> {
+) -> EntryRedaction {
+    let takes = |lib: &Library, x: Option<&Transition>| {
+        x.is_some_and(|x| entry_field_personal(lib, x, list, "").is_some())
+    };
+    let Some(entries) = recorded.as_array().filter(|_| takes(then, then_x)) else {
+        return EntryRedaction::Input;
+    };
+    if !takes(now, now_x)
+        && (now_t.attribute(list).is_some_and(|a| a.personal)
+            || now_x.is_some_and(|x| input_personal(now, now_t, x, list)))
+    {
+        return EntryRedaction::Whole;
+    }
     let personal = |f: &str| {
         let at = |lib: &Library, x: Option<&Transition>| {
             x.and_then(|x| entry_field_personal(lib, x, list, f))
         };
-        match (at(then, then_x), at(now, now_x)) {
-            (None, None) => None,
-            (a, b) => Some(a.unwrap_or(false) || b.unwrap_or(false)),
-        }
+        at(then, then_x).unwrap_or(false) || at(now, now_x).unwrap_or(false)
     };
-    let takes = |lib: &Library, x: Option<&Transition>| {
-        x.is_some_and(|x| entry_field_personal(lib, x, list, "").is_some())
-    };
-    if !takes(then, then_x) && !takes(now, now_x) {
-        return None;
-    }
     let mut out = Vec::new();
-    for (n, entry) in recorded.as_array().into_iter().flatten().enumerate() {
+    for (n, entry) in entries.iter().enumerate() {
         for f in entry.as_object().into_iter().flat_map(|o| o.keys()) {
-            if personal(f) == Some(true) {
+            if personal(f) {
                 out.push((n, f.clone()));
             }
         }
     }
-    Some(out)
+    EntryRedaction::Fields(out)
 }
 
 /// Whether an input is personal (`declaration-syntax.md` §10, check 10):
@@ -11384,10 +11412,18 @@ types:
                 json!({"title": "T", "notes": [{"owner": "ann.secret@corp.example"}]}),
             )
         };
-        assert!(matches!(
-            request(&mut s, &filed).unwrap().unwrap(),
-            Verdict::Satisfied { .. }
-        ));
+        let proposal = created(&request(&mut s, &filed).unwrap().unwrap());
+        // the proposal's own events hold what it proposed, as inputs and as
+        // the text its `inputs` was written as
+        let told = |s: &Store| -> String {
+            s.history(&proposal)
+                .unwrap()
+                .iter()
+                .map(|e| e.payload.to_string())
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        assert!(told(&s).contains("ann.secret@corp.example"), "{}", told(&s));
         req(
             &mut s,
             "forget",
@@ -11401,6 +11437,11 @@ types:
             .unwrap();
         let held: Json = serde_json::from_str(&held).unwrap();
         assert_eq!(held["notes"], json!([{"owner": ann}]), "{held}");
+        assert!(
+            !told(&s).to_lowercase().contains("ann.secret") && told(&s).contains(&ann),
+            "{}",
+            told(&s)
+        );
         assert_eq!(
             s.history(&memo).unwrap()[0].payload["inputs"]["notes"],
             json!([{"owner": ann}, {"owner": "bo@corp.example"}])
