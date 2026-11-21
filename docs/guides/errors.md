@@ -46,7 +46,7 @@ Every refusal carries a `remedy`: what the caller can do about it.
 | `satisfied` | Applied. | `object_id`, `version`, `events` (positions, the request's own first), `replayed` (`true` for an idempotent retry), `flags` (warnings raised) |
 | `unsatisfied` | A guard failed. | `clause` (the rule), `unknown` (`true` if it read a value nobody has yet, rather than finding it false), `objects` (what the remedy points at, by id), `proposable`, `inputs` (each input the rule reads, in the order the transition declares them, so a form marks their fields; none for a rule over no input), `consulted` (the outside answers and metric values it decided on) |
 | `invariant_violated` | The change would break a rule that must always hold. | `failures` (each `object_id`, `type`, `invariant`, `remedy`; `object_id` is `null` for an object the request was creating), `objects` (the objects in conflict, such as another holder of a unique value), `proposable` |
-| `invalid_input` | An input is wrong before any rule runs. | `inputs` (the names at fault), `reasons` (each one's reason, below) |
+| `invalid_input` | An input is wrong before any rule runs. | `inputs` (the names at fault), `reasons` (each one's reason, below), and `entries` where an entry of a list a `create`'s `each` takes is at fault: each fault as `{entry, input, reason}`, `entry` counted from 0, `input` the field, `null` for an entry that is no object, by entry and then by field; the list's own reason is its first fault's (ADR-0290) |
 | `unavailable` | The object's state does not allow this transition. | `state` |
 | `unknown_transition` | The type has no transition of that name. | `transition` |
 | `unknown_type` | The installed version has no type of that name, the request's creation naming it; its remedy is `unreachable_from_here` where no version is installed, since only the operator's publish helps, and `self_serviceable` otherwise (ADR-0210 decision 6). | `type` |
@@ -54,8 +54,8 @@ Every refusal carries a `remedy`: what the caller can do about it.
 | `not_proposable` | A proposal (`"propose": true`) of a transition not marked `proposable`, or of a change's or a proposal's own transitions. | none |
 | `stale` | The object moved on, or the store stayed locked. | `cause`: `expected_version` with `expected` and `actual` (re-read, then decide again; an approval's `target_version` is refused the same way), or `retries_exhausted` (remedy `temporal`: another process held the store's write lock too long) |
 | `not_found` | The object does not exist, or is not of the `type` named beside its id, a proposal's or a change's included. | none |
-| `over_limit` | A loop or cascade would pass its declared bound. Nothing was done. | `loop`, `bound` |
-| `call_refused` | A transition this one calls on another object was refused. | `step`, `object_id`, `verdict` (that transition's own verdict, whole) |
+| `over_limit` | A loop or cascade would pass its declared bound, or a list a `create`'s `each` takes holds more entries than its `limit`, `loop` then `each <name>`, decided with the inputs before any rule runs. Nothing was done. | `loop`, `bound` |
+| `call_refused` | A transition this one calls on another object was refused. | `step`, `object_id`, `verdict` (that transition's own verdict, whole), and `entry`, counted from 0, where the creation was one a `create`'s `each` made for an entry (ADR-0290) |
 
 ### Input reasons
 
