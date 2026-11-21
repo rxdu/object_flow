@@ -598,6 +598,8 @@ struct WrittenUnder<'l> {
     /// The library of the event's version, which an entry's field is judged
     /// under (ADR-0290).
     then_lib: &'l Library,
+    /// The installed library, which a hop's target is also judged under.
+    now_lib: &'l Library,
 }
 
 impl<'l> WrittenUnder<'l> {
@@ -626,6 +628,7 @@ impl<'l> WrittenUnder<'l> {
             .unwrap_or_default();
         WrittenUnder {
             then_lib: world.library_at(e.declaration_version),
+            now_lib: world.lib,
             declared: world.type_at(under, then_under),
             recorded,
             transition: transition.to_string(),
@@ -640,10 +643,17 @@ impl<'l> WrittenUnder<'l> {
             return true;
         }
         if input {
-            // the clauses of the event's version, read in its own library
+            // the hops of the event's version, read in its own library, each
+            // target judged under it and the installed one
             self.recorded.is_some_and(|(t, _)| {
                 t.attribute(name).is_some_and(|a| a.personal)
-                    || crate::request::input_personal(self.then_lib, t, &self.transition, name)
+                    || crate::request::input_personal_then(
+                        self.then_lib,
+                        t,
+                        self.now_lib,
+                        &self.transition,
+                        name,
+                    )
             })
         } else {
             self.declared

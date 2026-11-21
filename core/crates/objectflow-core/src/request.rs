@@ -2608,9 +2608,10 @@ fn take_unwound(
                     {
                         ctx.redacted_inputs.push((e.position, name.clone()));
                         tainted.insert(name.clone());
-                    } else if input_personal(
+                    } else if input_personal_then(
                         ctx.work.library_at(e.declaration_version),
                         tv,
+                        lib,
                         &e.transition,
                         name,
                     ) || input_personal(lib, t, &e.transition, name)
@@ -3615,6 +3616,75 @@ fn entry_fields_personal(
 /// name in `t`, and the clauses in `lib`, which is to be the library `t`
 /// belongs to; one `t` does not declare passes nothing.
 pub(crate) fn input_personal(lib: &Library, t: &Type, xn: &str, name: &str) -> bool {
+    let Some(x) = t.transition(xn) else {
+        return false;
+    };
+    personal_by_own(t, x, name) || hops_pass(lib, t, x, xn, name, &marked)
+}
+
+/// Whether an input an event recorded is personal as an erasure and an
+/// export judge it: by the transition and the hops that ran, as the
+/// event's version declared them, read in its library (`then`), each hop's
+/// target personal where that version or the installed one (`now`) marks
+/// it so. A target type, or an argument, the installed library cannot
+/// resolve errs to personal. The installed type's own hops are
+/// `input_personal`'s, which a caller asks beside this.
+pub(crate) fn input_personal_then(
+    then: &Library,
+    t: &Type,
+    now: &Library,
+    xn: &str,
+    name: &str,
+) -> bool {
+    let Some(x) = t.transition(xn) else {
+        return false;
+    };
+    personal_by_own(t, x, name)
+        || hops_pass(then, t, x, xn, name, &|tt, txn, arg| {
+            marked(tt, txn, arg) || marked_now(now, &tt.name, txn, arg)
+        })
+}
+
+/// Whether an argument a hop passes to `xn` on `tt` is personal there: the
+/// attribute it names marked so, or the input personal by `xn` itself.
+fn marked(tt: &Type, xn: &str, arg: &str) -> bool {
+    tt.attribute(arg).is_some_and(|a| a.personal)
+        || tt
+            .transition(xn)
+            .is_some_and(|tx| personal_by_own(tt, tx, arg))
+}
+
+/// Whether the installed library marks an argument a hop passed to `xn` on
+/// the type named personal; a type it does not hold, or an argument that
+/// names neither an attribute of the type nor an input of its `xn`, errs to
+/// personal.
+fn marked_now(now: &Library, type_: &str, xn: &str, arg: &str) -> bool {
+    let Some(nt) = now.type_(type_) else {
+        return true;
+    };
+    let takes = nt.transition(xn).is_some_and(|tx| {
+        tx.required_inputs
+            .iter()
+            .chain(&tx.optional_inputs)
+            .chain(tx.inputs.iter().map(|(n, _)| n))
+            .any(|n| n == arg)
+    });
+    !(nt.attribute(arg).is_some() || takes) || marked(nt, xn, arg)
+}
+
+/// Whether a transition passes an input, one hop on, into an argument
+/// `judge` holds personal on the type it reaches: by a step of its effect,
+/// a cascade clause of `t` on it or a follows clause on it, each read in
+/// `lib`.
+fn hops_pass(
+    lib: &Library,
+    t: &Type,
+    x: &Transition,
+    xn: &str,
+    name: &str,
+    judge: &dyn Fn(&Type, &str, &str) -> bool,
+) -> bool {
+    type Judge<'j> = &'j dyn Fn(&Type, &str, &str) -> bool;
     // what a create or a call passes it into, one hop on, as `writes_of`
     // reads a step (D547): an argument the taken transition holds personal,
     // where the input was recorded in clear on the caller's event and
@@ -3622,7 +3692,7 @@ pub(crate) fn input_personal(lib: &Library, t: &Type, xn: &str, name: &str) -> b
     // taint found probing the write path audit's last minor). A call's
     // target is read by every type taking a transition of its name, so it
     // errs to holding the input personal
-    fn passes(lib: &Library, steps: &[Step], name: &str) -> bool {
+    fn passes(lib: &Library, steps: &[Step], name: &str, judge: Judge<'_>) -> bool {
         steps.iter().any(|st| match st {
             Step::Create {
                 type_,
@@ -3631,25 +3701,22 @@ pub(crate) fn input_personal(lib: &Library, t: &Type, xn: &str, name: &str) -> b
                 ..
             } => lib
                 .type_(type_)
-                .is_some_and(|tt| into(tt, transition, inputs, name)),
+                .is_some_and(|tt| into(tt, transition, inputs, name, judge)),
             Step::Call {
                 transition, inputs, ..
             } => lib
                 .types
                 .values()
-                .any(|tt| into(tt, transition, inputs, name)),
-            Step::Foreach { steps, .. } => passes(lib, steps, name),
+                .any(|tt| into(tt, transition, inputs, name, judge)),
+            Step::Foreach { steps, .. } => passes(lib, steps, name, judge),
             _ => false,
         })
     }
-    fn into(tt: &Type, xn: &str, inputs: &[(String, Expr)], name: &str) -> bool {
-        let Some(tx) = tt.transition(xn) else {
-            return false;
-        };
-        inputs.iter().any(|(arg, e)| {
-            reads(e, name)
-                && (tt.attribute(arg).is_some_and(|a| a.personal) || personal_by_own(tt, tx, arg))
-        })
+    fn into(tt: &Type, xn: &str, inputs: &[(String, Expr)], name: &str, judge: Judge<'_>) -> bool {
+        tt.transition(xn).is_some()
+            && inputs
+                .iter()
+                .any(|(arg, e)| reads(e, name) && judge(tt, xn, arg))
     }
     fn reads(e: &Expr, name: &str) -> bool {
         let mut read = BTreeSet::new();
@@ -3660,7 +3727,13 @@ pub(crate) fn input_personal(lib: &Library, t: &Type, xn: &str, name: &str) -> b
     // it may reach: an argument reading the input errs to holding it
     // personal where no type it reaches takes the transition, which only a
     // library loaded without the checker holds
-    fn clause_passes(types: &[&Type], xn: &str, inputs: &[(String, Expr)], name: &str) -> bool {
+    fn clause_passes(
+        types: &[&Type],
+        xn: &str,
+        inputs: &[(String, Expr)],
+        name: &str,
+        judge: Judge<'_>,
+    ) -> bool {
         let takers: Vec<&&Type> = types
             .iter()
             .filter(|tt| tt.transition(xn).is_some())
@@ -3668,14 +3741,14 @@ pub(crate) fn input_personal(lib: &Library, t: &Type, xn: &str, name: &str) -> b
         if takers.is_empty() {
             return inputs.iter().any(|(_, e)| reads(e, name));
         }
-        takers.iter().any(|tt| into(tt, xn, inputs, name))
+        takers.iter().any(|tt| into(tt, xn, inputs, name, judge))
     }
     // and what a cascade clause of its type, or a follows clause, on the
     // transition passes, one hop on as a step's: a part's type read through
     // its family, an abstract part's every subtype, as a call's target is
     // read through every type (#103)
-    fn clauses_pass(lib: &Library, t: &Type, xn: &str, name: &str) -> bool {
-        let cascaded = t.attributes.iter().any(|(_, end)| {
+    let cascaded = || {
+        t.attributes.iter().any(|(_, end)| {
             let Declared::Reference(part) = &end.declared else {
                 return false;
             };
@@ -3690,32 +3763,29 @@ pub(crate) fn input_personal(lib: &Library, t: &Type, xn: &str, name: &str) -> b
             end.cascade
                 .iter()
                 .filter(|c| c.on.iter().any(|o| o == xn))
-                .any(|c| clause_passes(&family, &c.transition, &c.inputs, name))
-        });
-        cascaded
-            || lib
-                .followed
-                .get(t.name.as_str())
-                .and_then(|by| by.get(xn))
-                .into_iter()
-                .flatten()
-                .any(|f| {
-                    match lib.type_(&f.type_).and_then(|ft| {
-                        ft.attribute(&f.reference)
-                            .and_then(|a| a.follows.get(f.clause))
-                            .map(|c| (ft, c))
-                    }) {
-                        Some((ft, c)) => clause_passes(&[ft], &c.transition, &c.inputs, name),
-                        // a clause the index names that the library does
-                        // not hold errs to holding the input personal
-                        None => true,
-                    }
-                })
-    }
-    let Some(x) = t.transition(xn) else {
-        return false;
+                .any(|c| clause_passes(&family, &c.transition, &c.inputs, name, judge))
+        })
     };
-    personal_by_own(t, x, name) || passes(lib, &x.effect, name) || clauses_pass(lib, t, xn, name)
+    let followed = || {
+        lib.followed
+            .get(t.name.as_str())
+            .and_then(|by| by.get(xn))
+            .into_iter()
+            .flatten()
+            .any(|f| {
+                match lib.type_(&f.type_).and_then(|ft| {
+                    ft.attribute(&f.reference)
+                        .and_then(|a| a.follows.get(f.clause))
+                        .map(|c| (ft, c))
+                }) {
+                    Some((ft, c)) => clause_passes(&[ft], &c.transition, &c.inputs, name, judge),
+                    // a clause the index names that the library does not
+                    // hold errs to holding the input personal
+                    None => true,
+                }
+            })
+    };
+    passes(lib, &x.effect, name, judge) || cascaded() || followed()
 }
 
 /// Whether an input is personal by its own transition alone: marked so, or
@@ -23370,6 +23440,211 @@ types:
             }
         }
         assert!(failed.is_empty(), "{failed:#?}");
+    }
+
+    /// An input a hop that ran passed into an attribute its version held
+    /// open and the installed version marks personal is withheld from the
+    /// log exported and redacted by an erasure, after the installed version
+    /// dropped the transition or the hop: the hops are the event version's,
+    /// each target judged personal where that version or the installed one
+    /// marks it so, and one the installed version cannot resolve personal
+    /// (the security review of 5824bf3c). Four cases: a step, its
+    /// transition removed since; a cascade's and a follow's argument
+    /// removed since; and a step whose target attribute was removed since.
+    /// On both backends.
+    #[test]
+    fn an_input_a_hop_passed_into_an_attribute_marked_since_is_erased() {
+        let edit = |text: &str, from: &str, to: &str| {
+            let out = text.replace(from, to);
+            assert_ne!(out, text, "{from}");
+            out
+        };
+        let unpassed = |text: &str| edit(text, ", cause: inputs.why }", " }");
+        let unmarked = |text: &str| {
+            edit(
+                text,
+                "cause: { type: string, optional: true, personal: true,",
+                "cause: { type: string, optional: true,",
+            )
+        };
+        // the hub with a note a slot's `retag` creates from its reason, by
+        // a step, the note's text personal or not
+        let noted = |hub: &str, personal: bool, retag: bool| {
+            let marked = if personal { " personal: true," } else { "" };
+            let mut out = edit(
+                hub,
+                "  Shift:\n",
+                &format!(
+                    "  Note:
+    description: A note a slot made.
+    tracking: record
+    attributes:
+      text: {{ type: string, optional: true,{marked} description: What it says. }}
+    states:
+      KEPT: {{ category: live, description: Kept. }}
+      DROPPED: {{ category: closed, final: true, description: Dropped. }}
+    transitions:
+      add: {{ kind: initial, to: KEPT, optional_inputs: [text], description: Adds it. }}
+      drop: {{ kind: external, from: [KEPT], to: DROPPED, description: Drops it. }}
+      forget: {{ kind: erasure, inputs: {{ reason: {{ type: string, description: Why. }} }}, description: Forgets it. }}
+  Shift:\n"
+                ),
+            );
+            if retag {
+                out = edit(
+                    &out,
+                    "      cancel:\n",
+                    "      retag: { kind: internal, from: [OPEN], inputs: { why: { type: string, optional: true, description: Why. } }, effect: [ { create: { type: Note, transition: add, inputs: { text: inputs.why } } } ], description: Notes why. }
+      cancel:\n",
+                );
+            }
+            out
+        };
+        let hub = noted(&unmarked(KEPT_HUB), false, true);
+        let holds = unmarked(KEPT_HOLDS);
+        let cases = [
+            (
+                "a step, its transition removed since",
+                "retag",
+                noted(&unmarked(KEPT_HUB), true, false),
+                holds.clone(),
+            ),
+            (
+                "a cascade, its argument removed since",
+                "cancel",
+                noted(&unpassed(KEPT_HUB), false, true),
+                holds.clone(),
+            ),
+            (
+                "a follow, its argument removed since",
+                "cancel",
+                hub.clone(),
+                unpassed(KEPT_HOLDS),
+            ),
+            // and a target attribute the installed version cannot resolve
+            (
+                "a step, its target attribute removed since",
+                "retag",
+                edit(
+                    &edit(
+                        &noted(&unmarked(KEPT_HUB), false, false),
+                        "      text: { type: string, optional: true, description: What it says. }",
+                        "      title: { type: string, optional: true, description: Its title. }",
+                    ),
+                    "optional_inputs: [text]",
+                    "optional_inputs: [title]",
+                ),
+                holds.clone(),
+            ),
+        ];
+        let mut failed = Vec::new();
+        for (case, xn, hub2, holds2) in cases {
+            let lib = Library::load(&[
+                ("hub.yaml".into(), hub.clone()),
+                ("holds.yaml".into(), holds.clone()),
+            ])
+            .unwrap();
+            let mut s = Store::sandbox(lib, 1_767_225_600).unwrap();
+            let slot = created(&req(
+                &mut s,
+                "open",
+                OPERATOR,
+                ("Slot", true),
+                json!({"label": "A"}),
+            ));
+            applied(&req(
+                &mut s,
+                xn,
+                OPERATOR,
+                (&slot, false),
+                json!({"why": "moving"}),
+            ));
+            let change = created(&req(
+                &mut s,
+                "draft",
+                OPERATOR,
+                (DECLARATION_CHANGE, true),
+                json!({"source": {"hub": hub2, "holds": holds2}, "source_ref": "test:marked"}),
+            ));
+            let submitted = req(&mut s, "submit", OPERATOR, (&change, false), json!({}));
+            let Verdict::Satisfied { version, .. } = submitted else {
+                panic!("{case}: the change not submitted: {submitted:?}")
+            };
+            let published = s.publish(OPERATOR, &change, version).unwrap().unwrap().0;
+            assert!(
+                matches!(published, Verdict::Satisfied { .. }),
+                "{case}: {published:?}"
+            );
+            let w = s.snapshot().unwrap();
+            let log: Vec<Json> = crate::export::export(&w, "log", None)
+                .unwrap()
+                .lines
+                .iter()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect();
+            let row = log
+                .iter()
+                .find(|e| e["object_id"] == json!(slot) && e["transition"] == json!(xn))
+                .unwrap();
+            if row["payload"]["inputs"] != json!({}) {
+                failed.push(format!("{case}: exported {}", row["payload"]["inputs"]));
+            }
+            erase(&mut s, &slot);
+            let kept = recorded(&s, &slot, xn);
+            if kept != json!({"why": null}) {
+                failed.push(format!("{case}: erased {kept}"));
+            }
+        }
+        assert!(failed.is_empty(), "{failed:#?}");
+    }
+
+    /// A hop's target type the installed library does not hold errs to
+    /// holding the input it was passed personal, as an argument it cannot
+    /// resolve does; one it holds is judged by its marks (the security
+    /// review of 5824bf3c). A publish keeps a type it drops as retired, so
+    /// only a library loaded without one lacks it.
+    #[test]
+    fn a_hop_target_the_installed_library_lacks_errs_to_personal() {
+        const THEN: &str = r#"
+module: notes
+categories: [live, closed]
+types:
+  Slot:
+    attributes:
+      label: { type: string, optional: true }
+    states:
+      OPEN: { category: live }
+    transitions:
+      open: { kind: initial, to: OPEN }
+      retag: { kind: internal, from: [OPEN], inputs: { why: { type: string, optional: true } }, effect: [ { create: { type: Note, transition: add, inputs: { text: inputs.why } } } ] }
+  Note:
+    attributes:
+      text: { type: string, optional: true }
+    states:
+      KEPT: { category: live }
+    transitions:
+      add: { kind: initial, to: KEPT, optional_inputs: [text] }
+"#;
+        let load = |text: &str| Library::load(&[("notes.yaml".into(), text.into())]).unwrap();
+        let then = load(THEN);
+        let slot = then.type_("Slot").unwrap();
+        assert!(!input_personal_then(&then, slot, &then, "retag", "why"));
+        let start = THEN.find("  Note:").unwrap();
+        let now = load(&THEN[..start]);
+        assert!(now.type_("Note").is_none());
+        assert!(
+            input_personal_then(&then, slot, &now, "retag", "why"),
+            "a type the installed library lacks"
+        );
+        let now = load(
+            &THEN
+                .replace("[text]", "[]")
+                .replace("      text:", "      title:"),
+        );
+        assert!(
+            input_personal_then(&then, slot, &now, "retag", "why"),
+            "an argument it cannot resolve"
+        );
     }
 
     /// A follow the library cannot read errs to holding the input it may
