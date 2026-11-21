@@ -3671,21 +3671,26 @@ pub(crate) fn input_personal(lib: &Library, t: &Type, xn: &str, name: &str) -> b
         takers.iter().any(|tt| into(tt, xn, inputs, name))
     }
     // and what a cascade clause of its type, or a follows clause, on the
-    // transition passes, one hop on as a step's (#103)
+    // transition passes, one hop on as a step's: a part's type read through
+    // its family, an abstract part's every subtype, as a call's target is
+    // read through every type (#103)
     fn clauses_pass(lib: &Library, t: &Type, xn: &str, name: &str) -> bool {
         let cascaded = t.attributes.iter().any(|(_, end)| {
             let Declared::Reference(part) = &end.declared else {
                 return false;
             };
-            end.composite
-                && end
-                    .cascade
-                    .iter()
-                    .filter(|c| c.on.iter().any(|o| o == xn))
-                    .any(|c| {
-                        lib.type_(part)
-                            .is_some_and(|pt| into(pt, &c.transition, &c.inputs, name))
-                    })
+            if !end.composite {
+                return false;
+            }
+            let family: Vec<&Type> = lib
+                .types
+                .values()
+                .filter(|tt| lib.is_a(&tt.name, part))
+                .collect();
+            end.cascade
+                .iter()
+                .filter(|c| c.on.iter().any(|o| o == xn))
+                .any(|c| clause_passes(&family, &c.transition, &c.inputs, name))
         });
         cascaded
             || lib
@@ -23420,6 +23425,69 @@ types:
         assert!(
             input_personal(&lib, whole, "mark", "why"),
             "a clause the reference does not hold"
+        );
+        assert!(!input_personal(&lib, whole, "keep", "why"));
+    }
+
+    /// A cascade the library loaded without the checker holds errs to
+    /// holding the input it passes personal (the security review's B): a
+    /// part is read through its family, every type extending an abstract
+    /// part, as a call's target is read through every type, where the base
+    /// takes the transition too and only a subtype marks the attribute
+    /// personal (ADR-0170); and a cascade whose transition no type it
+    /// reaches takes passes it. An input no clause passes is not.
+    #[test]
+    fn a_cascade_the_checker_refuses_errs_to_holding_its_input_personal() {
+        const PARTS: &str = r#"
+module: parts
+categories: [live, closed]
+types:
+  Whole:
+    attributes:
+      parts: { reference: "Part[]", opposite: whole, aggregation: composite, cascade: [ { on: [close], transition: end, inputs: { cause: inputs.why }, limit: 10 } ] }
+      ghosts: { reference: "Ghost[]", opposite: whole, aggregation: composite, cascade: [ { on: [shut], transition: vanish, inputs: { cause: inputs.why }, limit: 10 } ] }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN }
+      close: { kind: external, from: [OPEN], to: DONE, inputs: { why: { type: string, optional: true } } }
+      shut: { kind: external, from: [OPEN], to: DONE, inputs: { why: { type: string, optional: true } } }
+      keep: { kind: internal, from: [OPEN], inputs: { why: { type: string, optional: true } } }
+  Part:
+    abstract: true
+    attributes:
+      whole: { reference: Whole, opposite: parts }
+      cause: { type: string, optional: true }
+    states:
+      ON: { category: live }
+      OFF: { category: closed, final: true }
+    transitions:
+      end: { kind: external, from: [ON], to: OFF, optional_inputs: [cause] }
+  Piece:
+    extends: Part
+    attributes:
+      cause: { type: string, optional: true, personal: true }
+    states:
+      ON: { category: live }
+      OFF: { category: closed, final: true }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [whole] }
+      end: { kind: external, from: [ON], to: OFF, optional_inputs: [cause] }
+  Ghost:
+    attributes:
+      whole: { reference: Whole, opposite: ghosts }
+    states:
+      ON: { category: live }
+    transitions:
+      add: { kind: initial, to: ON, required_inputs: [whole] }
+"#;
+        let lib = Library::load(&[("parts.yaml".into(), PARTS.into())]).unwrap();
+        let whole = lib.type_("Whole").unwrap();
+        assert!(input_personal(&lib, whole, "close", "why"), "the family");
+        assert!(
+            input_personal(&lib, whole, "shut", "why"),
+            "a transition nothing takes"
         );
         assert!(!input_personal(&lib, whole, "keep", "why"));
     }
