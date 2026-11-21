@@ -49,9 +49,55 @@ Derive an act's inputs from the record it makes, as Django's `ModelForm` derives
 - A derived name another input of the act already takes is refused, the act filling that field itself.
 - Values holding references, sets, files and `personal` fields, ADR-0254's later slices, stay unbuilt until a value held on a type needs them.
 
+## Many records in one request (2026-11-21)
+
+**The question.** Issue #102 (filed 2026-11-20) asked that one act take a list of entries, each naming an object with fields of its own, so that it creates several objects, each with its own inputs. Its case is an item admitted with its lines, each line naming a model, how many units, and whether the customer may decline it. The issue asked for a declared input holding a list of values whose fields may be references. The author directed on 2026-11-21 that the open issues be reviewed and addressed. This section asks how established systems take several related records in one request.
+
+### Ruby on Rails: an array of hashes, one record each, bounded and atomic
+
+Rails takes a collection's records as an array: "include the key :posts_attributes with an array of hashes of post attributes as a value. For each hash that does not have an id key a new record will be instantiated". Each hash holds the associated model's own attributes. The count is bounded, and past the bound nothing is taken: ":limit Allows you to specify the maximum number of associated records that can be processed with the nested attributes. [...] If the size of the nested attributes array exceeds the specified limit, NestedAttributes::TooManyRecords exception is raised." The records are saved with their parent, all or none: they "are saved and destroyed automatically and atomically when the parent model is saved. This happens inside the transaction initiated by the parent’s save method."
+
+### Django: an inline formset, one model form per related object
+
+Django builds the related objects' forms from the related model: "Inline formsets is a small abstraction layer on top of model formsets. These simplify the case of working with related objects via a foreign key." Its example, `inlineformset_factory(Author, Book, fields=["title"])`, names the related model and the fields each form takes. The number of forms is bounded: "The absolute_max parameter to formset_factory() allows limiting the number of forms that can be instantiated when supplying POST data. This protects against memory exhaustion attacks using forged POST requests". Past it, its example's formset is not valid, saying "Please submit at most 1000 forms."
+
+### Odoo: a create command per related record
+
+Odoo writes a record's related records by commands: "One2many and Many2many fields expect a special command to manipulate the relation they implement." Its `create(values)` command does this: "Create new records in the comodel using values, link the created records to self." The values are the related model's fields.
+
+### GraphQL: a list of an input type declared apart
+
+GraphQL's list is ordered: "Lists are ordered sequences of values wrapped in square-brackets [ ]." An input list takes each item by its item type: "When expected as an input, list values are accepted only when each item in the list can be accepted by the list’s item type." That item type is an input object, declared apart from any output type (above).
+
+### What the sources share, and where they part
+
+- **Rails, Django and Odoo take each entry as the related record's own fields**, declared once by its model, and make one record per entry.
+- **Each source takes the entries as an ordered list.** Rails and Django bound how many, and refuse the whole past the bound rather than taking part of it.
+- **Rails makes the records with their parent, in one transaction.**
+- **GraphQL declares the entry's type apart**, for the reason given above, its output types holding what an input cannot.
+
+### ObjectFlow beside the sources
+
+- **A field cannot differ by entry unless a loop's collection holds it.** `rest: inputs` gives a creation the request's inputs, the same for each element of a loop, and a field that differs by element is named by the step (ADR-0271 decision 5). A loop's item is an element of a set of references, a stored set or a range, so a line's model may differ by element, but a quantity chosen in the request may not.
+- **A set cannot carry the entries.** On the wire a set is an array with no element repeated (`guides/wire.md`), and a loop over one runs in its own order, not one the caller chose. Two sets, of models and of quantities, cannot be paired.
+- **A value cannot carry them either.** A value's fields are built-in types and enumerations, references among ADR-0254 decision 9's later slices, and a declared input holds one value, never a set of them. Both were refused at the 0.31.0 release build, `f1d6841` (`TODO.md`, *Issues filed on GitHub*).
+- **The line's fields are already declared once**: as the inputs of the line type's initial transition, with that type's guards and invariants holding them, as the related model declares and validates its fields in Rails, Django and Odoo.
+- **A request is already all or nothing.** A creation an effect makes that is refused refuses the act whole, `call_refused` naming its step (`guides/errors.md`).
+
+### What it suggests
+
+*A recommendation for the author, not a decision.*
+
+Take each entry as the rest of the target's inputs, as Django derives each inline form from the related model and Rails takes the related record's own attributes: a `create` step names the act's input that lists the entries, and makes one object per entry, in the order given, by the target transition. The step names the inputs that are the same for every entry, and each entry holds the rest, each declared as the target declares it.
+
+- A required bound, the whole refused past it, as Rails' `:limit` and a loop's `limit` do.
+- An entry may repeat another, each making its own object, since the list is not a set.
+- One request, all or nothing, as Rails saves nested records in its parent's transaction and as an act's creations already are.
+- A declared list of values whose fields may be references, GraphQL's form and the issue's, left until a case needs entries that make something other than one record each.
+
 ## Sources
 
-Each retrieved 2026-11-12 with `curl -sL`, its markup stripped, and each quotation searched in the text.
+Each retrieved 2026-11-12 with `curl -sL`, its markup stripped, and each quotation searched in the text, and again 2026-11-21 with the two sources added that day for the section on many records.
 
 | Source | URL | Version |
 |---|---|---|
@@ -59,3 +105,5 @@ Each retrieved 2026-11-12 with `curl -sL`, its markup stripped, and each quotati
 | Ruby on Rails API, `ActiveRecord::NestedAttributes::ClassMethods` | https://api.rubyonrails.org/classes/ActiveRecord/NestedAttributes/ClassMethods.html | v8.1.4 |
 | TypeScript Handbook, Utility Types | https://www.typescriptlang.org/docs/handbook/utility-types.html | as served; `Omit` released in 3.5 |
 | GraphQL Specification | https://spec.graphql.org/October2021/ | October 2021 Edition |
+| Django, Formsets | https://docs.djangoproject.com/en/5.2/topics/forms/formsets/ | 5.2 |
+| Odoo, ORM API | https://www.odoo.com/documentation/17.0/developer/reference/backend/orm.html | 17.0 |
