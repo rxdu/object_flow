@@ -1006,7 +1006,7 @@ fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
                     ));
                 }
             }
-            Declared::Reference(_) | Declared::Value(_) => {}
+            Declared::Reference(_) | Declared::Value(_) | Declared::Entries(_) => {}
         }
         columns.push((col, def));
     }
@@ -2496,6 +2496,8 @@ fn literal(text: &str) -> String {
 fn base(declared: &Declared) -> &str {
     match declared {
         Declared::Scalar(t) | Declared::Reference(t) | Declared::Value(t) => t,
+        // no attribute holds a list of entries (ADR-0290)
+        Declared::Entries(_) => "",
     }
 }
 
@@ -2505,7 +2507,7 @@ fn base(declared: &Declared) -> &str {
 fn column(name: &str, a: &Attribute) -> String {
     match a.declared {
         Declared::Reference(_) => format!("{name}_id"),
-        Declared::Scalar(_) | Declared::Value(_) => name.to_string(),
+        Declared::Scalar(_) | Declared::Value(_) | Declared::Entries(_) => name.to_string(),
     }
 }
 
@@ -2588,8 +2590,9 @@ fn from_sql(v: Sql, declared: &Declared, lib: &Library) -> Stored<Value> {
             Sql::Text(s) => Ok(Value::Object(s.clone())),
             _ => Err(bad()),
         },
-        // a value is read from a column for each field (ADR-0254)
-        Declared::Value(_) => Err(bad()),
+        // a value is read from a column for each field (ADR-0254), and no
+        // column holds a list of entries (ADR-0290)
+        Declared::Value(_) | Declared::Entries(_) => Err(bad()),
         Declared::Scalar(t) => {
             if lib.enumerations.contains_key(t.as_str()) {
                 return match &v {
@@ -2646,6 +2649,8 @@ fn sql_type(declared: &Declared) -> &'static str {
         Declared::Reference(_) => "TEXT",
         // whether a value is held, 1 where it is (ADR-0254 decision 6)
         Declared::Value(_) => "INTEGER",
+        // no attribute holds a list of entries (ADR-0290)
+        Declared::Entries(_) => "TEXT",
         Declared::Scalar(t) => match t.as_str() {
             "bool" | "int" | "counter" | "duration" | "event" => "INTEGER",
             t if t.starts_with("decimal(") || t.starts_with("money(") => "INTEGER",

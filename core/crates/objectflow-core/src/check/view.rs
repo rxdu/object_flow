@@ -108,8 +108,15 @@ pub(super) const NOT_BLANK: &str = "_not_blank";
 /// `<Type>.<transition>`, and the step's path (ADR-0271).
 pub(super) const DERIVED: &str = "_derived_from";
 /// On a transition: each name its `rest: inputs` could not derive, and why
-/// (ADR-0271).
+/// (ADR-0271); and each `each` this release does not take (ADR-0290).
 pub(super) const RESTED: &str = "_rest_clashes";
+/// On a transition: each list a create's `each` takes, by its name: the
+/// entry's `fields`, each declared as an input, the step's `limit`, its
+/// `target`, `<Type>.<transition>`, and the step's `path` (ADR-0290).
+pub(crate) const ENTRIES: &str = "_entries";
+/// On a create taking `each`: the target's inputs each entry gives, which
+/// the step does not name (ADR-0290).
+pub(super) const EACH_FIELDS: &str = "_entry_fields";
 /// The keys an input's declaration takes (`flow.schema.json`'s `input`).
 const INPUT_KEYS: [&str; 8] = [
     "type",
@@ -480,11 +487,22 @@ pub fn taken_by_errors(doc: &Value) -> Found {
 }
 
 /// Whether a transition holds a create taking the rest of its inputs from
-/// its own.
+/// its own, or one taking each entry of a list of its own (ADR-0290).
 fn has_rest(x: &Value) -> bool {
     walk(x.get("effect")).iter().any(|s| {
-        s.kind == "create" && py_str(s.body().get("rest").unwrap_or(&Value::Null)) == "inputs"
+        s.kind == "create"
+            && (py_str(s.body().get("rest").unwrap_or(&Value::Null)) == "inputs"
+                || s.body().get("each").is_some())
     })
+}
+
+/// Whether a transition holds a create taking `each`, or takes a list one
+/// derives (ADR-0290).
+fn has_each(x: &Value) -> bool {
+    !obj(x, ENTRIES).is_empty()
+        || walk(x.get("effect"))
+            .iter()
+            .any(|s| s.kind == "create" && s.body().get("each").is_some())
 }
 
 fn path_json(path: &[Seg]) -> Value {
@@ -596,6 +614,7 @@ impl Rests<'_> {
         let own = taken(x);
         let mut derived: Map<String, Value> = Map::new();
         let mut clashes: Vec<Value> = Vec::new();
+        let mut entries: Map<String, Value> = Map::new();
         let steps = self.expand_rest(
             tn,
             xn,
@@ -604,7 +623,21 @@ impl Rests<'_> {
             &own,
             &mut derived,
             &mut clashes,
+            &mut entries,
         );
+        // a list a create's `rest: inputs` derives too (ADR-0290)
+        for (name, e) in &entries {
+            if derived.contains_key(name) {
+                let mut at = json_path(e.get("path").unwrap_or(&Value::Null));
+                if !at.is_empty() {
+                    at.remove(0);
+                }
+                clashes.push(json!([path_json(&at), format!(
+                    "{tn}.{xn}'s create of {} takes each entry from '{name}', which {xn} derives as an input too: name the list apart (ADR-0290)",
+                    e.get("target").map(py_str).unwrap_or_default()
+                )]));
+            }
+        }
         let mut x = as_obj(x).clone();
         x.insert("effect".into(), Value::Array(steps));
         let mut inputs = obj(&Value::Object(x.clone()), "inputs").clone();
@@ -615,7 +648,167 @@ impl Rests<'_> {
         if !clashes.is_empty() {
             x.insert(RESTED.into(), Value::Array(clashes));
         }
+        if !entries.is_empty() {
+            x.insert(ENTRIES.into(), Value::Object(entries));
+        }
         Value::Object(x)
+    }
+
+    /// A create taking `each` (ADR-0290), as `check-flows.py`'s
+    /// `each_step`: the list it takes recorded in `entries`, its entries each
+    /// the target's inputs the step does not name, declared as `rest:
+    /// inputs` would derive them, and what this release does not take
+    /// recorded in `clashes`.
+    #[allow(clippy::too_many_arguments)]
+    fn each_step(
+        &mut self,
+        tn: &str,
+        xn: &str,
+        st: &Value,
+        here: &[Seg],
+        own: &BTreeSet<String>,
+        clashes: &mut Vec<Value>,
+        entries: &mut Map<String, Value>,
+    ) -> Value {
+        let mut c = as_obj(st.get("create").unwrap_or(&Value::Null)).clone();
+        let (name, k, tx) = (
+            py_str(c.get("each").unwrap_or(&Value::Null)),
+            py_str(c.get("type").unwrap_or(&Value::Null)),
+            py_str(c.get("transition").unwrap_or(&Value::Null)),
+        );
+        let mark = format!("{k}.{tx}");
+        let head = format!("{tn}.{xn}'s create of {mark} takes each entry from '{name}'");
+        let at = path_json(here);
+        let mut clash = |message: String| clashes.push(json!([at.clone(), message]));
+        let target = self
+            .everything
+            .get(&k)
+            .or_else(|| self.recorded.get(&k))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let y = if self.everything.contains_key(&k) {
+            self.transition(&k, &tx)
+        } else {
+            obj(&target, "transitions").get(&tx).cloned()
+        };
+        if py_str(c.get("rest").unwrap_or(&Value::Null)) == "inputs" {
+            clash(format!(
+                "{head} and the rest of its inputs; a step with each takes no rest: inputs (ADR-0290)"
+            ));
+        }
+        if c.get("result").is_some_and(|r| super::doc::truthy(Some(r))) {
+            clash(format!(
+                "{head} and names its result; a step with each names none (ADR-0290)"
+            ));
+        }
+        if here.len() > 1 {
+            clash(format!(
+                "{head} within a loop; a step with each stands in no loop (ADR-0290)"
+            ));
+        }
+        if own.contains(&name) {
+            clash(format!(
+                "{head}, which {xn} takes itself: name the list apart (ADR-0290)"
+            ));
+        }
+        if entries.contains_key(&name) {
+            clash(format!(
+                "two steps take each entry from '{name}'; one step reads a list (ADR-0290)"
+            ));
+        }
+        if y.as_ref().is_some_and(|y| y.is_object() && has_each(y)) {
+            clash(format!(
+                "{head}, and {mark} takes entries of its own; an each's target takes none (ADR-0290)"
+            ));
+        }
+        let mut fields: Map<String, Value> = Map::new();
+        if let Some(y) = y.filter(|y| y.is_object()) {
+            let required = required_input_names(&y);
+            let given: BTreeSet<String> = obj(&Value::Object(c.clone()), "inputs")
+                .keys()
+                .cloned()
+                .collect();
+            let left: BTreeSet<String> = if self.recorded.contains_key(&k) {
+                ["subject", "corrects"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            } else {
+                BTreeSet::new()
+            };
+            let names: BTreeSet<String> = taken(&y)
+                .into_iter()
+                .filter(|j| !given.contains(j) && !left.contains(j))
+                .collect();
+            for j in names {
+                let declared = obj(&y, "inputs").get(&j).filter(|s| !s.is_null()).cloned();
+                let defaulted = declared
+                    .as_ref()
+                    .is_some_and(|s| s.get("default").is_some());
+                let source = declared.unwrap_or_else(|| {
+                    obj(&target, "attributes")
+                        .get(&j)
+                        .cloned()
+                        .unwrap_or(Value::Null)
+                });
+                let mut spec: Map<String, Value> = Map::new();
+                for key in INPUT_KEYS {
+                    if key == "optional" || key == "default" {
+                        continue;
+                    }
+                    if let Some(v) = source.get(key) {
+                        spec.insert(key.into(), v.clone());
+                    }
+                }
+                let of = source
+                    .get("type")
+                    .filter(|t| super::doc::truthy(Some(t)))
+                    .or_else(|| source.get("reference"))
+                    .map(py_str)
+                    .unwrap_or_default();
+                if source.get("type").is_some() && of.trim_end_matches("[]") == "file" {
+                    clash(format!(
+                        "{head}, and an entry would hold the file '{j}', which no entry holds in this release: name it in the step's inputs (ADR-0290)"
+                    ));
+                    continue;
+                }
+                if !required.contains(&j) || defaulted {
+                    if of.ends_with("[]") {
+                        if source
+                            .get("default")
+                            .is_some_and(|d| !d.is_null() && !empty_set(d))
+                        {
+                            clash(format!(
+                                "{head}, and an entry would hold the set '{j}', which {mark} gives a default of its own: name it in the step's inputs (ADR-0290)"
+                            ));
+                            continue;
+                        }
+                        spec.insert("default".into(), json!("{}"));
+                    } else {
+                        spec.insert("optional".into(), json!(true));
+                    }
+                }
+                fields.insert(j, Value::Object(spec));
+            }
+        }
+        let names: Vec<String> = fields.keys().cloned().collect();
+        if !entries.contains_key(&name) {
+            let mut effect = vec![Seg::Key("effect".into())];
+            effect.extend(here.iter().cloned());
+            entries.insert(
+                name,
+                json!({
+                    "fields": Value::Object(fields),
+                    "limit": c.get("limit").cloned().unwrap_or(Value::Null),
+                    "target": mark,
+                    "path": path_json(&effect),
+                }),
+            );
+        }
+        c.insert(EACH_FIELDS.into(), json!(names));
+        let mut st = as_obj(st).clone();
+        st.insert("create".into(), Value::Object(c));
+        Value::Object(st)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -628,6 +821,7 @@ impl Rests<'_> {
         own: &BTreeSet<String>,
         derived: &mut Map<String, Value>,
         clashes: &mut Vec<Value>,
+        entries: &mut Map<String, Value>,
     ) -> Vec<Value> {
         let mut result = Vec::new();
         for (i, st) in steps.iter().enumerate() {
@@ -639,8 +833,16 @@ impl Rests<'_> {
                 inner.push(Seg::Key("foreach".into()));
                 inner.push(Seg::Key("steps".into()));
                 let f = st.get("foreach").cloned().unwrap_or(Value::Null);
-                let body =
-                    self.expand_rest(tn, xn, list(&f, "steps"), &inner, own, derived, clashes);
+                let body = self.expand_rest(
+                    tn,
+                    xn,
+                    list(&f, "steps"),
+                    &inner,
+                    own,
+                    derived,
+                    clashes,
+                    entries,
+                );
                 let mut f = as_obj(&f).clone();
                 f.insert("steps".into(), Value::Array(body));
                 let mut st = as_obj(st).clone();
@@ -649,6 +851,11 @@ impl Rests<'_> {
                 continue;
             }
             let c = st.get("create").cloned().unwrap_or(Value::Null);
+            if kind == "create" && c.get("each").is_some() {
+                let made = self.each_step(tn, xn, st, &here, own, clashes, entries);
+                result.push(made);
+                continue;
+            }
             if kind != "create" || py_str(c.get("rest").unwrap_or(&Value::Null)) != "inputs" {
                 result.push(st.clone());
                 continue;
@@ -671,6 +878,14 @@ impl Rests<'_> {
                 obj(&target, "transitions").get(&tx).cloned()
             };
             let mut given = obj(&Value::Object(c.clone()), "inputs").clone();
+            // a target taking entries, which no expression passes (ADR-0290)
+            if let Some(y) = y.as_ref().filter(|y| y.is_object()) {
+                for n in obj(y, ENTRIES).keys() {
+                    clashes.push(json!([path_json(&here), format!(
+                        "{tn}.{xn}'s create of {k}.{tx} takes the rest of its inputs, and {k}.{tx} takes the entries '{n}', which no expression passes (ADR-0290)"
+                    )]));
+                }
+            }
             if let Some(y) = y.filter(|y| y.is_object()) {
                 let required = required_input_names(&y);
                 let left: BTreeSet<String> = if self.recorded.contains_key(&k) {
@@ -785,6 +1000,41 @@ pub fn rest_errors(doc: &Value) -> Found {
                     "names",
                     py_str(clash.get(1).unwrap_or(&Value::Null)),
                 ));
+            }
+        }
+    }
+    out
+}
+
+/// A version renaming an input an each derives is refused, since `renamed`
+/// maps the names at the top of an event's inputs alone, and an earlier
+/// event's entries would keep the old name unmapped (ADR-0290 decision 7),
+/// as `check-flows.py`'s `each_rename_errors`.
+pub fn each_rename_errors(doc: &Value, kinds: &Obj, renamed: &[(String, String, String)]) -> Found {
+    let mut out = Found::new();
+    for (tn, t) in obj(doc, "types") {
+        for (xn, x) in obj(t, "transitions") {
+            for (name, e) in obj(x, ENTRIES) {
+                let mark = e.get("target").map(py_str).unwrap_or_default();
+                let target = mark.split('.').next().unwrap_or_default().to_string();
+                let mut family: BTreeSet<String> = bases(&target, kinds).into_iter().collect();
+                family.insert(target);
+                for (rt, old, new) in renamed {
+                    if family.contains(rt) && obj(e, "fields").contains_key(new) {
+                        let mut path: Path = vec![
+                            Seg::Key("types".into()),
+                            Seg::Key(tn.clone()),
+                            Seg::Key("transitions".into()),
+                            Seg::Key(xn.clone()),
+                        ];
+                        path.extend(json_path(e.get("path").unwrap_or(&Value::Null)));
+                        out.push(super::doc::finding(
+                            path,
+                            "names",
+                            format!("{tn}.{xn}'s create of {mark} takes each entry from '{name}', whose field '{new}' the version renames from {rt}.{old}; an earlier event's entries would keep the old name (ADR-0290)"),
+                        ));
+                    }
+                }
             }
         }
     }

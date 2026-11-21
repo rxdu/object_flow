@@ -146,6 +146,26 @@ fn schema_of(declared: &Declared, many: bool, unit: Option<&str>, lib: &Library)
         Declared::Reference(target) => {
             json!({"type": "string", "description": format!("the {target}, by its id")})
         }
+        // a list of entries an each takes, at most its limit, each an object
+        // of its fields, each its own type (ADR-0290)
+        Declared::Entries(e) => {
+            let props: Map<String, Json> = e
+                .fields
+                .iter()
+                .map(|(f, i)| (f.clone(), schema_of(&i.declared, i.many, None, lib)))
+                .collect();
+            let required: Vec<&String> = e
+                .fields
+                .iter()
+                .filter(|(_, i)| !i.optional && i.default.is_none())
+                .map(|(f, _)| f)
+                .collect();
+            json!({"type": "array", "maxItems": e.limit,
+                   "items": {"type": "object", "properties": props, "required": required,
+                             "additionalProperties": false},
+                   "description": format!("at most {} entries, one {} created by {} for each",
+                                          e.limit, e.type_, e.target())})
+        }
         // a value as an object of its fields, each its own type (ADR-0254)
         Declared::Value(v) => {
             let fields = lib

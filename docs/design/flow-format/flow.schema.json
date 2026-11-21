@@ -984,9 +984,28 @@
                 "rest": {
                   "const": "inputs",
                   "description": "Each other input of the transition this creates by is an input of the transition making it, declared as the target declares it, and passed on (ADR-0271)."
+                },
+                "each": {
+                  "$ref": "#/definitions/memberName",
+                  "description": "The input of the transition making it that lists the entries, one object created for each, in the order given, each entry holding the target's inputs the step does not name (ADR-0290)."
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "With each: the most entries a request may give, more being refused over-limit whole (ADR-0290)."
                 }
               },
-              "description": "Creates an object by an initial transition of its type; result names it for later steps (UML CreateObjectAction)."
+              "if": {
+                "required": [
+                  "each"
+                ]
+              },
+              "then": {
+                "required": [
+                  "limit"
+                ]
+              },
+              "description": "Creates an object by an initial transition of its type; result names it for later steps; with each, one for each entry the request lists (UML CreateObjectAction)."
             }
           }
         },

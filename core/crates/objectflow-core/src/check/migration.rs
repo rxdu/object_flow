@@ -9,8 +9,8 @@ use regex::Regex;
 use serde_json::Value;
 
 use super::doc::{
-    Found, Obj, Path, ext, finding, flag, has, keys, list, obj, optional, py_str, re, reads, segs,
-    str_or,
+    Found, Obj, Path, as_obj, ext, finding, flag, has, keys, list, obj, optional, py_str, re,
+    reads, segs, str_or,
 };
 use super::names::invariant_names;
 use super::notices::{kinds_named, taken_kinds};
@@ -93,6 +93,29 @@ pub fn renamed_enumerations(files: &[(String, String)]) -> Vec<(String, String, 
             )
             .iter()
             .map(|(old, new)| (f.clone(), old.clone(), py_str(new)))
+            .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// Each attribute a module of the version renames, as (type, old, new), so
+/// an each deriving a field in any module meets the rename (ADR-0290
+/// decision 7), as `check-flows.py`'s `renamed_attributes`.
+pub fn renamed_attributes(files: &[(String, String)]) -> Vec<(String, String, String)> {
+    modules_of(files)
+        .into_iter()
+        .flat_map(|(_, doc)| {
+            obj(
+                doc.get("migration").unwrap_or(&Value::Null),
+                "renamed_attributes",
+            )
+            .iter()
+            .flat_map(|(tn, maps)| {
+                as_obj(maps)
+                    .iter()
+                    .map(|(old, new)| (tn.clone(), old.clone(), py_str(new)))
+                    .collect::<Vec<_>>()
+            })
             .collect::<Vec<_>>()
         })
         .collect()

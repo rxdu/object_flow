@@ -1,0 +1,62 @@
+module: orders
+categories: [live, closed]
+types:
+  Product:
+    description: A product an order's line takes.
+    tracking: record
+    attributes:
+      code: { type: string, description: Its code. }
+    states:
+      LISTED: { description: Listed., category: live }
+      RETIRED: { description: Retired., category: closed, final: true }
+    transitions:
+      list: { kind: initial, to: LISTED, required_inputs: [code], description: Lists it. }
+      retire: { kind: external, from: [LISTED], to: RETIRED, description: Retires it. }
+  Order:
+    description: An order placed with its lines.
+    tracking: record
+    attributes:
+      title: { type: string, description: Its title. }
+    states:
+      PLACED: { description: Placed., category: live }
+      CLOSED: { description: Closed., category: closed, final: true }
+    conditions:
+      lined:
+        description: It has lines.
+        expression: inputs.lines is not null
+        remedy: self_serviceable
+    transitions:
+      place:
+        kind: initial
+        to: PLACED
+        required_inputs: [title]
+        description: Places it with its lines.
+        guards: { lined: deny }
+        effect:
+          - create: { type: Line, transition: add, inputs: { order: this }, each: lines, limit: 3 }
+      close: { kind: external, from: [PLACED], to: CLOSED, description: Closes it. }
+  Line:
+    description: A line of an order.
+    tracking: record
+    attributes:
+      order: { reference: Order, description: Its order. }
+      product: { reference: Product, description: Its product. }
+      qty: { type: int, description: How many units. }
+      rush: { type: bool, optional: true, description: Whether it ships first. }
+    states:
+      OPEN: { description: Open., category: live }
+      CLOSED: { description: Closed., category: closed, final: true }
+    conditions:
+      product_listed:
+        description: The product is listed.
+        expression: product.state == Product.LISTED
+        remedy: self_serviceable
+    transitions:
+      add:
+        kind: initial
+        to: OPEN
+        description: Adds it.
+        required_inputs: [order, product, qty]
+        optional_inputs: [rush]
+        guards: { product_listed: deny }
+      close: { kind: external, from: [OPEN], to: CLOSED, description: Closes it. }

@@ -220,6 +220,10 @@ pub fn decode(
             .as_str()
             .map(|s| Value::Object(s.to_string()))
             .ok_or_else(wrong),
+        // a list of entries is read entry by entry, with what each names in
+        // the store, by the request (`request.rs`'s `read_entries`,
+        // ADR-0290), never as one value
+        Declared::Entries(_) => Err(wrong()),
         // an object of the value's fields, each decoded as its own type: a
         // key no field has is another shape, and a required field left out
         // is a value not written as its type is (ADR-0254)

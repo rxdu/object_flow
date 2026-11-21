@@ -281,6 +281,8 @@ VALUE_OF = "_value"     # on an invariant a value gives an attribute holding it:
 NOT_BLANK = "_not_blank"    # on an invariant a text's not_blank generates: the attribute marked (ADR-0257)
 DERIVED = "_derived_from"   # on an input a create's `rest: inputs` derives: its target and the step's path (ADR-0271)
 RESTED = "_rest_clashes"    # on a transition: each name its `rest: inputs` could not derive, and why (ADR-0271)
+ENTRIES = flowrun.ENTRIES   # on a transition: each list a create's `each` takes, by name (ADR-0290)
+EACH_FIELDS = flowrun.EACH_FIELDS   # on a create taking `each`: the target's inputs each entry gives (ADR-0290)
 INPUT_KEYS = ("type", "reference", "optional", "personal", "not_blank", "media_types", "default", "description")
 
 
@@ -1314,8 +1316,10 @@ EMPTY_SET = re.compile(r"\{\s*\}")
 
 
 def rests(x):
-    """Whether a transition holds a create taking the rest of its inputs from its own (ADR-0271)."""
-    return isinstance(x, dict) and any(k == "create" and st[k].get("rest") == "inputs" for st, k, _p, _d in walk(x.get("effect")))
+    """Whether a transition holds a create taking the rest of its inputs from its own (ADR-0271), or one taking each of
+    the entries a list of its own gives (ADR-0290)."""
+    return isinstance(x, dict) and any(k == "create" and (st[k].get("rest") == "inputs" or "each" in st[k])
+                                       for st, k, _p, _d in walk(x.get("effect")))
 
 
 def with_rests(kinds, everything):
@@ -1327,7 +1331,14 @@ def with_rests(kinds, everything):
     taking the rest of its own inputs is expanded first, so a derivation carries through it; one reached again while it
     is expanded, a cycle the model's check 12 refuses, is read as written. A name the transition takes itself, two
     creates deriving one name unlike, or a set the target defaults to a value of its own, is left underived and recorded
-    on the transition, which rest_errors reports."""
+    on the transition, which rest_errors reports.
+
+    A create taking `each` (ADR-0290) records on the transition, under ENTRIES, the list it takes: each entry's fields,
+    the target's inputs the step does not name, each declared as `rest: inputs` would derive it, and the step's limit;
+    and marks the step with those fields. What this release does not take is recorded beside a rest's clashes: a step
+    with `rest: inputs` or `result`, or in a loop; a list the transition takes or derives itself, or two steps read; a
+    target with entries of its own; and an entry holding a file, or a set the target gives a default of its own. A
+    `rest: inputs` whose target takes entries is refused too, since no expression passes them."""
     recorded = observation_kinds(everything)
     done, doing = {}, set()
 
@@ -1344,7 +1355,57 @@ def with_rests(kinds, everything):
 
     def expanded(tn, xn, x):
         own = taken(x)
-        derived, clashes = {}, []
+        derived, clashes, entries = {}, [], {}
+
+        def each_step(st, at):
+            """A create taking `each` (ADR-0290): the list it takes recorded on the transition, its entries each the
+            target's inputs the step does not name, and what this release does not take recorded."""
+            c = dict(st["create"])
+            name, k, tx = c["each"], c.get("type"), c.get("transition")
+            mark = f"{k}.{tx}"
+            head = f"{tn}.{xn}'s create of {mark} takes each entry from '{name}'"
+            target = everything.get(k) or recorded.get(k) or {}
+            y = transition(k, tx) if k in everything else (target.get("transitions") or {}).get(tx)
+            if c.get("rest") == "inputs":
+                clashes.append((at, f"{head} and the rest of its inputs; a step with each takes no rest: inputs (ADR-0290)"))
+            if c.get("result"):
+                clashes.append((at, f"{head} and names its result; a step with each names none (ADR-0290)"))
+            if len(at) > 1:
+                clashes.append((at, f"{head} within a loop; a step with each stands in no loop (ADR-0290)"))
+            if name in own:
+                clashes.append((at, f"{head}, which {xn} takes itself: name the list apart (ADR-0290)"))
+            if name in entries:
+                clashes.append((at, f"two steps take each entry from '{name}'; one step reads a list (ADR-0290)"))
+            if isinstance(y, dict) and (y.get(ENTRIES) or any(kk == "create" and "each" in s[kk]
+                                                               for s, kk, _p, _d in walk(y.get("effect")))):
+                clashes.append((at, f"{head}, and {mark} takes entries of its own; an each's target takes none (ADR-0290)"))
+            fields = {}
+            if isinstance(y, dict):
+                required = required_input_names(y)
+                left = {"subject", "corrects"} if k in recorded else set()
+                for j in sorted(taken(y) - set(c.get("inputs") or {}) - left):
+                    declared = (y.get("inputs") or {}).get(j)
+                    source = declared if declared is not None else (target.get("attributes") or {}).get(j) or {}
+                    spec = {key: v for key, v in source.items() if key in INPUT_KEYS and key not in ("optional", "default")}
+                    of = str(source.get("type") or source.get("reference") or "")
+                    if "type" in source and of.removesuffix("[]") == "file":
+                        clashes.append((at, f"{head}, and an entry would hold the file '{j}', which no entry holds in this "
+                                            "release: name it in the step's inputs (ADR-0290)"))
+                        continue
+                    if j not in required or "default" in (declared or {}):
+                        if of.endswith("[]"):
+                            given_default = source.get("default")
+                            if given_default is not None and not EMPTY_SET.fullmatch(str(given_default).strip()):
+                                clashes.append((at, f"{head}, and an entry would hold the set '{j}', which {mark} gives a "
+                                                    "default of its own: name it in the step's inputs (ADR-0290)"))
+                                continue
+                            spec["default"] = "{}"
+                        else:
+                            spec["optional"] = True
+                    fields[j] = spec
+            entries.setdefault(name, {"fields": fields, "limit": c.get("limit"), "target": mark, "path": ("effect",) + at})
+            c[EACH_FIELDS] = sorted(fields)
+            return dict(st, create=c)
 
         def expand(steps, path):
             result = []
@@ -1353,6 +1414,9 @@ def with_rests(kinds, everything):
                 if kind == "foreach":
                     body = dict(st["foreach"], steps=expand(st["foreach"].get("steps"), path + (i, "foreach", "steps")))
                     result.append(dict(st, foreach=body))
+                    continue
+                if kind == "create" and "each" in st["create"]:
+                    result.append(each_step(st, path + (i,)))
                     continue
                 if kind != "create" or st["create"].get("rest") != "inputs":
                     result.append(st)
@@ -1363,6 +1427,9 @@ def with_rests(kinds, everything):
                 target = everything.get(k) or recorded.get(k) or {}
                 y = transition(k, tx) if k in everything else (target.get("transitions") or {}).get(tx)
                 given = dict(c.get("inputs") or {})
+                for n in sorted((y or {}).get(ENTRIES) or {}) if isinstance(y, dict) else []:
+                    clashes.append((path + (i,), f"{tn}.{xn}'s create of {k}.{tx} takes the rest of its inputs, and {k}.{tx} "
+                                                  f"takes the entries '{n}', which no expression passes (ADR-0290)"))
                 if isinstance(y, dict):
                     required = required_input_names(y)
                     left = {"subject", "corrects"} if k in recorded else set()
@@ -1397,7 +1464,12 @@ def with_rests(kinds, everything):
             return result
 
         steps = expand(x.get("effect"), ())
-        return dict(x, effect=steps, inputs=dict(x.get("inputs") or {}, **derived), **({RESTED: clashes} if clashes else {}))
+        for name, e in entries.items():
+            if name in derived:
+                clashes.append((e["path"][1:], f"{tn}.{xn}'s create of {e['target']} takes each entry from '{name}', which "
+                                               f"{xn} derives as an input too: name the list apart (ADR-0290)"))
+        return dict(x, effect=steps, inputs=dict(x.get("inputs") or {}, **derived), **({RESTED: clashes} if clashes else {}),
+                    **({ENTRIES: entries} if entries else {}))
 
     return {tn: dict(t, transitions={xn: transition(tn, xn) for xn in (t.get("transitions") or {})})
             if any(rests(x) for x in (t.get("transitions") or {}).values()) else t
@@ -1989,6 +2061,44 @@ def renamed_enumerations(files):
         entries = migration.get("renamed_enumerations") if isinstance(migration, dict) else None
         if isinstance(entries, dict):
             out += [(f, old, str(new)) for old, new in entries.items()]
+    return out
+
+
+def renamed_attributes(files):
+    """Each attribute a module of the version renames, as (type, old, new), read from each before any is checked, so an
+    each deriving a field in any module meets the rename (ADR-0290 decision 7). A source that does not parse renames
+    nothing here; the check of it says why."""
+    out = []
+    for _f, text in files:
+        try:
+            shallow(text)
+            doc = load(text)
+        except Exception:   # refused, and named, where the module is checked
+            continue
+        if not isinstance(doc, dict) or "module" not in doc or "examples_for" in doc:
+            continue
+        migration = doc.get("migration")
+        entries = migration.get("renamed_attributes") if isinstance(migration, dict) else None
+        for tn, maps in (entries.items() if isinstance(entries, dict) else []):
+            out += [(tn, old, str(new)) for old, new in (maps.items() if isinstance(maps, dict) else [])]
+    return out
+
+
+def each_rename_errors(v, library, renamed):
+    """A version renaming an input an each derives is refused, since `renamed` maps the names at the top of an event's
+    inputs alone, and an earlier event's entries would keep the old name unmapped (ADR-0290 decision 7)."""
+    out = []
+    for tn, t in types(v):
+        for xn, x in (t.get("transitions") or {}).items():
+            for name, e in (x.get(ENTRIES) or {}).items() if isinstance(x, dict) else []:
+                target = e["target"].split(".")[0]
+                family = {target} | set(bases(target, library))
+                for rt, old, new in renamed:
+                    if rt in family and new in e["fields"]:
+                        out.append((("types", tn, "transitions", xn) + tuple(e["path"]), "names",
+                                    f"{tn}.{xn}'s create of {e['target']} takes each entry from '{name}', whose field '{new}' "
+                                    f"the version renames from {rt}.{old}; an earlier event's entries would keep the old "
+                                    "name (ADR-0290)"))
     return out
 
 
@@ -2903,12 +3013,20 @@ def name_errors(doc, library=None, ordered=True):
                     continue
                 for i in sorted(set(input_reads(conditions[g]["expression"])) - taken(x)):
                     out.append((base + ("guards", g), "names",
+                                f"{tn}.{xn} guards on '{g}', which reads inputs.{i}, the entries a create takes each of, "
+                                "which no expression reads (ADR-0290)" if i in (x.get(ENTRIES) or {}) else
                                 f"{tn}.{xn} guards on '{g}', which reads inputs.{i}, and {xn} takes no input '{i}'"))
             for st, kind, path, _depth in walk(x.get("effect")):
                 where = base + ("effect",) + path
                 for e in step_expressions(st, kind):
                     for i in sorted(set(input_reads(e)) - taken(x)):
-                        out.append((where, "names", f"{tn}.{xn}'s effect reads inputs.{i}, and {xn} takes no input '{i}'"))
+                        out.append((where, "names", f"{tn}.{xn}'s effect reads inputs.{i}, the entries a create takes each of, "
+                                                    "which no expression reads (ADR-0290)" if i in (x.get(ENTRIES) or {}) else
+                                                    f"{tn}.{xn}'s effect reads inputs.{i}, and {xn} takes no input '{i}'"))
+                # a limit bounds the entries an each takes, and a create taking none has none (ADR-0290)
+                if kind == "create" and "limit" in st["create"] and "each" not in st["create"]:
+                    out.append((where, "names", f"{tn}.{xn}'s create of {st['create'].get('type')}.{st['create'].get('transition')} "
+                                                "gives a limit and takes no each, whose entries it bounds (ADR-0290)"))
                 if kind in ("assign", "add", "remove") and st[kind]["location"] in derived:
                     out.append((where, "names", f"{tn}.{xn} writes '{st[kind]['location']}', a derived attribute, whose value is its expression"))
                 elif kind in ("assign", "add", "remove") and st[kind]["location"] not in attrs:
@@ -3032,6 +3150,8 @@ def create_errors(doc, library, where, tn, xn, c):
     out = [(where, "names", f"{tn}.{xn} passes '{i}' to {c['type']}.{c['transition']}, which takes no input '{i}'")
            for i in sorted(given - taken(t))]
     out += event_errors(where, tn, xn, f"{c['type']}.{c['transition']}", t, c.get("inputs") or {}, target)
+    # each entry gives what the step does not name (ADR-0290)
+    given |= set(c.get(EACH_FIELDS) or ())
     out += [(where, "names", f"{tn}.{xn} creates a {c['type']} without the input '{i}', which {c['type']}.{c['transition']} requires")
             for i in sorted(required_input_names(t) - given) if "default" not in ((t.get("inputs") or {}).get(i) or {})]
     return out
@@ -5478,6 +5598,10 @@ def supersession_errors(doc, tn, t, library):
     # a personal input is erased from the events that carried it only by its object's erasure (DESIGN.md §8, ADR-0134)
     taken = sorted(f"{xn}.{i}" for xn, x in (t.get("transitions") or {}).items()
                    for i, sp in (x.get("inputs") or {}).items() if (sp or {}).get("personal"))
+    # and an entry's personal field, recorded in the act's event (ADR-0290 decision 3)
+    taken = sorted(taken + [f"{xn}.{n}" for xn, x in (t.get("transitions") or {}).items()
+                            for n, e in (x.get(ENTRIES) or {}).items()
+                            if any((f or {}).get("personal") for f in e["fields"].values())])
     erasable = any(x["kind"] == "erasure" for x in (t.get("transitions") or {}).values())
     # every type holding a personal value declares its erasure, so PRD D8 holds everywhere (ADR-0133, ADR-0134)
     # a machine has no objects of its own: each type that binds it is held to the rule (§4.10)
@@ -6506,7 +6630,9 @@ def effect_lines(steps, P, indent):
             bound = f"{c['result']} = " if c.get("result") else ""
             given = args(c.get("inputs"))
             rest = (", ...inputs" if given else "...inputs") if c.get("rest") == "inputs" else ""
-            out.append((f"{indent}create {bound}{c['type']}.{c['transition']}({given}{rest})", path))
+            # one for each entry a list of the transition's own gives (ADR-0290)
+            each = (f" each {c['each']}" + (f" limit {c['limit']}" if "limit" in c else "")) if "each" in c else ""
+            out.append((f"{indent}create {bound}{c['type']}.{c['transition']}({given}{rest}){each}", path))
         elif "supersede" in st:
             out.append((f"{indent}supersede {one(st['supersede'])}", path))
         else:
@@ -6749,6 +6875,20 @@ def example_errors(doc, kinds, modules):
             return [(path, "names", f"'{name}' is an actor_kind, written bare as human, agent or service")]
         return []
 
+    def entries_errors(v, e, env, path, name):
+        """A list of entries an each takes, written as a list of mappings, each of the target's inputs the step does not
+        name, each field written as its input declares it (ADR-0290)."""
+        if not isinstance(v, list) or not all(isinstance(entry, dict) for entry in v):
+            return [(path, "names", f"'{name}' is a list of entries, each a mapping of {e['target']}'s inputs")]
+        errs = []
+        for n, entry in enumerate(v):
+            for f, fv in entry.items():
+                if f not in e["fields"]:
+                    errs.append((path + (n, f), "names", f"'{name}' takes entries of {e['target']}, and no field '{f}'"))
+                elif fv is not None:
+                    errs += value_errors(fv, e["fields"][f], env, path + (n, f), f)
+        return errs
+
     def request_errors(r, env, path, applies):
         """A request's names; `applies` for a setup's step, which must apply."""
         errs = []
@@ -6780,9 +6920,12 @@ def example_errors(doc, kinds, modules):
         own = x.get("inputs") or {}
         builtin = {"to", "admits"} if x["kind"] == "assertion" else set()
         given = r.get("inputs") or {}
+        lists = x.get(ENTRIES) or {}
         for k, v in given.items():
-            if k not in taken(x) | builtin:
+            if k not in taken(x) | builtin | set(lists):
                 errs.append((path + ("inputs", k), "names", f"{tn}.{r['transition']} takes no input '{k}'"))
+            elif k in lists and v is not None:
+                errs += entries_errors(v, lists[k], env, path + ("inputs", k), k)
             elif k == "to" and k in builtin:     # an assertion's target; another transition's `to` is its own (#74)
                 if v not in targets(x):
                     errs.append((path + ("inputs", k), "names", f"'{v}' is not a state {tn}.{r['transition']} may put an object in"))
@@ -7227,6 +7370,8 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
     # every enumeration a module of the version renames, which an attribute in any module follows (ADR-0247)
     renames = renamed_enumerations(files)
     enum_renames = {old: new for _f, old, new in renames}
+    # every attribute a module of the version renames, which an each in any module may derive (ADR-0290)
+    attribute_renames = renamed_attributes(files)
     enum_modules = version_enumerations(files)
     enums_before = previous_enumerations(previous)
     for f, text in files:
@@ -7384,6 +7529,7 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes + final_admission_notes(doc, v)]
         for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + acts_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc) + declared_value_errors(doc) + not_blank_errors(doc)
                         + name_errors(v, library, ordered=False) + taken_by_errors(v) + column_errors(v) + rest_errors(v)
+                        + each_rename_errors(v, dict(library, **dict(types(v))), attribute_renames)
                         + migration_errors(doc, v) + renamed_enumeration_errors(f, renames, enum_modules) + pair):
             p = back(p)
             if p is not None and p[0] == "machines" and "'" in m:
@@ -13416,6 +13562,173 @@ def rest_sets_and_chains_plants():
               f"{'as expected' if hit else 'NOT: ' + str(found or wrong)}")
     return ok
 
+def each_plants():
+    """A create takes each entry of a list an act is given, one object for each (issue #102, ADR-0290): clean where
+    each entry gives the rest of a line's inputs, where an observation kind is recorded for each, and through a target
+    taking the rest of its own; refused, at step 2, a step with each and no limit, or a limit under 1, and at step 3 a
+    limit with no each, a step with each and `rest: inputs`, with `result` or within a loop, a list the act takes or
+    derives itself, two steps reading one list, a target taking entries of its own, an entry holding a file or a set the
+    target gives a default of its own, an expression reading the list, a `rest: inputs` whose target takes entries, and
+    a version renaming a field an each derives; a personal field held in an entry makes the act's type hold a personal
+    input (check 60). An examples file writes the list as a list of mappings, each field as its input declares it. Run
+    by the reference runner, each entry makes an object, in the order given, the list left out none; an entry refused,
+    or one too many, refuses the request whole."""
+    orders = (
+        "module: orders\ncategories: [live, closed]\ntypes:\n"
+        "  Product:\n    description: A product an order's line takes.\n    tracking: record\n"
+        "    attributes:\n      code: { type: string, description: Its code. }\n"
+        "    states:\n      LISTED: { description: Listed., category: live }\n"
+        "      RETIRED: { description: Retired., category: closed, final: true }\n"
+        "    transitions:\n      list: { kind: initial, to: LISTED, required_inputs: [code], description: Lists it. }\n"
+        "      retire: { kind: external, from: [LISTED], to: RETIRED, description: Retires it. }\n"
+        "  Order:\n    description: An order placed with its lines.\n    tracking: record\n"
+        "    attributes:\n      title: { type: string, description: Its title. }\n"
+        "    states:\n      PLACED: { description: Placed., category: live }\n"
+        "      CLOSED: { description: Closed., category: closed, final: true }\n"
+        "    transitions:\n      place:\n        kind: initial\n        to: PLACED\n        required_inputs: [title]\n"
+        "        description: Places it with its lines.\n        effect:\n"
+        "          - create: { type: Line, transition: add, inputs: { order: this }, each: lines, limit: 3 }\n"
+        "      close: { kind: external, from: [PLACED], to: CLOSED, description: Closes it. }\n"
+        "  Line:\n    description: A line of an order.\n    tracking: record\n"
+        "    attributes:\n      order: { reference: Order, description: Its order. }\n"
+        "      product: { reference: Product, description: Its product. }\n"
+        "      qty: { type: int, description: How many units. }\n"
+        "      rush: { type: bool, optional: true, description: Whether it ships first. }\n"
+        "    states:\n      OPEN: { description: Open., category: live }\n"
+        "      CLOSED: { description: Closed., category: closed, final: true }\n"
+        "    conditions:\n      product_listed:\n        description: The product is listed.\n"
+        "        expression: product.state == Product.LISTED\n        remedy: self_serviceable\n"
+        "    transitions:\n      add:\n        kind: initial\n        to: OPEN\n        description: Adds it.\n"
+        "        required_inputs: [order, product, qty]\n        optional_inputs: [rush]\n"
+        "        guards: { product_listed: deny }\n"
+        "      close: { kind: external, from: [OPEN], to: CLOSED, description: Closes it. }\n")
+    step = "          - create: { type: Line, transition: add, inputs: { order: this }, each: lines, limit: 3 }\n"
+    placed = "        effect:\n" + step
+    assert orders.count(step) == 1 and orders.count(placed) == 1
+
+    def with_step(new):
+        return orders.replace(step, new)
+    memo = ("    observations:\n      memos:\n        kind: Memo\n        description: What was said of the line.\n"
+            "        attributes:\n          text: { type: string, description: What was said. }\n")
+    line_states = "    states:\n      OPEN: { description: Open., category: live }\n"
+    assert orders.count(line_states) == 1
+    recorded = orders.replace(line_states, memo + line_states).replace(
+        "        guards: { product_listed: deny }\n",
+        "        guards: { product_listed: deny }\n        effect:\n"
+        "          - create: { type: Memo, transition: record, inputs: { subject: this }, rest: inputs }\n")
+    cases = [
+        ("each entry the rest of a line's inputs", [("orders.yaml", orders)], []),
+        ("an observation kind recorded for each entry",
+         [("orders.yaml", orders.replace(
+             "    states:\n      PLACED:",
+             "    observations:\n      notes:\n        kind: Note\n        description: What was said of the order.\n"
+             "        attributes:\n          text: { type: string, description: What was said. }\n"
+             "    states:\n      PLACED:").replace(step, step + "          - create: { type: Note, transition: record, "
+                                                           "inputs: { subject: this }, each: notes, limit: 2 }\n"))], []),
+        ("through a target taking the rest of its own", [("orders.yaml", recorded)], []),
+        ("each entry giving an input the target declares", [("orders.yaml", orders.replace(
+            "        optional_inputs: [rush]\n",
+            "        optional_inputs: [rush]\n        inputs:\n          reason: { type: string, description: Why it is added. }\n"))],
+         []),
+        ("each with no limit", [("orders.yaml", with_step(step.replace(", limit: 3", "")))], ["'limit' is a required property"]),
+        ("a limit under 1", [("orders.yaml", with_step(step.replace("limit: 3", "limit: 0")))], ['0 is less than the minimum of 1']),
+        ("a limit with no each", [("orders.yaml", with_step(step.replace(", each: lines", "")))], ["Order.place creates a Line without the input 'product', which Line.add requires", "Order.place creates a Line without the input 'qty', which Line.add requires", "Order.place's create of Line.add gives a limit and takes no each, whose entries it bounds (ADR-0290)"]),
+        ("each and rest: inputs", [("orders.yaml", with_step(step.replace("limit: 3", "limit: 3, rest: inputs")))], ["Order.place's create of Line.add takes each entry from 'lines' and the rest of its inputs; a step with each takes no rest: inputs (ADR-0290)"]),
+        ("each and result", [("orders.yaml", with_step(step.replace("limit: 3", "limit: 3, result: made")))], ["Order.place's create of Line.add takes each entry from 'lines' and names its result; a step with each names none (ADR-0290)"]),
+        ("each within a loop", [("orders.yaml", with_step(
+            "          - foreach: { item: i, range: '2', limit: 2, steps: [ { create: { type: Line, transition: add, "
+            "inputs: { order: this }, each: lines, limit: 3 } } ] }\n"))], ["Order.place's create of Line.add takes each entry from 'lines' within a loop; a step with each stands in no loop (ADR-0290)"]),
+        ("a list the act takes itself", [("orders.yaml", orders.replace(
+            placed, "        inputs: { lines: { type: int } }\n" + placed))], ["Order.place's create of Line.add takes each entry from 'lines', which place takes itself: name the list apart (ADR-0290)"]),
+        ("two steps reading one list", [("orders.yaml", with_step(step + step))], ["two steps take each entry from 'lines'; one step reads a list (ADR-0290)"]),
+        ("a list a rest: inputs derives too", [("orders.yaml", orders.replace(
+            "    states:\n      PLACED:",
+            "    observations:\n      notes:\n        kind: Note\n        description: What was said of the order.\n"
+            "        attributes:\n          lines: { type: int, description: How many were said. }\n"
+            "    states:\n      PLACED:").replace(step, step + "          - create: { type: Note, transition: record, "
+                                                          "inputs: { subject: this }, rest: inputs }\n"))], ["Order.place's create of Line.add takes each entry from 'lines', which place derives as an input too: name the list apart (ADR-0290)"]),
+        ("a target taking entries of its own", [("orders.yaml", orders.replace(
+            "      close: { kind: external, from: [PLACED], to: CLOSED, description: Closes it. }\n",
+            "      close: { kind: external, from: [PLACED], to: CLOSED, description: Closes it. }\n"
+            "      reorder:\n        kind: initial\n        to: PLACED\n        description: Places it again.\n"
+            "        effect:\n          - create: { type: Order, transition: place, inputs: { title: '\"again\"' }, "
+            "each: orders, limit: 2 }\n"))], ["Order.reorder's create of Order.place takes each entry from 'orders', and Order.place takes entries of its own; an each's target takes none (ADR-0290)"]),
+        ("an entry holding a file", [("orders.yaml", orders.replace(
+            "      rush: { type: bool, optional: true, description: Whether it ships first. }\n",
+            "      rush: { type: bool, optional: true, description: Whether it ships first. }\n"
+            "      scan: { type: file, optional: true, description: Its scan. }\n").replace(
+            "        optional_inputs: [rush]\n", "        optional_inputs: [rush, scan]\n"))], ["Order.place's create of Line.add takes each entry from 'lines', and an entry would hold the file 'scan', which no entry holds in this release: name it in the step's inputs (ADR-0290)"]),
+        ("an entry holding a set its target defaults", [("orders.yaml", orders.replace(
+            "        optional_inputs: [rush]\n",
+            "        optional_inputs: [rush]\n        inputs:\n          tags: { type: 'string[]', default: '{\"new\"}', "
+            "description: Its tags. }\n"))], ["Order.place's create of Line.add takes each entry from 'lines', and an entry would hold the set 'tags', which Line.add gives a default of its own: name it in the step's inputs (ADR-0290)"]),
+        ("a guard reading the list", [("orders.yaml", orders.replace(
+            "        required_inputs: [title]\n        description: Places it with its lines.\n",
+            "        required_inputs: [title]\n        description: Places it with its lines.\n"
+            "        guards: { lined: deny }\n").replace(
+            "    transitions:\n      place:",
+            "    conditions:\n      lined:\n        description: It has lines.\n        expression: inputs.lines is not null\n"
+            "        remedy: self_serviceable\n    transitions:\n      place:"))], ["Order.place guards on 'lined', which reads inputs.lines, the entries a create takes each of, which no expression reads (ADR-0290)"]),
+        ("an effect reading the list", [("orders.yaml", with_step(
+            step + "          - create: { type: Line, transition: add, inputs: { order: this, product: inputs.lines, qty: 1 } }\n"))], ["Order.place's effect reads inputs.lines, the entries a create takes each of, which no expression reads (ADR-0290)"]),
+        ("a rest: inputs whose target takes entries", [("orders.yaml", orders.replace(
+            "      close: { kind: external, from: [PLACED], to: CLOSED, description: Closes it. }\n",
+            "      close: { kind: external, from: [PLACED], to: CLOSED, description: Closes it. }\n"
+            "      reorder:\n        kind: initial\n        to: PLACED\n        description: Places it again.\n"
+            "        effect:\n          - create: { type: Order, transition: place, rest: inputs }\n"))], ["Order.reorder's create of Order.place takes the rest of its inputs, and Order.place takes the entries 'lines', which no expression passes (ADR-0290)"]),
+        ("a version renaming a field an each derives", [("orders.yaml", orders.replace(
+            "      qty: { type: int", "      quantity: { type: int").replace(
+            "[order, product, qty]", "[order, product, quantity]")
+            + "migration:\n  description: The quantity is named in full.\n  renamed_attributes:\n    Line: { qty: quantity }\n")], ["Order.place's create of Line.add takes each entry from 'lines', whose field 'quantity' the version renames from Line.qty; an earlier event's entries would keep the old name (ADR-0290)"]),
+        ("a personal field held in an entry", [("orders.yaml", orders.replace(
+            "      rush: { type: bool, optional: true, description: Whether it ships first. }\n",
+            "      rush: { type: bool, optional: true, description: Whether it ships first. }\n"
+            "      note: { type: string, optional: true, personal: true, description: A note. }\n").replace(
+            "        optional_inputs: [rush]\n", "        optional_inputs: [rush, note]\n"))], ['Line holds personal data and declares no erasure (check 60)', 'Order holds the personal input place.lines and declares no erasure (check 60)']),
+    ]
+    examples = (
+        "examples_for: orders\nsetups:\n  products:\n    description: Two products, the second retired.\n    steps:\n"
+        "      - request: { type: Product, transition: list, as: a, inputs: { code: A } }\n"
+        "      - request: { type: Product, transition: list, as: b, inputs: { code: B } }\n"
+        "      - request: { object: b, transition: retire }\nexamples:\n"
+        "  an_order_is_placed_with_its_lines:\n    description: Each entry makes a line, in the order given, a repeated one its own.\n"
+        "    given: products\n    request: { type: Order, transition: place, inputs: { title: First, lines: "
+        "[ { product: a, qty: 2, rush: true }, { product: a, qty: 2, rush: true } ] } }\n"
+        "    expect: { verdict: applied, state: PLACED, cascaded: [Line.add, Line.add] }\n"
+        "  an_order_with_no_lines:\n    description: The list left out is empty, and makes no line.\n    given: products\n"
+        "    request: { type: Order, transition: place, inputs: { title: Bare } }\n"
+        "    expect: { verdict: applied, state: PLACED, cascaded: [] }\n"
+        "  a_retired_product_refuses_the_order_whole:\n    description: An entry naming a retired product refuses the order.\n"
+        "    given: products\n    request: { type: Order, transition: place, inputs: { title: Bad, lines: "
+        "[ { product: a, qty: 1 }, { product: b, qty: 1 } ] } }\n"
+        "    expect: { verdict: call_refused, clause: Line.product_listed, remedy: self_serviceable }\n"
+        "  a_line_left_without_its_quantity:\n    description: An entry leaving out a quantity is refused before any rule runs.\n"
+        "    given: products\n    request: { type: Order, transition: place, inputs: { title: Bad, lines: [ { product: a } ] } }\n"
+        "    expect: { verdict: invalid_input }\n"
+        "  too_many_lines:\n    description: More entries than the limit are refused whole.\n    given: products\n"
+        "    request: { type: Order, transition: place, inputs: { title: Big, lines: [ { product: a, qty: 1 }, "
+        "{ product: a, qty: 1 }, { product: a, qty: 1 }, { product: a, qty: 1 } ] } }\n"
+        "    expect: { verdict: over_limit }\n")
+    first = "{ product: a, qty: 2, rush: true }, { product: a, qty: 2, rush: true }"
+    assert examples.count(first) == 1
+    cases += [
+        ("an entry's field no input of the target", [("orders.yaml", orders), ("orders.examples.yaml", examples.replace(
+            first, "{ product: a, qty: 2, colour: red }, { product: a, qty: 2, rush: true }"))], ["'lines' takes entries of Line.add, and no field 'colour'"]),
+        ("a list written as no list of mappings", [("orders.yaml", orders), ("orders.examples.yaml", examples.replace(
+            "[ " + first + " ]", "[ a, b ]"))], ["'lines' is a list of entries, each a mapping of Line.add's inputs"]),
+        ("an entry's reference naming no alias", [("orders.yaml", orders), ("orders.examples.yaml", examples.replace(
+            first, "{ product: z, qty: 2 }, { product: a, qty: 2, rush: true }"))], ["'product' is a reference to Product, and 'z' is not an alias an earlier step gave one"]),
+    ]
+    ok = True
+    for name, files, want in cases:
+        found, _notes = check(files)
+        got = sorted(x[4] for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a create taking each entry, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def history_plants():
     """A type's history before a freeze at step 3 (issue #89, ADR-0272): clean on an owned whole and its parts that
     declare the same, an identifier minted on it unique or unique in scope; refused on a mirror, naming no instant,
@@ -14229,6 +14542,7 @@ def main():
     ok &= not_blank_step5_plants()
     ok &= rest_inputs_plants()
     ok &= rest_sets_and_chains_plants()
+    ok &= each_plants()
     ok &= history_plants()
     ok &= history_pair_plants()
     ok &= type_loop_plants()

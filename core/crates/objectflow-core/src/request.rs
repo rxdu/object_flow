@@ -571,6 +571,9 @@ pub(crate) fn fit_value(declared: &Declared, many: bool, v: Value) -> Result<Val
                 _ => wrong(),
             };
         }
+        // no write holds a list of entries, which only a request gives
+        // (ADR-0290)
+        Declared::Entries(_) => return wrong(),
         Declared::Scalar(ty) => ty.as_str(),
     };
     if let Some(rest) = ty.strip_prefix("decimal(") {
@@ -3265,7 +3268,7 @@ pub(crate) fn declared_under(
     })
 }
 
-fn personal_by_own(t: &Type, x: &Transition, name: &str) -> bool {
+pub(crate) fn personal_by_own(t: &Type, x: &Transition, name: &str) -> bool {
     fn writes(steps: &[Step], t: &Type, name: &str) -> bool {
         steps.iter().any(|st| match st {
             Step::Assign { location, expr } | Step::Add { location, expr } => {

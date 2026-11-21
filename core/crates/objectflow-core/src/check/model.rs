@@ -1190,8 +1190,10 @@ fn calls(
         };
         let callee_trans: Vec<&TransD> = callee.trans.iter().collect();
         // a create taking the rest of its inputs from the transition's own
-        // passes each it does not name (ADR-0271)
-        let rest = s.kind == "create" && str_or(body, "rest", "") == "inputs";
+        // passes each it does not name (ADR-0271), and one taking `each` has
+        // each entry give them (ADR-0290)
+        let rest = s.kind == "create"
+            && (str_or(body, "rest", "") == "inputs" || body.get("each").is_some());
         match callee_trans.iter().find(|c| c.name == tn2) {
             Some(ct) => {
                 for miss in needed(&ct.x).difference(&given).filter(|_| !rest) {

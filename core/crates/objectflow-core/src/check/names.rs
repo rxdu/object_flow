@@ -20,7 +20,7 @@ use super::steps::{
     Step, assigns, body_text, cleared, input_reads, kind, required_input_names, sources,
     step_expressions, step_kind, taken, targets, walk,
 };
-use super::view::{TAKEN, bases, inherited, observation_kinds, types};
+use super::view::{EACH_FIELDS, ENTRIES, TAKEN, bases, inherited, observation_kinds, types};
 use crate::eval::ACTOR_KIND;
 use crate::expr::{BinOp, Expr, Number, parse};
 use crate::yaml::Seg;
@@ -348,7 +348,7 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
                     out.push(finding(
                         ext(&base, segs!["guards", &g]),
                         "names",
-                        format!("{tn}.{xn} guards on '{g}', which reads inputs.{i}, and {xn} takes no input '{i}'"),
+                        untaken_read(&tn, xn, x, Some(&g), i),
                     ));
                 }
             }
@@ -359,12 +359,11 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
                         out.push(finding(
                             where_.clone(),
                             "names",
-                            format!(
-                                "{tn}.{xn}'s effect reads inputs.{i}, and {xn} takes no input '{i}'"
-                            ),
+                            untaken_read(&tn, xn, x, None, i),
                         ));
                     }
                 }
+                out.extend(unbounded_limit(&tn, xn, &step, &where_));
                 let body = step.body();
                 if matches!(step.kind, "assign" | "add" | "remove") {
                     let loc = body_text(body, "location");
@@ -2634,6 +2633,50 @@ fn event_errors(
 
 /// A create names a type of the module, or an imported one, and an initial
 /// transition of it, and supplies that transition's required inputs.
+/// An input an expression reads that the transition does not take: the
+/// entries an each takes, which no expression reads (ADR-0290), or no input
+/// of it; by a guard where one is named, else by its effect. Its own frame,
+/// out of `name_errors`'s, which the checker oracle's test thread holds
+/// deep.
+#[inline(never)]
+fn untaken_read(tn: &str, xn: &str, x: &Value, guard: Option<&str>, i: &str) -> String {
+    let by = match guard {
+        Some(g) => format!("{tn}.{xn} guards on '{g}', which reads"),
+        None => format!("{tn}.{xn}'s effect reads"),
+    };
+    if obj(x, ENTRIES).contains_key(i) {
+        format!(
+            "{by} inputs.{i}, the entries a create takes each of, which no expression reads (ADR-0290)"
+        )
+    } else {
+        format!("{by} inputs.{i}, and {xn} takes no input '{i}'")
+    }
+}
+
+/// A create giving a limit with no each, whose entries a limit bounds
+/// (ADR-0290).
+#[inline(never)]
+fn unbounded_limit(tn: &str, xn: &str, step: &super::steps::Step<'_>, at: &Path) -> Found {
+    if step.kind != "create"
+        || step.body().get("limit").is_none()
+        || step.body().get("each").is_some()
+    {
+        return Found::new();
+    }
+    vec![finding(
+        at.clone(),
+        "names",
+        format!(
+            "{tn}.{xn}'s create of {}.{} gives a limit and takes no each, whose entries it bounds (ADR-0290)",
+            step.body().get("type").map(py_str).unwrap_or_default(),
+            step.body()
+                .get("transition")
+                .map(py_str)
+                .unwrap_or_default()
+        ),
+    )]
+}
+
 fn create_errors(
     doc: &Value,
     library: &Obj,
@@ -2695,6 +2738,9 @@ fn create_errors(
         c.get("inputs").unwrap_or(&Value::Null),
         target,
     ));
+    // each entry gives what the step does not name (ADR-0290)
+    let mut given = given;
+    given.extend(strings(c, EACH_FIELDS));
     for i in required_input_names(t).difference(&given) {
         if !obj(t, "inputs").get(i).is_some_and(|s| has(s, "default")) {
             out.push(finding(
@@ -7760,6 +7806,15 @@ fn supersession_errors(
                 .map(move |(i, _)| format!("{xn}.{i}"))
         })
         .collect();
+    // and an entry's personal field, recorded in the act's event (ADR-0290
+    // decision 3)
+    for (xn, x) in obj(t, "transitions") {
+        for (n, e) in obj(x, ENTRIES) {
+            if obj(e, "fields").values().any(|f| flag(f, "personal")) {
+                taken_personal.push(format!("{xn}.{n}"));
+            }
+        }
+    }
     taken_personal.sort();
     let erasable = obj(t, "transitions").values().any(|x| kind(x) == "erasure");
     if (personal || !taken_personal.is_empty())

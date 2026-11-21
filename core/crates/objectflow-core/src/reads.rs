@@ -691,7 +691,7 @@ fn mistyped_literal(lib: &Library, t: &Type, e: &Expr) -> bool {
         match owner.attribute(m) {
             Some(a) if !a.many => match &a.declared {
                 Declared::Scalar(ty) => Some(ty.clone()),
-                Declared::Reference(_) | Declared::Value(_) => None,
+                Declared::Reference(_) | Declared::Value(_) | Declared::Entries(_) => None,
             },
             _ => None,
         }
@@ -838,6 +838,7 @@ pub(crate) fn bound_by(
                         Declared::Scalar(ty) => format!("a {ty}"),
                         Declared::Reference(target) => format!("the id of a {target}"),
                         Declared::Value(v) => format!("a {v}"),
+                        Declared::Entries(e) => format!("entries of {}", e.target()),
                     };
                     format!("the parameter :{n} is not a value of its member's type, {ty}")
                 })?
@@ -1215,7 +1216,7 @@ impl<'l> Personal<'l> {
         let one = |owner: &Type, m: &str| match owner.attribute(m) {
             Some(a) if !a.many => match &a.declared {
                 Declared::Reference(target) => self.lib.type_(target),
-                Declared::Scalar(_) | Declared::Value(_) => None,
+                Declared::Scalar(_) | Declared::Value(_) | Declared::Entries(_) => None,
             },
             _ => None,
         };
@@ -1240,7 +1241,7 @@ impl<'l> Personal<'l> {
         let set = |owner: &Type, m: &str| match owner.attribute(m) {
             Some(a) if a.many => match &a.declared {
                 Declared::Reference(target) => self.lib.type_(target),
-                Declared::Scalar(_) | Declared::Value(_) => None,
+                Declared::Scalar(_) | Declared::Value(_) | Declared::Entries(_) => None,
             },
             _ => None,
         };
@@ -2259,7 +2260,7 @@ pub fn creations_offered_on<'l>(
                 let target = match x.inputs.iter().find(|(n, _)| n == bound) {
                     Some((_, spec)) if !spec.many => match &spec.declared {
                         Declared::Reference(r) => Some(r),
-                        Declared::Scalar(_) | Declared::Value(_) => None,
+                        Declared::Scalar(_) | Declared::Value(_) | Declared::Entries(_) => None,
                     },
                     Some(_) => None,
                     None => {
@@ -2267,7 +2268,9 @@ pub fn creations_offered_on<'l>(
                             .filter(|a| !a.many)
                             .and_then(|a| match &a.declared {
                                 Declared::Reference(r) => Some(r),
-                                Declared::Scalar(_) | Declared::Value(_) => None,
+                                Declared::Scalar(_) | Declared::Value(_) | Declared::Entries(_) => {
+                                    None
+                                }
                             })
                     }
                 };
@@ -2441,6 +2444,9 @@ fn offer_told(objects: Vec<String>, unknown: bool, proposable: bool) -> Told {
 pub(crate) fn written(declared: &Declared, many: bool) -> String {
     let base = match declared {
         Declared::Scalar(t) | Declared::Reference(t) | Declared::Value(t) => t.clone(),
+        // a list an each takes, typed by the transition each entry creates
+        // by, whose fields `declaration` gives (ADR-0290 decision 5)
+        Declared::Entries(e) => return format!("entries({})", e.target()),
     };
     if many { format!("{base}[]") } else { base }
 }

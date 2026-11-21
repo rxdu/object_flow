@@ -1,0 +1,34 @@
+examples_for: orders
+setups:
+  products:
+    description: Two products, the second retired.
+    steps:
+      - request: { type: Product, transition: list, as: a, inputs: { code: A } }
+      - request: { type: Product, transition: list, as: b, inputs: { code: B } }
+      - request: { object: b, transition: retire }
+examples:
+  an_order_is_placed_with_its_lines:
+    description: Each entry makes a line, in the order given, a repeated one its own.
+    given: products
+    request: { type: Order, transition: place, inputs: { title: First, lines: [ a, b ] } }
+    expect: { verdict: applied, state: PLACED, cascaded: [Line.add, Line.add] }
+  an_order_with_no_lines:
+    description: The list left out is empty, and makes no line.
+    given: products
+    request: { type: Order, transition: place, inputs: { title: Bare } }
+    expect: { verdict: applied, state: PLACED, cascaded: [] }
+  a_retired_product_refuses_the_order_whole:
+    description: An entry naming a retired product refuses the order.
+    given: products
+    request: { type: Order, transition: place, inputs: { title: Bad, lines: [ { product: a, qty: 1 }, { product: b, qty: 1 } ] } }
+    expect: { verdict: call_refused, clause: Line.product_listed, remedy: self_serviceable }
+  a_line_left_without_its_quantity:
+    description: An entry leaving out a quantity is refused before any rule runs.
+    given: products
+    request: { type: Order, transition: place, inputs: { title: Bad, lines: [ { product: a } ] } }
+    expect: { verdict: invalid_input }
+  too_many_lines:
+    description: More entries than the limit are refused whole.
+    given: products
+    request: { type: Order, transition: place, inputs: { title: Big, lines: [ { product: a, qty: 1 }, { product: a, qty: 1 }, { product: a, qty: 1 }, { product: a, qty: 1 } ] } }
+    expect: { verdict: over_limit }

@@ -70,6 +70,37 @@ pub enum Declared {
     /// declares (ADR-0254). The reader gives it as a `Scalar`, and the
     /// library names it a value once every module is read.
     Value(String),
+    /// A list of entries a create's `each` takes, which the load derives as
+    /// an input of the act, never of an attribute (ADR-0290).
+    Entries(Box<Entries>),
+}
+
+/// The list an act takes for a create's `each`, one object created for
+/// each entry, by the transition it names (ADR-0290 decision 1): each entry
+/// holds the target's inputs the step does not name, each declared as the
+/// target declares it (decision 2), and a request gives at most `limit`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Entries {
+    pub type_: String,
+    pub transition: String,
+    pub limit: i64,
+    /// Each field an entry holds, by name, in name order, as an input of
+    /// the target: required where the target requires it and gives no
+    /// default, optional otherwise, a set the target need not be given
+    /// defaulting to the empty set.
+    pub fields: Vec<(String, Input)>,
+}
+
+impl Entries {
+    pub fn field(&self, name: &str) -> Option<&Input> {
+        self.fields.iter().find(|(n, _)| n == name).map(|(_, i)| i)
+    }
+
+    /// `<Type>.<transition>`, as an offer types the list
+    /// (`entries(<Type>.<transition>)`) and `declaration` names it.
+    pub fn target(&self) -> String {
+        format!("{}.{}", self.type_, self.transition)
+    }
 }
 
 /// A value of several fields a module declares once with its rules, which
@@ -209,6 +240,12 @@ pub enum Step {
         /// `rest: inputs`, until the load expands it into the inputs it
         /// passes, after which it is false (ADR-0271).
         rest: bool,
+        /// `each: <name>` and its `limit`: one creation for each entry of
+        /// the act's list of that name (ADR-0290).
+        each: Option<(String, i64)>,
+        /// Whether the load has yet to derive the list `each` takes, as
+        /// `rest` says of a rest's inputs.
+        each_pending: bool,
     },
     Call {
         target: Expr,
@@ -226,7 +263,7 @@ pub enum Step {
     Supersede(Expr),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Input {
     pub declared: Declared,
     pub many: bool,
@@ -429,8 +466,9 @@ impl Library {
                         .and_then(|tt| tt.attribute(o))
                         .is_some_and(|back| back.many)
                 }),
-                // a value's fields are not timed in this slice (ADR-0254)
-                Declared::Value(_) => false,
+                // a value's fields are not timed in this slice (ADR-0254),
+                // and no attribute holds a list of entries (ADR-0290)
+                Declared::Value(_) | Declared::Entries(_) => false,
             };
             if tracked {
                 out.push(n.clone());
@@ -817,6 +855,13 @@ impl Reader<'_> {
                     inputs: self.bindings(spec.get("inputs"))?,
                     result: spec.get("result").and_then(Node::text).map(str::to_string),
                     rest: spec.get("rest").and_then(Node::text) == Some("inputs"),
+                    each: spec.get("each").and_then(Node::text).map(|e| {
+                        (
+                            e.to_string(),
+                            spec.get("limit").and_then(Node::integer).unwrap_or(0),
+                        )
+                    }),
+                    each_pending: spec.get("each").is_some(),
                 },
                 "call" => Step::Call {
                     target: match spec.get("target") {
@@ -1863,26 +1908,30 @@ fn expand_transition(
 }
 
 /// The type and transition of each create, a loop's included, taking
-/// `rest: inputs`.
+/// `rest: inputs`, or `each` (ADR-0290).
 fn rest_targets(steps: &[Step], out: &mut Vec<(String, String)>) {
     for st in steps {
         match st {
             Step::Create {
                 type_,
                 transition,
-                rest: true,
+                rest,
+                each_pending,
                 ..
-            } => out.push((type_.clone(), transition.clone())),
+            } if *rest || *each_pending => out.push((type_.clone(), transition.clone())),
             Step::Foreach { steps, .. } => rest_targets(steps, out),
             _ => {}
         }
     }
 }
 
-/// Whether a step, a loop's included, is a create taking `rest: inputs`.
+/// Whether a step, a loop's included, is a create taking `rest: inputs`,
+/// or `each` whose list the load has yet to derive (ADR-0290).
 fn rests(steps: &[Step]) -> bool {
     steps.iter().any(|st| match st {
-        Step::Create { rest, .. } => *rest,
+        Step::Create {
+            rest, each_pending, ..
+        } => *rest || *each_pending,
         Step::Foreach { steps, .. } => rests(steps),
         _ => false,
     })
@@ -1899,6 +1948,81 @@ fn expand_rest(
     for st in steps {
         match st {
             Step::Foreach { steps, .. } => expand_rest(steps, own, types, derived),
+            // the list an each takes, an input of the act (ADR-0290); what
+            // this release does not take step 3 refuses, and the load holds
+            // as it is read
+            Step::Create {
+                type_,
+                transition,
+                inputs,
+                each: Some((name, limit)),
+                each_pending,
+                ..
+            } if *each_pending => {
+                *each_pending = false;
+                if own.contains(name) || derived.iter().any(|(n, _, _)| n == name) {
+                    continue;
+                }
+                let Some(k) = types.get(type_.as_str()) else {
+                    continue;
+                };
+                let Some(y) = k.transition(transition) else {
+                    continue;
+                };
+                let given: BTreeSet<&String> = inputs.iter().map(|(n, _)| n).collect();
+                let names: BTreeSet<&String> = y
+                    .required_inputs
+                    .iter()
+                    .chain(&y.optional_inputs)
+                    .chain(y.inputs.iter().map(|(n, _)| n))
+                    .filter(|j| {
+                        !given.contains(j)
+                            && !(k.observation_on.is_some()
+                                && (j.as_str() == "subject" || j.as_str() == "corrects"))
+                    })
+                    .collect();
+                let mut fields = Vec::new();
+                let mut served = serde_json::Map::new();
+                let mut personal = false;
+                for j in names {
+                    let Some((input, spec)) = derived_input(k, y, transition, j) else {
+                        continue;
+                    };
+                    // a field written into a personal attribute of the target
+                    // is personal too (check 10)
+                    personal |= input.personal || crate::request::personal_by_own(k, y, j);
+                    fields.push((j.clone(), input));
+                    served.insert(j.clone(), spec);
+                }
+                let entries = Entries {
+                    type_: type_.clone(),
+                    transition: transition.clone(),
+                    limit: *limit,
+                    fields,
+                };
+                let spec = serde_json::json!({
+                    "entries": served,
+                    "limit": limit,
+                    "default": [],
+                    "derived_from": entries.target(),
+                });
+                derived.push((
+                    name.clone(),
+                    Input {
+                        declared: Declared::Entries(Box::new(entries)),
+                        many: false,
+                        optional: false,
+                        // never optional, and the empty list where none is
+                        // given (ADR-0290 decision 4), which a request holds
+                        // as the empty set, an empty array on the wire
+                        default: Some(Expr::Set(Vec::new())),
+                        personal,
+                        not_blank: false,
+                        media_types: Vec::new(),
+                    },
+                    spec,
+                ));
+            }
             Step::Create {
                 type_,
                 transition,
@@ -3441,6 +3565,122 @@ types:
     /// underived; a create of a transition that derives the record's inputs
     /// takes them too, each marked with the step's own target; and creates
     /// taking the rest of each other's in a cycle load, read as they stand.
+    /// A create's `each` is expanded at load into a list the act takes
+    /// (ADR-0290): never optional, the empty list by default, each entry
+    /// holding the target's inputs the step does not name, each as `rest:
+    /// inputs` would derive it, through a target taking the rest of its
+    /// own, an observation kind's `subject` never among them; personal where
+    /// a field is; and the declaration served gives the list its entries,
+    /// limit, default and target, and no type.
+    #[test]
+    fn each_derives_a_list_of_the_targets_inputs() {
+        let text = r#"
+module: orders
+categories: [live, closed]
+types:
+  Order:
+    attributes:
+      title: { type: string }
+    observations:
+      notes:
+        kind: Note
+        attributes:
+          text: { type: string, description: What was said. }
+          seen: { type: "string[]", optional: true }
+    states: { PLACED: { category: live } }
+    transitions:
+      place:
+        kind: initial
+        to: PLACED
+        required_inputs: [title]
+        effect:
+          - create: { type: Line, transition: add, inputs: { order: this }, each: lines, limit: 3 }
+          - create: { type: Note, transition: record, inputs: { subject: this }, each: notes, limit: 2 }
+  Line:
+    attributes:
+      order: { reference: Order }
+      qty: { type: int, description: How many. }
+      memo: { type: string, optional: true, personal: true }
+    observations:
+      memos:
+        kind: Memo
+        attributes:
+          said: { type: string }
+    states: { OPEN: { category: live } }
+    transitions:
+      add:
+        kind: initial
+        to: OPEN
+        required_inputs: [order, qty]
+        optional_inputs: [memo]
+        inputs:
+          size: { type: int, default: 1 }
+        effect:
+          - create: { type: Memo, transition: record, inputs: { subject: this }, rest: inputs }
+"#;
+        let lib = Library::load(&[("orders.yaml".into(), text.into())]).unwrap();
+        let t = lib.type_("Order").unwrap();
+        let x = t.transition("place").unwrap();
+        let list = |n: &str| match &x.inputs.iter().find(|(k, _)| k == n).unwrap().1 {
+            Input {
+                declared: Declared::Entries(e),
+                optional,
+                default,
+                personal,
+                ..
+            } => (*e.clone(), *optional, default.clone(), *personal),
+            other => panic!("{other:?}"),
+        };
+        let (lines, optional, default, personal) = list("lines");
+        assert_eq!(
+            (lines.type_.as_str(), lines.transition.as_str(), lines.limit),
+            ("Line", "add", 3)
+        );
+        assert!(!optional && default == Some(Expr::Set(Vec::new())) && personal);
+        // each input of the target the step does not name, through the
+        // target's own rest, in name order
+        let names: Vec<&str> = lines.fields.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["memo", "qty", "said", "size"]);
+        assert!(!lines.field("qty").unwrap().optional);
+        assert!(lines.field("memo").unwrap().optional && lines.field("memo").unwrap().personal);
+        let size = lines.field("size").unwrap();
+        assert!(size.optional && size.default.is_none());
+        // an observation kind's subject is never an entry's; a set the kind
+        // need not be given is the empty set by default
+        let (notes, _, _, personal) = list("notes");
+        let names: Vec<&str> = notes.fields.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["seen", "text"]);
+        assert!(!personal);
+        let seen = notes.field("seen").unwrap();
+        assert!(!seen.optional && seen.default == Some(Expr::Set(Vec::new())));
+        // the step keeps its own inputs and the list it takes
+        assert!(matches!(&x.effect[0],
+            Step::Create { inputs, each: Some((n, 3)), each_pending: false, .. }
+                if n == "lines" && inputs.len() == 1));
+        // the declaration served
+        let served = &t.source["transitions"]["place"]["inputs"];
+        assert_eq!(
+            served["lines"],
+            serde_json::json!({
+                "entries": {
+                    "memo": {"type": "string", "personal": true, "optional": true},
+                    "qty": {"type": "int", "description": "How many."},
+                    "said": {"type": "string"},
+                    "size": {"type": "int", "optional": true},
+                },
+                "limit": 3, "default": [], "derived_from": "Line.add",
+            })
+        );
+        assert_eq!(
+            served["notes"]["entries"]["seen"],
+            serde_json::json!({"type": "string[]", "default": "{}"})
+        );
+        assert_eq!(
+            t.source["transitions"]["place"]["effect"][0]["create"]["each"],
+            "lines"
+        );
+    }
+
     #[test]
     fn rest_inputs_derives_sets_and_through_another() {
         let text = r#"

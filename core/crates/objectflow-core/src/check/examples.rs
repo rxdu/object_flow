@@ -19,7 +19,8 @@ use super::doc::{
 };
 use super::names::{binders, call_target, composite_parts};
 use super::steps::{kind, required_input_names, sources, taken, targets, walk};
-use super::view::bases;
+use super::view::{ENTRIES, bases};
+use crate::yaml::Seg;
 
 /// Each transition an examples file's examples request, as its type and
 /// name, with the examples that request it, in the order written.
@@ -159,6 +160,47 @@ struct Checker {
 }
 
 impl Checker {
+    /// A list of entries an each takes, written as a list of mappings, each
+    /// of the target's inputs the step does not name, each field written as
+    /// its input declares it (ADR-0290), as `check-flows.py`'s
+    /// `entries_errors`.
+    fn entries_errors(
+        &self,
+        v: &Value,
+        e: &Value,
+        env: &BTreeMap<String, String>,
+        at: &Path,
+        name: &str,
+    ) -> Found {
+        let target = e.get("target").map(py_str).unwrap_or_default();
+        let Some(items) = v.as_array().filter(|a| a.iter().all(Value::is_object)) else {
+            return vec![finding(
+                at.clone(),
+                "names",
+                format!("'{name}' is a list of entries, each a mapping of {target}'s inputs"),
+            )];
+        };
+        let fields = obj(e, "fields");
+        let mut errs = Found::new();
+        for (n, entry) in items.iter().enumerate() {
+            for (f, fv) in super::doc::as_obj(entry) {
+                let here = ext(at, vec![Seg::Index(n), Seg::Key(f.clone())]);
+                match fields.get(f) {
+                    None => errs.push(finding(
+                        here,
+                        "names",
+                        format!("'{name}' takes entries of {target}, and no field '{f}'"),
+                    )),
+                    Some(spec) if !fv.is_null() => {
+                        errs.extend(self.value_errors(fv, Some(spec), env, &here, f));
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+        errs
+    }
+
     fn value_errors(
         &self,
         v: &Value,
@@ -356,14 +398,17 @@ impl Checker {
         };
         let given = obj(r, "inputs").clone();
         let takes = taken(&x);
+        let lists = obj(&x, ENTRIES).clone();
         for (k, v) in &given {
             let here = ext(at, segs!["inputs", k]);
-            if !takes.contains(k) && !builtin.contains(k.as_str()) {
+            if !takes.contains(k) && !builtin.contains(k.as_str()) && !lists.contains_key(k) {
                 errs.push(finding(
                     here,
                     "names",
                     format!("{tn}.{xn} takes no input '{k}'"),
                 ));
+            } else if let Some(e) = lists.get(k).filter(|_| !v.is_null()) {
+                errs.extend(self.entries_errors(v, e, env, &here, k));
             } else if k == "to" && builtin.contains("to") {
                 // an assertion's target; another transition's `to` is its
                 // own input, as the request path takes it (#74)

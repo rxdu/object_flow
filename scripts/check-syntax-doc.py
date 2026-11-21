@@ -526,7 +526,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                     if "superseding" in states.get(t, ("", 0))[0]:
                         add(26, f"{d.name}.{tn} enters superseding state {t} without a supersede", ln)
             # 2 — cascade arguments
-            for tgt, tn2, args in re.findall(r"\b(?:call|create)\s+([\w.$]+)\.(\w+)\(([^)]*)\)", body):
+            for tgt, tn2, args, each in re.findall(r"\b(?:call|create)\s+([\w.$]+)\.(\w+)\(([^)]*)\)( each \w+)?", body):
                 callee = by_name.get(tgt) or by_name.get(tgt.split(".")[-1])
                 if callee:
                     ct = next((t for t in callee.trans + callee.generated if t[1] == tn2), None)
@@ -535,6 +535,8 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                                 if "?" not in sp}
                         given = set(re.findall(r"(\w+)\s*:=", args))
                         if "...inputs" in args:     # the rest of its inputs from the transition's own (ADR-0271)
+                            given |= need
+                        if each:                    # each entry gives what the step does not name (ADR-0290)
                             given |= need
                         for miss in need - given:
                             add(2, f"{d.name}.{tn} calls {tgt}.{tn2} without required '{miss}'", ln)

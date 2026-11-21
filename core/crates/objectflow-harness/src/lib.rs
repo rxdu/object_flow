@@ -1489,6 +1489,25 @@ impl Actor<'_> {
         self.made += 1;
         let n = self.made;
         match d {
+            // a list an each takes: up to two entries, each field a value of
+            // its own input's type (ADR-0290)
+            Declared::Entries(e) => {
+                let count = if self.rng.percent(50) { 1 } else { 2 };
+                let entries: Vec<Json> = (0..count)
+                    .map(|_| {
+                        let mut out = serde_json::Map::new();
+                        for (f, i) in &e.fields {
+                            let one =
+                                self.value(world, &i.declared, i.many, personal || i.personal);
+                            if !one.is_null() {
+                                out.insert(f.clone(), one);
+                            }
+                        }
+                        Json::Object(out)
+                    })
+                    .collect();
+                Json::Array(entries)
+            }
             // a value of several fields, each field a value of its own type
             // (ADR-0254)
             Declared::Value(v) => {

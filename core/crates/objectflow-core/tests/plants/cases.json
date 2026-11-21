@@ -35315,6 +35315,587 @@
   "could_violate": {}
  },
  {
+  "label": "each_plants: each entry the rest of a line's inputs",
+  "files": [
+   [
+    "orders.yaml",
+    "ae84a671e343fda6"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ],
+   "Order": [
+    0,
+    0
+   ],
+   "Product": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: an observation kind recorded for each entry",
+  "files": [
+   [
+    "orders.yaml",
+    "f19e1b086aa9d845"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ],
+   "Order": [
+    0,
+    0
+   ],
+   "Product": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: through a target taking the rest of its own",
+  "files": [
+   [
+    "orders.yaml",
+    "21d76034ab3c22d2"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ],
+   "Order": [
+    0,
+    0
+   ],
+   "Product": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: each entry giving an input the target declares",
+  "files": [
+   [
+    "orders.yaml",
+    "43c2af64362b0ea4"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Line": [
+    0,
+    1
+   ],
+   "Order": [
+    0,
+    0
+   ],
+   "Product": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: each with no limit",
+  "files": [
+   [
+    "orders.yaml",
+    "2633dbce92ce08a8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    30,
+    "fatal",
+    "schema",
+    "'limit' is a required property"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: a limit under 1",
+  "files": [
+   [
+    "orders.yaml",
+    "001a63313cada89c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    30,
+    "fatal",
+    "schema",
+    "0 is less than the minimum of 1"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: a limit with no each",
+  "files": [
+   [
+    "orders.yaml",
+    "a1670f2734eab4c1"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    30,
+    "fatal",
+    "names",
+    "Order.place creates a Line without the input 'product', which Line.add requires"
+   ],
+   [
+    "orders.yaml",
+    30,
+    "fatal",
+    "names",
+    "Order.place creates a Line without the input 'qty', which Line.add requires"
+   ],
+   [
+    "orders.yaml",
+    30,
+    "fatal",
+    "names",
+    "Order.place's create of Line.add gives a limit and takes no each, whose entries it bounds (ADR-0290)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: each and rest: inputs",
+  "files": [
+   [
+    "orders.yaml",
+    "415976cb5568232f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    30,
+    "fatal",
+    "names",
+    "Order.place's create of Line.add takes each entry from 'lines' and the rest of its inputs; a step with each takes no rest: inputs (ADR-0290)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: each and result",
+  "files": [
+   [
+    "orders.yaml",
+    "69dbf0077e788dd7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    30,
+    "fatal",
+    "names",
+    "Order.place's create of Line.add takes each entry from 'lines' and names its result; a step with each names none (ADR-0290)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: each within a loop",
+  "files": [
+   [
+    "orders.yaml",
+    "a519961de7edb32c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    30,
+    "fatal",
+    "names",
+    "Order.place's create of Line.add takes each entry from 'lines' within a loop; a step with each stands in no loop (ADR-0290)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: a list the act takes itself",
+  "files": [
+   [
+    "orders.yaml",
+    "ec68e64c497b0f0b"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    31,
+    "fatal",
+    "names",
+    "Order.place's create of Line.add takes each entry from 'lines', which place takes itself: name the list apart (ADR-0290)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: two steps reading one list",
+  "files": [
+   [
+    "orders.yaml",
+    "52e00c1736df81ea"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    31,
+    "fatal",
+    "names",
+    "two steps take each entry from 'lines'; one step reads a list (ADR-0290)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: a list a rest: inputs derives too",
+  "files": [
+   [
+    "orders.yaml",
+    "5947448ac2cead7a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    36,
+    "fatal",
+    "names",
+    "Order.place's create of Line.add takes each entry from 'lines', which place derives as an input too: name the list apart (ADR-0290)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: a target taking entries of its own",
+  "files": [
+   [
+    "orders.yaml",
+    "daf7490721c56c6c"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    37,
+    "fatal",
+    "names",
+    "Order.reorder's create of Order.place takes each entry from 'orders', and Order.place takes entries of its own; an each's target takes none (ADR-0290)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: an entry holding a file",
+  "files": [
+   [
+    "orders.yaml",
+    "a296117c1ef3cc75"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    30,
+    "fatal",
+    "names",
+    "Order.place's create of Line.add takes each entry from 'lines', and an entry would hold the file 'scan', which no entry holds in this release: name it in the step's inputs (ADR-0290)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: an entry holding a set its target defaults",
+  "files": [
+   [
+    "orders.yaml",
+    "5bb6f5f1f9cacc5a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    30,
+    "fatal",
+    "names",
+    "Order.place's create of Line.add takes each entry from 'lines', and an entry would hold the set 'tags', which Line.add gives a default of its own: name it in the step's inputs (ADR-0290)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: a guard reading the list",
+  "files": [
+   [
+    "orders.yaml",
+    "c7a926c22eaf161e"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    34,
+    "fatal",
+    "names",
+    "Order.place guards on 'lined', which reads inputs.lines, the entries a create takes each of, which no expression reads (ADR-0290)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: an effect reading the list",
+  "files": [
+   [
+    "orders.yaml",
+    "dfc93b4e4473c238"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    31,
+    "fatal",
+    "names",
+    "Order.place's effect reads inputs.lines, the entries a create takes each of, which no expression reads (ADR-0290)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: a rest: inputs whose target takes entries",
+  "files": [
+   [
+    "orders.yaml",
+    "ce9cdb121063055f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    37,
+    "fatal",
+    "names",
+    "Order.reorder's create of Order.place takes the rest of its inputs, and Order.place takes the entries 'lines', which no expression passes (ADR-0290)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: a version renaming a field an each derives",
+  "files": [
+   [
+    "orders.yaml",
+    "9182bed1a9d3e00a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    30,
+    "fatal",
+    "names",
+    "Order.place's create of Line.add takes each entry from 'lines', whose field 'quantity' the version renames from Line.qty; an earlier event's entries would keep the old name (ADR-0290)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: a personal field held in an entry",
+  "files": [
+   [
+    "orders.yaml",
+    "2c1f2187beea496f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.yaml",
+    15,
+    "fatal",
+    "names",
+    "Order holds the personal input place.lines and declares no erasure (check 60)"
+   ],
+   [
+    "orders.yaml",
+    32,
+    "fatal",
+    "names",
+    "Line holds personal data and declares no erasure (check 60)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: an entry's field no input of the target",
+  "files": [
+   [
+    "orders.yaml",
+    "ae84a671e343fda6"
+   ],
+   [
+    "orders.examples.yaml",
+    "dd30578efcc57d74"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.examples.yaml",
+    13,
+    "fatal",
+    "names",
+    "'lines' takes entries of Line.add, and no field 'colour'"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: a list written as no list of mappings",
+  "files": [
+   [
+    "orders.yaml",
+    "ae84a671e343fda6"
+   ],
+   [
+    "orders.examples.yaml",
+    "62c7dc875ec0ca26"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.examples.yaml",
+    13,
+    "fatal",
+    "names",
+    "'lines' is a list of entries, each a mapping of Line.add's inputs"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "each_plants: an entry's reference naming no alias",
+  "files": [
+   [
+    "orders.yaml",
+    "ae84a671e343fda6"
+   ],
+   [
+    "orders.examples.yaml",
+    "bc0194665a62c14f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "orders.examples.yaml",
+    13,
+    "fatal",
+    "names",
+    "'product' is a reference to Product, and 'z' is not an alias an earlier step gave one"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "history_plants: an owned whole and its parts alike, its identifier unique",
   "files": [
    [

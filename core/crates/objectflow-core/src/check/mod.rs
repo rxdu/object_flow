@@ -305,6 +305,9 @@ pub fn checked_as(
         .collect();
     let enum_modules = migration::version_enumerations(files);
     let enums_before = migration::previous_enumerations(previous);
+    // every attribute a module of the version renames, which an each in any
+    // module may derive (ADR-0290)
+    let attribute_renames = migration::renamed_attributes(files);
     for (index, (file, text)) in files.iter().enumerate() {
         let fatal = |found: &mut Vec<Finding>, line: usize, code: &str, message: String| {
             found.push(Finding {
@@ -741,6 +744,15 @@ pub fn checked_as(
             .chain(view::taken_by_errors(&v.doc))
             .chain(view::column_errors(&v.doc))
             .chain(view::rest_errors(&v.doc))
+            .chain(view::each_rename_errors(
+                &v.doc,
+                &{
+                    let mut kinds = library.clone();
+                    kinds.extend(view_types.clone());
+                    kinds
+                },
+                &attribute_renames,
+            ))
             .chain(migration::migration_errors(&doc, &v.doc))
             .chain(migration::renamed_enumeration_errors(
                 file,

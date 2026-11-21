@@ -135,8 +135,20 @@ fn effect_lines(
                 (Some("inputs"), false) => ", ...inputs",
                 _ => "",
             };
+            // one for each entry a list of the transition's own gives
+            // (ADR-0290)
+            let each = match c.get("each") {
+                Some(e) => format!(
+                    " each {}{}",
+                    py_str(e),
+                    c.get("limit")
+                        .map(|l| format!(" limit {}", py_str(l)))
+                        .unwrap_or_default()
+                ),
+                None => String::new(),
+            };
             push(format!(
-                "create {bound}{}.{}({given}{rest})",
+                "create {bound}{}.{}({given}{rest}){each}",
                 str_or(c, "type", ""),
                 str_or(c, "transition", ""),
             ));

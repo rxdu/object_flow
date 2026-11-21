@@ -47,6 +47,11 @@ ABSENT = _Absent()
 
 # beside an attribute or an input typed by a value: the value's fields, as the checker's view gives them (ADR-0254)
 FIELDS = "_fields"
+# on a transition: each list its creates' `each` take, by its name: the entry's fields, each declared as an input, the
+# step's `limit`, its target `<Type>.<transition>` and the step's path, as the checker's view gives them (ADR-0290)
+ENTRIES = "_entries"
+# on a create taking `each`: the target's inputs each entry gives, which the step does not name (ADR-0290)
+EACH_FIELDS = "_entry_fields"
 
 
 class Record:
