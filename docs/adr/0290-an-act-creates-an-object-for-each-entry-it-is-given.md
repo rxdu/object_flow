@@ -1,6 +1,6 @@
 # ADR-0290: An act creates an object for each entry it is given
 
-- **Status:** **Proposed** 2026-11-21 for issue #102, under the author's direction ("review open issues and address properly"), its direction and its points put to the author the same day, each with a recommendation. The accepting commit records the author's answer here.
+- **Status:** **Decided** by the author 2026-11-21 ("supervise a session to address the issue with your recommendations"), as proposed the same day for issue #102 under the author's direction ("review open issues and address properly"), its direction and each of its points put with a recommendation. The author skipped the trace put with its direction. To be built for 0.32.0, with ADR-0289.
 - **Date:** 2026-11-21
 - **Refines:** ADR-0271 decision 5 (a field that differs by element is named by the step); the `create` step of `flow-format.md` §4.8
 - **Relates to:** ADR-0254 decision 9 (a value's later slices); ADR-0275 (a derived set defaults to the empty set, and a derivation carries through); ADR-0180 decision 2 (what `/v1` may add); ADR-0228 (a batch); `storage-schema.md` §9 (erasure); `docs/research/deriving-an-acts-inputs-from-the-record-it-makes.md`, its section on many records; issue #102
@@ -16,8 +16,6 @@ The issue asked for a declared input holding a list of values whose fields may b
 What reads a request's inputs today reads each by its name at the top of `inputs`: erasure nulls `inputs.<name>` in an event's payload (`store.rs`), export keeps or drops each name, a batch resolves a local name in a value or an array element (`request.rs`, `lids_in`), and an offer's `inputs` maps each name to a type string (`wire.md`). A list of entries is a new kind of input, which each of them must learn.
 
 ## Decision
-
-*Proposed, for the author to decide.*
 
 1. **A `create` step may take `each: <name>` and a `limit`.** The act then takes an input `<name>`, a list of entries, and the step creates one object for each entry, in the order given, by its target transition. The step derives the input, as `rest: inputs` derives its inputs: the act declares no input of that name.
    ```yaml
