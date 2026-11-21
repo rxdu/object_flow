@@ -34,6 +34,7 @@ class Decl:
         self.attrs = {}         # name -> (type_and_markings, line)
         self.counters = set()
         self.rels = {}          # name -> (kind, decl_text, line)
+        self.follows = {}       # a reference's name -> (the type it refers to, its `follows on` clauses, line)
         self.requires = []      # (kind, name, line)
         self.req_spec = {}      # a machine's required member -> (kind, text after `requires <kind>`)
         self.provides = set()
@@ -123,6 +124,11 @@ def parse(text, base=0):
             while j + 1 < len(lines) and lines[j + 1].strip() \
                   and len(lines[j + 1]) - len(lines[j + 1].lstrip()) > ind:
                 j += 1; spec += " " + lines[j].strip()
+            if m.group(1) == "ref":
+                # a reference's follows clauses, each its own (§3.2, ADR-0292), kept apart from its markings
+                spec, *follows = re.split(r"\s+(?=follows on\b)", spec)
+                if follows:
+                    cur.follows[m.group(2)] = (spec.split()[0].rstrip("?") if spec.split() else "", follows, ln)
             cur.rels[m.group(2)] = (m.group(1), spec, ln)
             i = j + 1; continue
         if m := re.match(r"^cascade\s+(\w+)\s+on\b(.*)$", s):
@@ -183,7 +189,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
     STARTS = (r"^(module|use|capability|category|enum|sequence|evaluator|machine|type|tracking|"
               r"states|state|provides|summary|visible|attr|counter|ref|part|owner|derive|invariant|"
               r"create|do|act|assert|erase|input|accepts|require|set|clear|add|remove|call|supersede|for|"
-              r"cascade|survives|requires|removed|renamed|fn|extends|may|corrects|only|proposable|"
+              r"cascade|follows|survives|requires|removed|renamed|fn|extends|may|corrects|only|proposable|"
               r"observation|metric|field|recorded|occurred|from|combine|by|window|value|flag|labels|"
               r"backfill|admit|requests)\b")
     clause_col = None
@@ -556,6 +562,11 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                     trig = r"cascade on\s+(?:\{[^}]*\b" + tr + r"\b[^}]*\}|" + tr + r"\b)"
                     cascades = re.search(trig + r"[^\n]*?to\s+" + d.name + r"\." + tn + r"\b",
                                          "\n".join(v[1] for v in t.rels.values()))
+                    # or a follows clause on this type's reference to the parent's type (ADR-0292 decision 7)
+                    cascades = cascades or any(
+                        re.match(r"follows on\s+(?:\{[^}]*\b" + tr + r"\b[^}]*\}|" + tr + r"\b)\s+to\s+" + d.name
+                                 + r"\." + tn + r"\b", cl)
+                        for target, clauses, _l in d.follows.values() if target == ty for cl in clauses)
                     if pt is None and not cascades:
                         add(13, f"{d.name}.{tn} names parent {ty}.{tr}, which does not exist", ln); continue
                     # a creation naming its result, `create r = T.t(…)`, reaches t as a bare one does (D551)

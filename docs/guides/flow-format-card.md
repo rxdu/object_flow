@@ -204,6 +204,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 | `aggregation` | `composite`: the referenced objects are parts, created `only_via` the whole | 4.3 |
 | `cascade` | on a composite end, clauses `{ on: [<transition>], transition: <part's>, inputs: { … }, limit: <n> }` | 4.3 |
 | `survives` | on a composite end, `true` or the final transitions the parts outlive; each final transition of the whole is covered by a cascade or this | 4.3 |
+| `follows` | on a single reference with no `opposite`, clauses `{ on: [<transition of the type it refers to>], transition: <its own>, inputs: { … }, limit: <n> }`: each object holding it takes `transition` when the object it refers to takes one in `on` | 4.3 |
 | `optional` | `true` if it may be without a value | 4.3 |
 | `default` | a literal, a qualified value or `now`, given at creation when not an input | 4.17 |
 | `identifier` | minted at creation: `sequence`, `format` (`{n}`, `{n:5}`, `{<attribute>}`, `[ … ]` around an optional segment) and `scope` | 4.12 |
@@ -230,7 +231,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 
 | Key | Takes | § |
 |---|---|---|
-| `only_via` | the `Type.transition`s that alone take it, by `call`, `create` or cascade, or `[any]`, every transition of any type; no caller requests it | 4.8 |
+| `only_via` | the `Type.transition`s that alone take it, by `call`, `create`, cascade or follow, or `[any]`, every transition of any type; no caller requests it | 4.8 |
 | `proposable` | `true`: a request may be filed as a proposal, executed as its approver | 4.8 |
 | `offered_on` | on an initial transition: its inputs, each a required reference to one object, whose object's `availability` offers this creation | 4.8 |
 | `taken_by` | the kinds that may take it, `[human]`, on any transition, an erasure and an assertion included; records `<transition>_by_kind` and holds `<transition>_taken_by`, which no `may_admit` admits | 4.8 |

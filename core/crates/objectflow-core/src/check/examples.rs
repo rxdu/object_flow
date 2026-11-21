@@ -65,11 +65,12 @@ static TIMESTAMP: LazyLock<Regex> = LazyLock::new(|| {
 type Pairs = Vec<(String, String)>;
 
 /// The transitions a request of `tn.xn` reaches beyond its own: those its
-/// cascades drive, at any depth, whose refusal is the request's own, its
+/// cascades and follows drive, at any depth, whose refusal is the request's own, its
 /// clause qualified; and those past a call or a creation, whose refusal is
 /// answered `call_refused` (`DESIGN.md` §5.5, issue #83).
 fn beyond(kinds: &Obj, tn: &str, xn: &str) -> (Pairs, Pairs) {
     let (mut cascaded, mut called) = (Vec::new(), Vec::new());
+    let followed = super::names::followed_by(kinds);
     let start = (tn.to_string(), xn.to_string(), false);
     let mut todo = std::collections::VecDeque::from([start.clone()]);
     let mut seen = BTreeSet::from([start]);
@@ -93,6 +94,12 @@ fn beyond(kinds: &Obj, tn: &str, xn: &str) -> (Pairs, Pairs) {
                     ));
                 }
             }
+        }
+        // a follower is driven as a part is, its refusal the request's own
+        // (ADR-0292 decision 2)
+        for (fname, ft, _an, _i, _c) in followed.get(&(k.clone(), t.clone())).into_iter().flatten()
+        {
+            nexts.push((Some(fname.clone()), ft.clone(), past));
         }
         for step in walk(x.get("effect")) {
             if matches!(step.kind, "call" | "create") {

@@ -638,7 +638,7 @@
             "type": "string",
             "pattern": "^(any|[A-Z][A-Za-z0-9]*\\.[a-z][a-z0-9_]*)$"
           },
-          "description": "The transitions, as Type.transition, that alone may take this one, by a call, a create or a cascade, or any alone, every transition of any type; no caller may request it."
+          "description": "The transitions, as Type.transition, that alone may take this one, by a call, a create, a cascade or a follow, or any alone, every transition of any type; no caller may request it."
         },
         "proposable": {
           "type": "boolean",
@@ -1236,6 +1236,14 @@
           ],
           "description": "On a composite end: true if the parts outlive every final transition of this object, or the transitions they outlive."
         },
+        "follows": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/followsClause"
+          },
+          "description": "On a single reference with no opposite: the transition this object takes when the object it refers to takes one of the listed transitions (ADR-0292)."
+        },
         "description": {
           "$ref": "#/definitions/description",
           "description": "What the attribute holds, where the name alone does not say."
@@ -1726,6 +1734,44 @@
           "type": "integer",
           "minimum": 1,
           "description": "The most parts the cascade may drive in one request, those passed over in a final state not counted; a request that would drive more is refused with over-limit."
+        }
+      }
+    },
+    "followsClause": {
+      "type": "object",
+      "required": [
+        "on",
+        "transition",
+        "limit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "on": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/memberName"
+          },
+          "description": "The transitions of the object referred to that drive the follow."
+        },
+        "transition": {
+          "$ref": "#/definitions/memberName",
+          "description": "The transition of this object's own type each follower takes."
+        },
+        "inputs": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/memberName"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/expression"
+          },
+          "description": "The inputs passed to each follower's transition, each an expression over the follower, inputs.<name> reading the triggering transition's inputs."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The most objects the follow may drive in one request, those passed over in a final state not counted; a request that would drive more is refused with over-limit."
         }
       }
     },

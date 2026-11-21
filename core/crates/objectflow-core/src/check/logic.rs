@@ -1574,9 +1574,11 @@ fn writes(steps: &[Value]) -> BTreeSet<String> {
 }
 
 /// Whether taking a transition may change another object: a call or a
-/// create in its effect, within a loop too, or a cascade on it from one of
-/// its type's parts (`flow-format.md` §4.3, §4.8).
-fn changes_others(xn: &str, x: &Value, t: &Value) -> bool {
+/// create in its effect, within a loop too, a cascade on it from one of its
+/// type's parts, or a follow of it, `followed` holding the type's
+/// transitions a follows clause names (`flow-format.md` §4.3, §4.8;
+/// ADR-0292).
+fn changes_others(xn: &str, x: &Value, t: &Value, followed: &BTreeSet<String>) -> bool {
     fn calls(steps: &[Value]) -> bool {
         steps.iter().any(|st| {
             st.get("call").is_some()
@@ -1594,6 +1596,7 @@ fn changes_others(xn: &str, x: &Value, t: &Value) -> bool {
             .chain(obj(t, "inherited_parts").values())
             .flat_map(|p| list(p, "cascade"))
             .any(|c| list(c, "on").iter().any(|o| o.as_str() == Some(xn)))
+        || followed.contains(xn)
 }
 
 /// A finding of step 5: where, fatal or a notice, its code and its words.
@@ -1601,12 +1604,14 @@ pub type Logic = (Path, bool, &'static str, String);
 
 /// The findings for one type of the view, and how many of the guard
 /// conditions it read it decided in full, reading nothing outside the type,
-/// of all it read (ADR-0137 decision 3).
+/// of all it read (ADR-0137 decision 3); `followed` holds its transitions a
+/// follows clause names, each of which may change another object (ADR-0292).
 #[allow(clippy::too_many_lines)]
 pub fn analyse_type(
     tn: &str,
     t: &Value,
     enums: &BTreeMap<String, Vec<String>>,
+    followed: &BTreeSet<String>,
 ) -> (Vec<Logic>, usize, usize) {
     let mut out = Vec::new();
     let (mut whole, mut total) = (0, 0);
@@ -1820,7 +1825,7 @@ pub fn analyse_type(
                 &model,
                 written.clone(),
                 post.clone(),
-                changes_others(xn, x, t),
+                changes_others(xn, x, t, followed),
             );
             let mut post_reqs = reqs.clone();
             for (n, tree) in &invariants {
@@ -2452,7 +2457,7 @@ mod tests {
         let mut wrong = Vec::new();
         for (name, conds, transitions, invariants, derived, want) in &cases {
             let t = small(conds, transitions.clone(), invariants, derived);
-            let codes: BTreeSet<&str> = analyse_type("T", &t, &enums)
+            let codes: BTreeSet<&str> = analyse_type("T", &t, &enums, &BTreeSet::new())
                 .0
                 .iter()
                 .map(|f| f.2)
@@ -2475,7 +2480,7 @@ mod tests {
         );
         let named =
             "no object of T can be in DONE: pos and neg cannot both hold there, and go enters it";
-        let messages: Vec<String> = analyse_type("T", &t, &enums)
+        let messages: Vec<String> = analyse_type("T", &t, &enums, &BTreeSet::new())
             .0
             .into_iter()
             .map(|f| f.3)
@@ -2492,9 +2497,27 @@ mod tests {
             &[],
         );
         parted["attributes"]["parts"] = json!({"reference": "Part[]", "cascade": [{"on": ["go"], "transition": "close", "limit": 10}]});
-        let found = analyse_type("T", &parted, &enums).0;
+        let found = analyse_type("T", &parted, &enums, &BTreeSet::new()).0;
         if !found.is_empty() {
             wrong.push(format!("a path through another object read after a cascade: expected nothing, found {found:?}"));
+        }
+        // so does a follow of the transition (ADR-0292): read after it, the
+        // same path is its own part, and without a follow or a cascade it is
+        // the transition's to decide
+        let plain = small(
+            &[("c1", "not inputs.item.f1")],
+            taking(&["c1"], &[], "OPEN", json!({"required_inputs": ["item"]})),
+            &[("marked", "item.f1")],
+            &[],
+        );
+        for (followed, want) in [
+            (BTreeSet::from(["go".to_string()]), false),
+            (BTreeSet::new(), true),
+        ] {
+            let found = analyse_type("T", &plain, &enums, &followed).0;
+            if found.is_empty() == want {
+                wrong.push(format!("a path through another object read with {followed:?} followed: expected a finding {want}, found {found:?}"));
+            }
         }
         // a lifecycle of thirteen states, each requiring what the one before
         // set, decided in every state rather than expanded past the limit
@@ -2531,7 +2554,7 @@ mod tests {
             ("a long lifecycle that holds together", json!({}), None),
         ] {
             let t = json!({"attributes": stamps, "states": chain, "conditions": {}, "transitions": moves, "invariants": invariants, "derived_attributes": {}});
-            let codes: BTreeSet<&str> = analyse_type("T", &t, &enums)
+            let codes: BTreeSet<&str> = analyse_type("T", &t, &enums, &BTreeSet::new())
                 .0
                 .iter()
                 .map(|f| f.2)
@@ -2558,11 +2581,15 @@ mod tests {
             },
             "transitions": { "go": { "kind": "external", "from": ["OPEN"], "to": "DONE", "guards": { "c1": "deny", "c2": "deny" } } }
         });
-        let (found, _, _) = analyse_type("T", &t, &BTreeMap::new());
+        let (found, _, _) = analyse_type("T", &t, &BTreeMap::new(), &BTreeSet::new());
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].2, "contradiction");
         let mut wide = t.clone();
         wide["conditions"]["c2"]["expression"] = json!("amount < 150");
-        assert!(analyse_type("T", &wide, &BTreeMap::new()).0.is_empty());
+        assert!(
+            analyse_type("T", &wide, &BTreeMap::new(), &BTreeSet::new())
+                .0
+                .is_empty()
+        );
     }
 }

@@ -947,13 +947,21 @@ pub fn checked_as(
                 enums.insert(n.clone(), members);
             }
         }
+        // a follow of a transition changes another object, as a cascade does
+        // (ADR-0292)
+        let followed = names::followed_by(&library);
         for (index, node, doc) in &modules {
             for tn in doc::obj(doc, "types").keys() {
                 let Some(t) = library.get(tn) else { continue };
                 if doc::flag(t, "abstract") {
                     continue;
                 }
-                let (logic, whole, total) = logic::analyse_type(tn, t, &enums);
+                let mine: BTreeSet<String> = followed
+                    .keys()
+                    .filter(|(k, _)| k == tn)
+                    .map(|(_, w)| w.clone())
+                    .collect();
+                let (logic, whole, total) = logic::analyse_type(tn, t, &enums, &mine);
                 out.analysed.insert(tn.clone(), (whole, total));
                 for (path, fatal, code, message) in logic {
                     found.push(Finding {

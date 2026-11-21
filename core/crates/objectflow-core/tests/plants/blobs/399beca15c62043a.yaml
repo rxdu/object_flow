@@ -1,0 +1,21 @@
+module: hub
+categories: [live, closed]
+types:
+  Slot:
+    description: A slot work is planned in.
+    tracking: record
+    attributes:
+      label: { type: string, description: Its label. }
+    states:
+      OPEN: { description: Open., category: live }
+      CANCELLED: { description: Cancelled., category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN, required_inputs: [label], description: Opens it. }
+      move: { kind: internal, from: [OPEN], required_inputs: [label], description: Moves it. }
+      cancel:
+        kind: external
+        from: [OPEN]
+        to: CANCELLED
+        description: Cancels it.
+        inputs:
+          why: { type: string, optional: true, description: Why it is cancelled. }

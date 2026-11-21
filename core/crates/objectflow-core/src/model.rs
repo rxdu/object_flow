@@ -205,6 +205,20 @@ pub struct Attribute {
     /// On a composite end, the transitions its parts take when this object
     /// takes one of those listed.
     pub cascade: Vec<CascadeClause>,
+    /// On a single reference, the transitions this object takes when the
+    /// object it refers to takes one of those listed, each clause of a
+    /// cascade clause's shape (ADR-0292).
+    pub follows: Vec<CascadeClause>,
+}
+
+/// One follows clause, by what drives it: the follower's type, the
+/// reference it stands on, and the clause's place among that reference's
+/// (ADR-0292).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Followed {
+    pub type_: String,
+    pub reference: String,
+    pub clause: usize,
 }
 
 /// The transition each part takes when its whole takes one of `on`.
@@ -758,11 +772,21 @@ impl Reader<'_> {
                 .transpose()?,
             composite: node.get("aggregation").and_then(Node::text) == Some("composite"),
             cascade: self.cascade(node.get("cascade"))?,
+            follows: self.clauses(
+                node.get("follows"),
+                "a follow names the transition its follower takes",
+            )?,
         })
     }
 
     /// A composite end's cascade, or an inherited part's.
     fn cascade(&self, node: Option<&Node>) -> Loaded<Vec<CascadeClause>> {
+        self.clauses(node, "a cascade names the transition its parts take")
+    }
+
+    /// A list of cascade clauses, or of follows clauses, which have their
+    /// shape (ADR-0292).
+    fn clauses(&self, node: Option<&Node>, unnamed: &str) -> Loaded<Vec<CascadeClause>> {
         let mut clauses = Vec::new();
         for c in node.map(Node::items).unwrap_or_default() {
             clauses.push(CascadeClause {
@@ -770,7 +794,7 @@ impl Reader<'_> {
                 transition: match c.get("transition").and_then(Node::text) {
                     Some(t) => t.to_string(),
                     None => {
-                        return self.error(c, "a cascade names the transition its parts take");
+                        return self.error(c, unnamed);
                     }
                 },
                 inputs: self.bindings(c.get("inputs"))?,
@@ -1122,6 +1146,7 @@ impl Reader<'_> {
             opposite: None,
             composite: false,
             cascade: Vec::new(),
+            follows: Vec::new(),
             external: None,
             indexed: false,
             survives_always: false,
@@ -1643,6 +1668,12 @@ pub struct Library {
     /// The sequences its modules declare, which an import may raise
     /// (`flow-format.md` §4.12, fourth production review A-15).
     pub sequences: BTreeSet<String>,
+    /// Each follows clause, by the type and then the transition of the
+    /// object referred to that drive it, in the order the modules are read,
+    /// then their types, attributes and clauses are declared (ADR-0292
+    /// decision 7): read here once, so a transition no clause names looks up
+    /// its type's name and nothing more.
+    pub followed: BTreeMap<String, BTreeMap<String, Vec<Followed>>>,
 }
 
 /// The line a name is declared on in a module's text, a key indented once
@@ -1709,6 +1740,7 @@ fn taken_by(t: &mut Type) -> Result<(), String> {
                 opposite: None,
                 composite: false,
                 cascade: Vec::new(),
+                follows: Vec::new(),
                 external: None,
                 indexed: false,
                 survives_always: false,
@@ -2284,6 +2316,7 @@ fn operator_type() -> Type {
                 opposite: None,
                 composite: false,
                 cascade: Vec::new(),
+                follows: Vec::new(),
                 external: None,
                 indexed: false,
                 survives_always: false,
@@ -2376,6 +2409,7 @@ fn proposal_type() -> Type {
         opposite: None,
         composite: false,
         cascade: Vec::new(),
+        follows: Vec::new(),
         external: None,
         indexed: false,
         survives_always: false,
@@ -2567,6 +2601,7 @@ fn label_type() -> Type {
         opposite: None,
         composite: false,
         cascade: Vec::new(),
+        follows: Vec::new(),
         external: None,
         indexed: false,
         survives_always: false,
@@ -2717,6 +2752,7 @@ fn subscription_type() -> Type {
         opposite: None,
         composite: false,
         cascade: Vec::new(),
+        follows: Vec::new(),
         external: None,
         indexed: false,
         survives_always: false,
@@ -3237,6 +3273,35 @@ impl Library {
                 }
             }
         }
+        // each follows clause by the transition that drives it, read once,
+        // so a transition taken looks its followers up by one key and one no
+        // clause names costs nothing more (ADR-0292 decision 7)
+        let mut followed: BTreeMap<String, BTreeMap<String, Vec<Followed>>> = BTreeMap::new();
+        for tn in &lib.declared {
+            let Some(t) = lib.types.get(tn).filter(|t| !t.abstract_) else {
+                continue;
+            };
+            for (an, a) in &t.attributes {
+                let Declared::Reference(target) = &a.declared else {
+                    continue;
+                };
+                for (i, c) in a.follows.iter().enumerate() {
+                    for w in &c.on {
+                        followed
+                            .entry(target.clone())
+                            .or_default()
+                            .entry(w.clone())
+                            .or_default()
+                            .push(Followed {
+                                type_: tn.clone(),
+                                reference: an.clone(),
+                                clause: i,
+                            });
+                    }
+                }
+            }
+        }
+        lib.followed = followed;
         Ok(lib)
     }
 

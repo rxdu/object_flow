@@ -376,14 +376,37 @@ fn lines(docs: &[Value], all: &[Decl], world: &BTreeMap<&str, &Decl>) -> Vec<Lin
                     } else {
                         ""
                     };
-                    push(
-                        format!(
-                            "ref {an} : {r}{opt}{inverse}{stored}{assignee}{}",
-                            markings(spec)
-                        ),
-                        None,
-                        path,
+                    let head = format!(
+                        "ref {an} : {r}{opt}{inverse}{stored}{assignee}{}",
+                        markings(spec)
                     );
+                    push(head.clone(), None, path.clone());
+                    // each follows clause under its reference, the follower's
+                    // own type named as a cascade names its part's
+                    // (`declaration-syntax.md` §3.2, ADR-0292)
+                    for c in list(spec, "follows") {
+                        let on: Vec<String> = list(c, "on").iter().map(py_str).collect();
+                        let on = if on.len() == 1 {
+                            on[0].clone()
+                        } else {
+                            format!("{{ {} }}", on.join(", "))
+                        };
+                        let a = args(c.get("inputs").unwrap_or(&Value::Null));
+                        let a = if a.is_empty() {
+                            String::new()
+                        } else {
+                            format!("({a})")
+                        };
+                        push(
+                            format!(
+                                "follows on {on} to {tn}.{}{a} limit {}",
+                                str_or(c, "transition", ""),
+                                py_str(c.get("limit").unwrap_or(&Value::Null))
+                            ),
+                            Some(head.clone()),
+                            path.clone(),
+                        );
+                    }
                 }
             }
             for (an, ip) in obj(t, "inherited_parts") {

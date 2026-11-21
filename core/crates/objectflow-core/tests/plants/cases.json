@@ -35094,7 +35094,7 @@
     52,
     "fatal",
     "names",
-    "a transition causes itself, by a call, a create or a cascade: Thing.arrive → Mover.make → Thing.arrive; no transition may cause itself, on its own object or another (the model's check 12)"
+    "a transition causes itself, by a call, a create, a cascade or a follow: Thing.arrive → Mover.make → Thing.arrive; no transition may cause itself, on its own object or another (the model's check 12)"
    ]
   ],
   "analysed": {},
@@ -36249,6 +36249,655 @@
     0
    ]
   },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: a hold following its slot across two modules",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "8f964c04a5eb6369"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Hold": [
+    0,
+    0
+   ],
+   "Slot": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: within one module",
+  "files": [
+   [
+    "hub.yaml",
+    "9c856671f23804c0"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Hold": [
+    0,
+    0
+   ],
+   "Slot": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: its transition only via the one it follows",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "9262c19b8a2f58d2"
+   ]
+  ],
+  "previous": {},
+  "findings": [],
+  "analysed": {
+   "Hold": [
+    0,
+    0
+   ],
+   "Slot": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: with no limit",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "2f5cf847babb1989"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    13,
+    "fatal",
+    "schema",
+    "'limit' is a required property"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: on a set of references",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "31197306272fe253"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    9,
+    "fatal",
+    "names",
+    "Hold.slot is a set of references with no opposite, which has nowhere to be stored; an end with no opposite is single (§4.3; the model's check 41)"
+   ],
+   [
+    "holds.yaml",
+    12,
+    "fatal",
+    "names",
+    "Hold.slot follows, and is a set of references; a follow stands on a single reference in this release (ADR-0292)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: on a reference with an opposite",
+  "files": [
+   [
+    "hub.yaml",
+    "a1ab9985cd2626b3"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "hub.yaml",
+    31,
+    "fatal",
+    "names",
+    "Hold.slot follows, and names an opposite, by which Slot's transitions reach it with a call; only a reference with no opposite follows (ADR-0292)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: declared by an abstract type",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "5d42e58b2af4e438"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    13,
+    "fatal",
+    "names",
+    "Claim.slot follows, and is declared on the abstract Claim; a follower is of a concrete type (ADR-0292)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: to an abstract type",
+  "files": [
+   [
+    "hub.yaml",
+    "d359d999c22fd12d"
+   ],
+   [
+    "holds.yaml",
+    "238b867d6b3dea77"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    12,
+    "fatal",
+    "names",
+    "Hold.slot follows, and refers to the abstract Place; a follow is of a concrete type (ADR-0292)"
+   ],
+   [
+    "hub.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Place.code is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: declared by a mirror",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "830c2661f9671dab"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    11,
+    "fatal",
+    "names",
+    "Ledger.slot is a mirror's reference to Slot, which this store owns: a type is cut over only after every type that references it (ADR-0075), so a mirror references only mirrors"
+   ],
+   [
+    "holds.yaml",
+    13,
+    "fatal",
+    "names",
+    "Ledger.slot follows, and is declared on the mirror Ledger, which only the import writes; no mirror follows (ADR-0292)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: on no transition",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "b6eb4a4e2cdcc5bc"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    13,
+    "fatal",
+    "names",
+    "Hold.slot follows on 'close', which is not a transition of Slot"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: on an initial transition",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "49e2de7f62d41f1f"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    13,
+    "fatal",
+    "names",
+    "Hold.slot follows on Slot.open, an initial transition, which no follow names (ADR-0292)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: on an erasure",
+  "files": [
+   [
+    "hub.yaml",
+    "c522bc2c67ccc238"
+   ],
+   [
+    "holds.yaml",
+    "99dba42a95599bff"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    13,
+    "fatal",
+    "names",
+    "Hold.slot follows on Slot.forget, an erasure, which no follow names (ADR-0292)"
+   ],
+   [
+    "hub.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Slot.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: to no transition",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "451409db02c5ab7a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    13,
+    "fatal",
+    "names",
+    "Hold.slot follows to Hold.vanish, which is not a transition of Hold that acts on a follower"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: to an initial transition",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "bcc2f1ee99d8c32a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    13,
+    "fatal",
+    "names",
+    "Hold.slot follows to Hold.take, which is not a transition of Hold that acts on a follower"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: to an assertion",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "a56df4d7515460ba"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    15,
+    "fatal",
+    "names",
+    "Hold.slot follows to Hold.force, an assertion, which only a request takes; an override is requested, never caused (ADR-0163)"
+   ],
+   [
+    "holds.yaml",
+    19,
+    "notice",
+    "unwritten",
+    "Hold.memo is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: to an erasure",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "b6d3d8510a0fa4fb"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    15,
+    "fatal",
+    "names",
+    "Hold.slot follows to Hold.forget, an erasure, which no follow takes (ADR-0292)"
+   ],
+   [
+    "holds.yaml",
+    19,
+    "notice",
+    "unwritten",
+    "Hold.memo is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: an input its transition does not take",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "2cf22067206d74bf"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    13,
+    "fatal",
+    "names",
+    "Hold.slot passes 'colour' to Hold.release, which takes no input 'colour'"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: an input its transition requires left out",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "66a25b93d8a332d8"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    14,
+    "fatal",
+    "names",
+    "Hold.slot follows to Hold.shift without the input 'label', which it requires"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: an input one transition it follows does not take",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "2247885023ce4222"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    13,
+    "fatal",
+    "names",
+    "Hold.slot's follow reads inputs.why, which Slot.move does not take; a follow reads an input every transition in its on takes (ADR-0292)"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: a personal value it passes on",
+  "files": [
+   [
+    "hub.yaml",
+    "c522bc2c67ccc238"
+   ],
+   [
+    "holds.yaml",
+    "5595db78d84b562a"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    13,
+    "fatal",
+    "names",
+    "Hold.slot's follow on Slot.cancel passes the personal Slot.contact to Hold.release's input 'note', which writes it to Hold.note, which is not personal; a personal value reaches only a personal attribute (the model's check 10)"
+   ],
+   [
+    "hub.yaml",
+    9,
+    "notice",
+    "unwritten",
+    "Slot.contact is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: a cycle through the imported module's own call",
+  "files": [
+   [
+    "hub.yaml",
+    "a8fc4e6bbf8fc9ba"
+   ],
+   [
+    "holds.yaml",
+    "64c57e2b312cbe06"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    13,
+    "fatal",
+    "names",
+    "a transition causes itself, by a call, a create, a cascade or a follow: Hold.release → Bay.close → Slot.cancel → Hold.release; no transition may cause itself, on its own object or another (the model's check 12)"
+   ],
+   [
+    "holds.yaml",
+    15,
+    "notice",
+    "unwritten",
+    "Hold.bay is optional and nothing writes it: no transition takes it as an input or sets it, and no migration backfills it, so it is always absent"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: an argument reading the actor, its text read as a line",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "b77b217e808e1d15"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    9,
+    "fatal",
+    "check 64",
+    "reads the actor outside an outcome value: follows on cancel to Hold.release(note := actor.id) limit 5"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "follows_plants: its transition only via one it does not follow",
+  "files": [
+   [
+    "hub.yaml",
+    "399beca15c62043a"
+   ],
+   [
+    "holds.yaml",
+    "6e49a90fdd0112ac"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "holds.yaml",
+    23,
+    "fatal",
+    "check 13",
+    "Hold.release names parent Slot.move, which never reaches it"
+   ]
+  ],
+  "analysed": {},
   "forms": {},
   "could_violate": {}
  },
@@ -42462,7 +43111,7 @@
     26,
     "fatal",
     "names",
-    "a transition causes itself, by a call, a create or a cascade: Order.finish → Line.drop → Order.finish; no transition may cause itself, on its own object or another (the model's check 12)"
+    "a transition causes itself, by a call, a create, a cascade or a follow: Order.finish → Line.drop → Order.finish; no transition may cause itself, on its own object or another (the model's check 12)"
    ]
   ],
   "analysed": {},
@@ -42536,7 +43185,7 @@
     26,
     "fatal",
     "names",
-    "a transition causes itself, by a call, a create or a cascade: Order.finish → Line.drop → Order.finish; no transition may cause itself, on its own object or another (the model's check 12)"
+    "a transition causes itself, by a call, a create, a cascade or a follow: Order.finish → Line.drop → Order.finish; no transition may cause itself, on its own object or another (the model's check 12)"
    ]
   ],
   "analysed": {},
@@ -42610,7 +43259,7 @@
     26,
     "fatal",
     "names",
-    "a transition causes itself, by a call, a create or a cascade: Line.drop → Line.drop; no transition may cause itself, on its own object or another (the model's check 12)"
+    "a transition causes itself, by a call, a create, a cascade or a follow: Line.drop → Line.drop; no transition may cause itself, on its own object or another (the model's check 12)"
    ]
   ],
   "analysed": {},
@@ -42684,14 +43333,14 @@
     26,
     "fatal",
     "names",
-    "a transition causes itself, by a call, a create or a cascade: Line.drop → Line.drop; no transition may cause itself, on its own object or another (the model's check 12)"
+    "a transition causes itself, by a call, a create, a cascade or a follow: Line.drop → Line.drop; no transition may cause itself, on its own object or another (the model's check 12)"
    ],
    [
     "shop.yaml",
     26,
     "fatal",
     "names",
-    "a transition causes itself, by a call, a create or a cascade: Order.finish → Line.drop → Order.finish; no transition may cause itself, on its own object or another (the model's check 12)"
+    "a transition causes itself, by a call, a create, a cascade or a follow: Order.finish → Line.drop → Order.finish; no transition may cause itself, on its own object or another (the model's check 12)"
    ]
   ],
   "analysed": {},
@@ -42758,7 +43407,7 @@
     18,
     "fatal",
     "names",
-    "a transition causes itself, by a call, a create or a cascade: Job.open → Job.open; no transition may cause itself, on its own object or another (the model's check 12)"
+    "a transition causes itself, by a call, a create, a cascade or a follow: Job.open → Job.open; no transition may cause itself, on its own object or another (the model's check 12)"
    ]
   ],
   "analysed": {},
@@ -42825,7 +43474,7 @@
     34,
     "fatal",
     "names",
-    "a transition causes itself, by a call, a create or a cascade: Robot.retire → Piece.drop → Robot.retire; no transition may cause itself, on its own object or another (the model's check 12)"
+    "a transition causes itself, by a call, a create, a cascade or a follow: Robot.retire → Piece.drop → Robot.retire; no transition may cause itself, on its own object or another (the model's check 12)"
    ]
   ],
   "analysed": {},

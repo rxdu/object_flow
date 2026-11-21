@@ -692,14 +692,16 @@ def writes(steps):
     return out
 
 
-def changes_others(xn, x, t):
-    """Whether taking a transition may change another object: a call or a create in its effect, within a loop too, or a
-    cascade on it from one of its type's parts (flow-format.md §4.3, §4.8)."""
+def changes_others(xn, x, t, followed=frozenset()):
+    """Whether taking a transition may change another object: a call or a create in its effect, within a loop too, a
+    cascade on it from one of its type's parts, or a follow of it, `followed` holding the type's transitions a follows
+    clause names (flow-format.md §4.3, §4.8; ADR-0292)."""
     def steps_call(steps):
         return any("call" in st or "create" in st or ("foreach" in st and steps_call(st["foreach"].get("steps") or []))
                    for st in steps)
     parts = list((t.get("attributes") or {}).values()) + list((t.get("inherited_parts") or {}).values())
-    return steps_call(x.get("effect") or []) or any(xn in (c.get("on") or []) for p in parts for c in (p or {}).get("cascade") or [])
+    return steps_call(x.get("effect") or []) or any(xn in (c.get("on") or []) for p in parts for c in (p or {}).get("cascade") or []) \
+        or xn in followed
 
 
 def together(names):
@@ -712,9 +714,9 @@ def holds(analysis, tree):
     return union(analysis.cases(tree, "T"), analysis.cases(tree, "U"))
 
 
-def analyse_type(tn, t, enums):
+def analyse_type(tn, t, enums, followed=frozenset()):
     """Findings for one type, as (path, severity, code, message), and how many of its guards' conditions were
-    decided in full rather than with an opaque part."""
+    decided in full rather than with an opaque part; `followed` holds its transitions a follows clause names."""
     out, whole, total = [], 0, 0
     states = t.get("states") or {}
     conditions = t.get("conditions") or {}
@@ -796,7 +798,7 @@ def analyse_type(tn, t, enums):
                 if reads(tree, model.derived) & set(written):   # read in the effect's own order, which is not followed
                     written[loc] = UNKNOWN_VALUE
             post = x.get("to") if x["kind"] in ("initial", "external") else None
-            after = Analysis(model, written, post, changes_others(xn, x, t))
+            after = Analysis(model, written, post, changes_others(xn, x, t, followed))
             post_reqs = list(reqs)
             for n, tree in invariants.items():
                 read = names_in(tree) - {"inputs", "now", "this"}
@@ -960,6 +962,16 @@ def self_test():
     cases.append("a path through another object read after a cascade")
     if not right:
         print(f"  a path through another object read after a cascade: expected nothing, found {[m for *_x, m in found]}")
+    # so does a follow of the transition (ADR-0292): read after it, the same path is its own part, and without a
+    # follow or a cascade it is the transition's to decide
+    for followed, want in ((frozenset({"go"}), False), (frozenset(), True)):
+        found, _w, _n = analyse_type("T", _type(num, closed, {"c1": "not inputs.item.f1"}, _taking("c1", required_inputs=["item"]),
+                                                {"marked": "item.f1"}), E, followed)
+        right = bool(found) == want
+        ok &= right
+        cases.append(f"a path through another object read after {'a follow' if followed else 'neither a follow nor a cascade'}")
+        if not right:
+            print(f"  {cases[-1]}: expected {'a finding' if want else 'nothing'}, found {[m for *_x, m in found]}")
     # a lifecycle of thirteen states, each requiring what the one before set, is decided in every state: 2^13 cases
     # before the other states' invariants were set aside, which is past LIMIT
     chain = {f"S{i}": {"category": "live", "required_attributes": [f"t{j}" for j in range(1, i + 1)]} for i in range(1, 14)}

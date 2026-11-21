@@ -95,7 +95,7 @@ SHADOWING = OBJECT_MEMBERS | WITHDRAWN_MEMBERS
 # keys the text language has a form for on one kind of attribute only; elsewhere they would be dropped
 ONLY_ON_OBSERVATIONS = {"unit"}
 ONLY_ON_TYPES = {"actor_kind", "assignee", "unique", "indexed", "identifier", "external", "default", "opposite", "stored", "aggregation", "cascade",
-                 "survives"}
+                 "survives", "follows"}
 METRIC_ORDER = ["description", "measure", "state", "transition", "source", "item", "split_by", "filter", "dimensions",
                 "group_by", "time_dimension", "expression", "flag_when"]
 TYPE_ORDER = ["description", "abstract", "extends", "mirror", "history", "tracking", "state_machine", "taken_by", "attributes", "inherited_parts", "observations", "states",
@@ -1495,10 +1495,11 @@ def composite_parts(tn, kinds):
 
 
 def beyond(kinds, tn, xn):
-    """The transitions a request of tn.xn reaches beyond its own, as (type, transition): those its cascades drive,
-    at any depth, whose refusal is the request's own, its clause qualified; and those past a call or a creation,
+    """The transitions a request of tn.xn reaches beyond its own, as (type, transition): those its cascades and follows
+    drive, at any depth, whose refusal is the request's own, its clause qualified; and those past a call or a creation,
     whose refusal is answered call_refused (DESIGN.md §5.5, issue #83)."""
     cascaded, called = [], []
+    followed = followed_by(kinds)
     todo, seen = [(tn, xn, False)], {(tn, xn, False)}
     while todo:
         k, t, past = todo.pop(0)
@@ -1507,6 +1508,8 @@ def beyond(kinds, tn, xn):
             continue
         nexts = [(str(spec.get("reference", "")).rstrip("[]"), c.get("transition"), past)
                  for spec, clauses, _here in composite_parts(k, kinds) for c in clauses if t in (c.get("on") or [])]
+        # a follower is driven as a part is, its refusal the request's own (ADR-0292 decision 2)
+        nexts += [(fn, ft, past) for fn, ft, _an, _i, _c in followed.get((k, t), [])]
         for st, kind, path, _depth in walk(x.get("effect")):
             if kind in ("call", "create"):
                 body = st[kind]
@@ -1596,6 +1599,13 @@ def personal_errors(doc, library):
                 for spec, clauses, here in composite_parts(tn, kinds) for i, c in enumerate(clauses) if xn in (c.get("on") or [])
                 for j, e in (c.get("inputs") or {}).items()]
 
+    followed = followed_by(kinds)
+
+    def follows(tn, xn):
+        """Each argument a follows clause on tn.xn passes its follower's transition, as passes gives it (ADR-0292)."""
+        return [(e, {}, fn, ft, j, ("types", fn, "attributes", an, "follows", i))
+                for fn, ft, an, i, c in followed.get((tn, xn), []) for j, e in (c.get("inputs") or {}).items()]
+
     def leak(k, ct, j, seen=frozenset()):
         """Where input j of k.ct reaches a non-personal attribute, or None."""
         t = kinds.get(k) or {}
@@ -1609,7 +1619,7 @@ def personal_errors(doc, library):
             if kind in ("assign", "add") and j in input_reads(str(st[kind]["expr"])) \
                     and st[kind]["location"] in attrs and not personal(k, st[kind]["location"]):
                 return f"writes it to {k}.{st[kind]['location']}, which is not personal"
-        for e, _env, k2, ct2, j2, _where in passes(k, x) + cascades(k, ct):
+        for e, _env, k2, ct2, j2, _where in passes(k, x) + cascades(k, ct) + follows(k, ct):
             if k2 and j in input_reads(str(e)):
                 inner = leak(k2, ct2, j2, seen | {(k, ct, j)})
                 if inner:
@@ -1644,6 +1654,23 @@ def personal_errors(doc, library):
                     out.append((where, "names",
                                 f"{tn}.{xn} cascades {carried} to {k}.{ct}'s input '{j}', which {reached}; a "
                                 "personal value reaches only a personal attribute (the model's check 10)"))
+        # a follow's arguments are read over the follower, inputs.<name> the triggering transition's (ADR-0292)
+        for an, spec in attrs.items():
+            target = str((spec or {}).get("reference", "")).rstrip("[]") if isinstance(spec, dict) else ""
+            for i, c in enumerate((spec or {}).get("follows") or [] if isinstance(spec, dict) else []):
+                trigger = (kinds.get(target) or {}).get("transitions") or {}
+                for j, e in (c.get("inputs") or {}).items():
+                    for w in c.get("on") or []:
+                        if w not in trigger:
+                            continue
+                        carried = why(tn, trigger[w], e, {}, personal_inputs(kinds, target, trigger[w]))
+                        reached = leak(tn, c.get("transition"), j) if carried else None
+                        if reached:
+                            out.append((("types", tn, "attributes", an, "follows", i), "names",
+                                        f"{tn}.{an}'s follow on {target}.{w} passes {carried} to {tn}.{c.get('transition')}'s "
+                                        f"input '{j}', which {reached}; a personal value reaches only a personal attribute "
+                                        "(the model's check 10)"))
+                            break
     for tn, given in ((doc.get("migration") or {}).get("backfill") or {}).items():
         for a, e in (given or {}).items():
             if not personal(tn, a):
@@ -1788,22 +1815,44 @@ def clock_errors(doc, library):
     return out
 
 
+def followed_by(kinds):
+    """Each follows clause, by the transition of the type referred to that drives it, as (type, transition): the
+    follower's type and transition, the reference, the clause's index and the clause, in the order the types,
+    their attributes and their clauses are declared (ADR-0292 decision 7)."""
+    out = {}
+    for fn, f in kinds.items():
+        for an, spec in (f.get("attributes") or {}).items():
+            if not isinstance(spec, dict) or not isinstance(spec.get("follows"), list):
+                continue
+            target = str(spec.get("reference", "")).rstrip("[]")
+            for i, c in enumerate(spec["follows"]):
+                if isinstance(c, dict):
+                    for w in c.get("on") or []:
+                        out.setdefault((target, w), []).append((fn, c.get("transition"), an, i, c))
+    return out
+
+
 def cascade_cycle_errors(doc, library):
-    """A transition causes others: by a `call` or a `create` among its effect's steps, a loop's included, and by a
-    cascade clause on it of a part its type gives, its own or one it inherits. Transitions MUST NOT cause each other
-    in a cycle, nor one cause itself, on its own object or another of its type (the model's check 12, ADR-0019). A
-    transition no type of the module declares is left to the checks that name it, and an imported module cannot
-    cause one of this module's, so no cycle passes through it. A cycle is reported at the step or the clause that
-    closes it, once for each set of transitions a cycle passes through."""
+    """A transition causes others: by a `call` or a `create` among its effect's steps, a loop's included, by a
+    cascade clause on it of a part its type gives, its own or one it inherits, and by a follows clause on a reference
+    to its type, which drives each object holding the reference (ADR-0292). Transitions MUST NOT cause each other in
+    a cycle, nor one cause itself, on its own object or another of its type (the model's check 12, ADR-0019). The graph
+    holds the library's types beside the module's, since a follow of an imported type may close a cycle through the
+    edges of the module that declares it, and only the module declaring the follow knows both its ends (ADR-0292
+    decision 8); a cycle no edge of this module is on is its own module's to report. A transition no type declares is
+    left to the checks that name it. A cycle is reported at the step or the clause that closes it, or, where that is
+    another module's, at the first of this module's on the cycle, once for each set of transitions a cycle passes
+    through."""
     module = dict(types(doc))
     kinds = dict(library or {})
     kinds.update(module)
+    followed = followed_by(kinds)
 
     def declares(k, xn):
-        return k in module and xn in (module[k].get("transitions") or {})
+        return k in kinds and xn in (kinds[k].get("transitions") or {})
 
     def causes(tn, xn):
-        t = module[tn]
+        t = kinds[tn]
         x = t["transitions"][xn]
         out = []
         for st, kind, path, _depth in walk(x.get("effect")):
@@ -1825,30 +1874,42 @@ def cascade_cycle_errors(doc, library):
             for i, c in enumerate(clauses):
                 if xn in c["on"] and declares(part, c["transition"]):
                     out.append(((part, c["transition"]), here + ("cascade", i)))
+        for fn, ft, an, i, _c in followed.get((tn, xn), []):
+            if declares(fn, ft):
+                out.append(((fn, ft), ("types", fn, "attributes", an, "follows", i)))
         return out
+
+    def mine(where):
+        return where[1] in module
 
     out, state, reported = [], {}, set()
 
-    def visit(node, trail):
+    def visit(node, trail, wheres):
         state[node] = "open"
         trail.append(node)
         for nxt, where in causes(*node):
             if state.get(nxt) == "open":
-                ring = trail[trail.index(nxt):] + [nxt]
-                if frozenset(ring) not in reported:
+                at = trail.index(nxt)
+                ring = trail[at:] + [nxt]
+                # the edges along the ring, the one closing it last
+                edges = wheres[at + 1:] + [where]
+                at_mine = where if mine(where) else next((w for w in edges if mine(w)), None)
+                if at_mine is not None and frozenset(ring) not in reported:
                     reported.add(frozenset(ring))
-                    out.append((where, "names", "a transition causes itself, by a call, a create or a cascade: "
+                    out.append((at_mine, "names", "a transition causes itself, by a call, a create, a cascade or a follow: "
                                 + " → ".join(f"{u}.{e}" for u, e in ring)
                                 + "; no transition may cause itself, on its own object or another (the model's check 12)"))
             elif nxt not in state:
-                visit(nxt, trail)
+                wheres.append(where)
+                visit(nxt, trail, wheres)
+                wheres.pop()
         trail.pop()
         state[node] = "closed"
 
     for tn, t in types(doc):
         for xn in (t.get("transitions") or {}):
             if (tn, xn) not in state:
-                visit((tn, xn), [])
+                visit((tn, xn), [], [None])
     return out
 
 
@@ -1884,6 +1945,83 @@ def part_coverage(tn, t, an, target, part, clauses, survives, here, finals):
         final = [s for s in into if s in finals]
         if final and xn not in covered | kept:
             out.append((here, "names", f"{tn}.{xn} enters the final state {final[0]}, and {tn}.{an} neither cascades on it nor survives it"))
+    return out
+
+
+def follows_errors(doc, library):
+    """A reference may follow transitions of the object it refers to (ADR-0292): a single reference with no opposite,
+    declared by a concrete type that is no mirror, to a concrete type (decisions 4 and 5). Each clause's `on` names
+    transitions of the type referred to, none initial or an erasure; its `transition` names one of the follower's own
+    type, never initial, an assertion or an erasure, given every input it requires and none it does not take; and an
+    `inputs.<name>` its inputs read is an input of every transition in `on` (decision 6)."""
+    kinds = dict(library or {})
+    kinds.update(dict(types(doc)))
+    machines = doc.get("machines") or {}
+    out = []
+    for tn, t in types(doc):
+        for an, spec in (t.get("attributes") or {}).items():
+            if not isinstance(spec, dict) or "follows" not in spec or inherited(t, "attributes", an):
+                continue
+            here = ("types", tn, "attributes", an, "follows")
+            target = str(spec.get("reference", "")).rstrip("[]")
+            other = kinds.get(target) or {}
+            if "reference" not in spec:
+                why = "holds no reference; only a reference follows"
+            elif str(spec["reference"]).endswith("[]"):
+                why = "is a set of references; a follow stands on a single reference in this release"
+            elif "opposite" in spec:
+                why = (f"names an opposite, by which {target}'s transitions reach it with a call; only a reference "
+                       "with no opposite follows")
+            elif tn in machines:
+                why = f"is required by the machine {tn}; a follow is declared by the concrete type holding the reference"
+            elif t.get("abstract"):
+                why = f"is declared on the abstract {tn}; a follower is of a concrete type"
+            elif t.get("mirror"):
+                why = f"is declared on the mirror {tn}, which only the import writes; no mirror follows"
+            elif other.get("abstract") or target in machines:
+                why = f"refers to the abstract {target}; a follow is of a concrete type"
+            else:
+                why = None
+            if why:
+                out.append((here, "names", f"{tn}.{an} follows, and {why} (ADR-0292)"))
+                continue
+            if target not in kinds:
+                continue                        # a type neither declared nor imported is relationship_errors'
+            mine = t.get("transitions") or {}
+            theirs = other.get("transitions") or {}
+            for i, c in enumerate(spec["follows"]):
+                where = here + (i,)
+                for w in c["on"]:
+                    trigger = theirs.get(w)
+                    if trigger is None:
+                        out.append((where, "names", f"{tn}.{an} follows on '{w}', which is not a transition of {target}"))
+                    elif trigger["kind"] in ("initial", "erasure"):
+                        out.append((where, "names", f"{tn}.{an} follows on {target}.{w}, an {'initial transition' if trigger['kind'] == 'initial' else 'erasure'}, "
+                                                    "which no follow names (ADR-0292)"))
+                ct = c["transition"]
+                taken_x = mine.get(ct)
+                if taken_x is None or taken_x["kind"] == "initial":
+                    out.append((where, "names", f"{tn}.{an} follows to {tn}.{ct}, which is not a transition of {tn} that acts on a follower"))
+                    continue
+                if taken_x["kind"] == "assertion":
+                    out.append((where, "names", f"{tn}.{an} follows to {tn}.{ct}, an assertion, which only a request takes; an "
+                                                "override is requested, never caused (ADR-0163)"))
+                    continue
+                if taken_x["kind"] == "erasure":
+                    out.append((where, "names", f"{tn}.{an} follows to {tn}.{ct}, an erasure, which no follow takes (ADR-0292)"))
+                    continue
+                given = set(c.get("inputs") or {})
+                out += [(where, "names", f"{tn}.{an} passes '{i}' to {tn}.{ct}, which takes no input '{i}'") for i in sorted(given - taken(taken_x))]
+                out += [(where, "names", f"{tn}.{an} follows to {tn}.{ct} without the input '{i}', which it requires")
+                        for i in sorted(required_input_names(taken_x) - given) if "default" not in ((taken_x.get("inputs") or {}).get(i) or {})]
+                read = sorted({n for e in (c.get("inputs") or {}).values() for n in input_reads(str(e))})
+                for w in c["on"]:
+                    trigger = theirs.get(w)
+                    if trigger is None or trigger["kind"] in ("initial", "erasure"):
+                        continue
+                    out += [(where, "names", f"{tn}.{an}'s follow reads inputs.{n}, which {target}.{w} does not take; a follow "
+                                             "reads an input every transition in its on takes (ADR-0292)")
+                            for n in read if n not in taken(trigger)]
     return out
 
 
@@ -2971,7 +3109,8 @@ def name_errors(doc, library=None, ordered=True):
     library = dict(library or {})
     library.update(dict(types(doc)))
     out = (order_errors(doc) if ordered else []) + reserved_name_errors(doc) + relationship_errors(doc, library) + combined_errors(doc) \
-        + cascade_cycle_errors(doc, library) + clock_errors(doc, library) + personal_errors(doc, library) \
+        + follows_errors(doc, library) + cascade_cycle_errors(doc, library) + clock_errors(doc, library) \
+        + personal_errors(doc, library) \
         + reparent_errors(doc, library) + symmetry_errors(doc, library) + argument_type_errors(doc, library) \
         + expression_type_errors(doc, library)
     for tn, t in types(doc):
@@ -6366,7 +6505,7 @@ def markings(spec):
     return "".join(" " + m for m in marks)
 
 
-def attribute_line(name, spec, observation=False, module=None):
+def attribute_line(name, spec, observation=False, module=None, owner=None):
     if "reference" in spec:
         t = spec["reference"] + ("?" if optional(spec) else "")
         if observation:
@@ -6389,8 +6528,15 @@ def attribute_line(name, spec, observation=False, module=None):
         other = (module or {}).get(spec["reference"].rstrip("[]"), {})
         if opp and ((other.get("attributes") or {}).get(opp) or {}).get("aggregation") == "composite":
             return f"owner {name} : {spec['reference']}{inverse}"
-        return (f"ref {name} : {t}{inverse}" + (" stored" if spec.get("stored") else "")
-                + (" assignee" if spec.get("assignee") else "") + markings(spec))
+        lines = [f"ref {name} : {t}{inverse}" + (" stored" if spec.get("stored") else "")
+                 + (" assignee" if spec.get("assignee") else "") + markings(spec)]
+        # each follows clause under its reference, the follower's own type named as a cascade names its part's
+        # (declaration-syntax.md §3.2, ADR-0292)
+        for c in spec.get("follows") or []:
+            on = c["on"][0] if len(c["on"]) == 1 else "{ " + ", ".join(c["on"]) + " }"
+            args = ", ".join(f"{k} := {' '.join(str(v).split())}" for k, v in (c.get("inputs") or {}).items())
+            lines.append(f"     follows on {on} to {owner}.{c['transition']}" + (f"({args})" if args else "") + f" limit {c['limit']}")
+        return "\n  ".join(lines)
     if spec["type"] == "counter" and not observation:
         return f"counter {name}" + markings(spec)
     t = spec["type"] + ("?" if optional(spec) else "")
@@ -6523,7 +6669,7 @@ def to_text(doc, library=None):
             emit(f"  state {sn} category {v['category']}" + (" terminal" if v.get("final") else "")
                  + (" superseding" if v.get("superseding") else ""), T + ("states", sn))
         for an, spec in (t.get("attributes") or {}).items():
-            for line in attribute_line(an, spec, module=dict(types(doc))).split("\n"):
+            for line in attribute_line(an, spec, module=dict(types(doc)), owner=tn).split("\n"):
                 emit(("  " + line) if not line.startswith("  ") else line, T + ("attributes", an))
         family = dict(types(doc))
         for an, ip in (t.get("inherited_parts") or {}).items():
@@ -7596,12 +7742,14 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
     if not found and len(loaded) + len(example_files) == len(files):
         # step 5: conditions within one type that can never hold together (ADR-0131 decisions 7 to 9, ADR-0137)
         enums = {n: list(v) for m in modules.values() for n, v in (m.get("enumerations") or {}).items()}
+        # a follow of a transition changes another object, as a cascade does (ADR-0292)
+        followed = followed_by(library)
         for f, _t, idx, doc in loaded:
             for tn in doc.get("types") or {}:
                 t = library.get(tn) or {}
                 if t.get("abstract"):
                     continue
-                results, whole, total = flowlogic.analyse_type(tn, t, enums)
+                results, whole, total = flowlogic.analyse_type(tn, t, enums, {w for k, w in followed if k == tn})
                 # for each type, the figure the publish report carries (ADR-0137 decision 3)
                 if analysed is not None:
                     analysed[tn] = (whole, total)
@@ -11929,7 +12077,7 @@ def cascade_cycle_plants(people):
         return text.replace(old, new, 1)
 
     def ring(*names):
-        return ("a transition causes itself, by a call, a create or a cascade: " + " → ".join(names)
+        return ("a transition causes itself, by a call, a create, a cascade or a follow: " + " → ".join(names)
                 + "; no transition may cause itself, on its own object or another (the model's check 12)")
 
     cascaded = p(SYNTAX_PARTS, "aggregation: composite, survives: true }",
@@ -13764,6 +13912,157 @@ def each_plants():
     return ok
 
 
+def follows_plants():
+    """A reference follows transitions of the object it refers to (issue #103, ADR-0292): clean on a hold following
+    its slot across two modules, within one module, and with the hold's transition only via the slot's it follows;
+    refused at step 2 with no limit, and at step 3 on a set of references, a reference with an opposite, an abstract
+    type at either end, a mirror, an `on` naming no transition, an initial one or an erasure, a `transition` naming
+    none, an initial one, an assertion or an erasure, an input the transition does not take or one it requires left
+    out, an `inputs.<name>` that is not an input of every transition in `on`, a personal value reaching a
+    non-personal attribute (check 10), and a cycle through a follow and the imported module's own call (check 12);
+    at step 4, its text read as a line: an argument reading the actor (check 64), and an `only via` naming a transition
+    it does not follow (check 13)."""
+    hub = (
+        "module: hub\ncategories: [live, closed]\ntypes:\n"
+        "  Slot:\n    description: A slot work is planned in.\n    tracking: record\n"
+        "    attributes:\n      label: { type: string, description: Its label. }\n"
+        "    states:\n      OPEN: { description: Open., category: live }\n"
+        "      CANCELLED: { description: Cancelled., category: closed, final: true }\n"
+        "    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [label], description: Opens it. }\n"
+        "      move: { kind: internal, from: [OPEN], required_inputs: [label], description: Moves it. }\n"
+        "      cancel:\n        kind: external\n        from: [OPEN]\n        to: CANCELLED\n        description: Cancels it.\n"
+        "        inputs:\n          why: { type: string, optional: true, description: Why it is cancelled. }\n")
+    clause = "          - { on: [cancel], transition: release, inputs: { note: inputs.why }, limit: 5 }\n"
+    moved = "          - { on: [move], transition: shift, inputs: { label: slot.label }, limit: 5 }\n"
+    holds = (
+        "module: holds\nimports: { hub: [Slot] }\ncategories: [live, closed]\ntypes:\n"
+        "  Hold:\n    description: A hold on a slot.\n    tracking: record\n"
+        "    attributes:\n      slot:\n        reference: Slot\n        description: The slot held.\n        follows:\n"
+        + clause + moved +
+        "      label: { type: string, optional: true, description: Where it is. }\n"
+        "      note: { type: string, optional: true, description: Why it ended. }\n"
+        "    states:\n      HELD: { description: Held., category: live }\n"
+        "      RELEASED: { description: Released., category: closed, final: true }\n"
+        "    transitions:\n      take: { kind: initial, to: HELD, required_inputs: [slot], description: Takes it. }\n"
+        "      shift: { kind: internal, from: [HELD], required_inputs: [label], description: Shifts it. }\n"
+        "      release: { kind: external, from: [HELD], to: RELEASED, optional_inputs: [note], description: Releases it. }\n")
+    release = "      release: { kind: external, from: [HELD], to: RELEASED, optional_inputs: [note], description: Releases it. }\n"
+
+    def p(text, old, new):
+        assert text.count(old) == 1, old
+        return text.replace(old, new, 1)
+
+    def clauses(*cs):
+        return p(holds, clause + moved, "".join(cs))
+    # both in one module: the hold declared beside the slot, importing nothing
+    together = hub + holds.split("types:\n", 1)[1]
+    opposite = p(p(together, "      label: { type: string, description: Its label. }\n",
+                   "      label: { type: string, description: Its label. }\n"
+                   "      holds: { reference: 'Hold[]', opposite: slot, description: Its holds. }\n"),
+                 "        reference: Slot\n", "        reference: Slot\n        opposite: holds\n")
+    abstract_hold = p(p(holds, "  Hold:\n    description: A hold on a slot.\n    tracking: record\n    attributes:\n",
+                        "  Claim:\n    description: Anything held on a slot.\n    abstract: true\n    tracking: record\n"
+                        "    attributes:\n"),
+                      "      label: { type: string, optional: true, description: Where it is. }\n",
+                      "  Hold:\n    description: A hold on a slot.\n    extends: Claim\n    attributes:\n"
+                      "      label: { type: string, optional: true, description: Where it is. }\n")
+    place = p(hub, "  Slot:\n    description: A slot work is planned in.\n    tracking: record\n",
+                "  Place:\n    description: Anywhere work is planned.\n    abstract: true\n    tracking: record\n"
+                "    attributes:\n      code: { type: string, optional: true, description: Its code. }\n"
+                "  Slot:\n    description: A slot work is planned in.\n    extends: Place\n")
+    placed = p(p(holds, "imports: { hub: [Slot] }", "imports: { hub: [Slot, Place] }"),
+               "        reference: Slot\n", "        reference: Place\n")
+    mirrored = p(holds, "  Hold:\n", "  Ledger:\n    description: A ledger of holds another system keeps.\n    mirror: true\n"
+                 "    tracking: record\n    attributes:\n      code: { type: string, external: crm, indexed: true }\n"
+                 "      slot:\n        reference: Slot\n        follows:\n          - { on: [cancel], transition: release, limit: 5 }\n"
+                 "    states: { ON: { category: live }, OFF: { category: closed, final: true } }\n  Hold:\n")
+    erased_hub = p(p(hub, "      label: { type: string, description: Its label. }\n",
+                     "      label: { type: string, description: Its label. }\n"
+                     "      contact: { type: string, optional: true, personal: true, description: Who to call. }\n"),
+                   "      move:", "      forget: { kind: erasure, inputs: { reason: { type: string } }, description: Forgets it. }\n"
+                   "      move:")
+    forgetting = p(p(p(holds, "      note: { type: string, optional: true, description: Why it ended. }\n",
+                       "      note: { type: string, optional: true, description: Why it ended. }\n"
+                       "      memo: { type: string, optional: true, personal: true, description: A memo. }\n"),
+                     release, release + "      forget: { kind: erasure, inputs: { reason: { type: string } }, description: Forgets it. }\n"
+                     "      force: { kind: assertion, to: [HELD, RELEASED], inputs: { reason: { type: Reason } } }\n"),
+                   "categories: [live, closed]\n", "categories: [live, closed]\nenumerations:\n  Reason: [ASKED]\n")
+    # a cycle through the hub's own call: a bay's close cancels its slot, a hold's release closes its bay, and the
+    # hold follows its slot's cancel
+    bay_hub = hub + (
+        "  Bay:\n    description: A bay a slot is in.\n    tracking: record\n"
+        "    attributes:\n      slot: { reference: Slot, description: Its slot. }\n"
+        "    states:\n      OPEN: { description: Open., category: live }\n"
+        "      SHUT: { description: Shut., category: closed, final: true }\n"
+        "    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [slot], description: Opens it. }\n"
+        "      close:\n        kind: external\n        from: [OPEN]\n        to: SHUT\n        description: Closes it.\n"
+        "        effect:\n          - call: { target: slot, transition: cancel }\n")
+    bay_holds = p(p(p(holds, "imports: { hub: [Slot] }", "imports: { hub: [Slot, Bay] }"),
+                    "      label: { type: string, optional: true, description: Where it is. }\n",
+                    "      bay: { reference: Bay, optional: true, description: Its bay. }\n"
+                    "      label: { type: string, optional: true, description: Where it is. }\n"),
+                  release, "      release:\n        kind: external\n        from: [HELD]\n        to: RELEASED\n"
+                           "        optional_inputs: [note]\n        description: Releases it.\n"
+                           "        effect:\n          - call: { target: bay, transition: close }\n")
+    via = p(holds, release, release[:-3] + ", only_via: [Slot.cancel] }\n")
+    two = [("hub.yaml", hub)]
+    cases = [
+        ("a hold following its slot across two modules", two + [("holds.yaml", holds)], []),
+        ("within one module", [("hub.yaml", together)], []),
+        ("its transition only via the one it follows", two + [("holds.yaml", via)], []),
+        ("with no limit", two + [("holds.yaml", clauses(clause.replace(", limit: 5", ""), moved))],
+         [("holds.yaml", "schema", "'limit' is a required property")]),
+        ("on a set of references", two + [("holds.yaml", p(holds, "        reference: Slot\n", "        reference: 'Slot[]'\n"))],
+         [("holds.yaml", "names", "Hold.slot is a set of references with no opposite, which has nowhere to be stored; an end with no opposite is single (§4.3; the model's check 41)"),
+          ("holds.yaml", "names", "Hold.slot follows, and is a set of references; a follow stands on a single reference in this release (ADR-0292)")]),
+        ("on a reference with an opposite", [("hub.yaml", opposite)],
+         [("hub.yaml", "names", "Hold.slot follows, and names an opposite, by which Slot's transitions reach it with a call; only a reference with no opposite follows (ADR-0292)")]),
+        ("declared by an abstract type", two + [("holds.yaml", abstract_hold)],
+         [("holds.yaml", "names", "Claim.slot follows, and is declared on the abstract Claim; a follower is of a concrete type (ADR-0292)")]),
+        ("to an abstract type", [("hub.yaml", place), ("holds.yaml", placed)],
+         [("holds.yaml", "names", "Hold.slot follows, and refers to the abstract Place; a follow is of a concrete type (ADR-0292)")]),
+        ("declared by a mirror", two + [("holds.yaml", mirrored)],
+         [("holds.yaml", "names", "Ledger.slot follows, and is declared on the mirror Ledger, which only the import writes; no mirror follows (ADR-0292)"),
+          ("holds.yaml", "names", "Ledger.slot is a mirror's reference to Slot, which this store owns: a type is cut over only after every type that references it (ADR-0075), so a mirror references only mirrors")]),
+        ("on no transition", two + [("holds.yaml", clauses(clause.replace("on: [cancel]", "on: [close]"), moved))],
+         [("holds.yaml", "names", "Hold.slot follows on 'close', which is not a transition of Slot")]),
+        ("on an initial transition", two + [("holds.yaml", clauses(clause.replace("on: [cancel]", "on: [open]"), moved))],
+         [("holds.yaml", "names", "Hold.slot follows on Slot.open, an initial transition, which no follow names (ADR-0292)")]),
+        ("on an erasure", [("hub.yaml", erased_hub), ("holds.yaml", clauses(clause.replace("on: [cancel], transition: release, inputs: { note: inputs.why }", "on: [forget], transition: release"), moved))],
+         [("holds.yaml", "names", "Hold.slot follows on Slot.forget, an erasure, which no follow names (ADR-0292)")]),
+        ("to no transition", two + [("holds.yaml", clauses(clause.replace("transition: release", "transition: vanish"), moved))],
+         [("holds.yaml", "names", "Hold.slot follows to Hold.vanish, which is not a transition of Hold that acts on a follower")]),
+        ("to an initial transition", two + [("holds.yaml", clauses(clause.replace("transition: release, inputs: { note: inputs.why }", "transition: take, inputs: { slot: slot }"), moved))],
+         [("holds.yaml", "names", "Hold.slot follows to Hold.take, which is not a transition of Hold that acts on a follower")]),
+        ("to an assertion", two + [("holds.yaml", p(forgetting, clause, clause.replace("transition: release, inputs: { note: inputs.why }", "transition: force")))],
+         [("holds.yaml", "names", "Hold.slot follows to Hold.force, an assertion, which only a request takes; an override is requested, never caused (ADR-0163)")]),
+        ("to an erasure", two + [("holds.yaml", p(forgetting, clause, clause.replace("transition: release, inputs: { note: inputs.why }", "transition: forget")))],
+         [("holds.yaml", "names", "Hold.slot follows to Hold.forget, an erasure, which no follow takes (ADR-0292)")]),
+        ("an input its transition does not take", two + [("holds.yaml", clauses(clause.replace("{ note: inputs.why }", "{ note: inputs.why, colour: '\"red\"' }"), moved))],
+         [("holds.yaml", "names", "Hold.slot passes 'colour' to Hold.release, which takes no input 'colour'")]),
+        ("an input its transition requires left out", two + [("holds.yaml", clauses(clause, moved.replace(", inputs: { label: slot.label }", "")))],
+         [("holds.yaml", "names", "Hold.slot follows to Hold.shift without the input 'label', which it requires")]),
+        ("an input one transition it follows does not take", two + [("holds.yaml", clauses(clause.replace("on: [cancel]", "on: [cancel, move]"), moved))],
+         [("holds.yaml", "names", "Hold.slot's follow reads inputs.why, which Slot.move does not take; a follow reads an input every transition in its on takes (ADR-0292)")]),
+        ("a personal value it passes on", [("hub.yaml", erased_hub), ("holds.yaml", clauses(clause.replace("inputs.why", "slot.contact"), moved))],
+         [("holds.yaml", "names", "Hold.slot's follow on Slot.cancel passes the personal Slot.contact to Hold.release's input 'note', which writes it to Hold.note, which is not personal; a personal value reaches only a personal attribute (the model's check 10)")]),
+        ("a cycle through the imported module's own call", [("hub.yaml", bay_hub), ("holds.yaml", bay_holds)],
+         [("holds.yaml", "names", "a transition causes itself, by a call, a create, a cascade or a follow: Hold.release → Bay.close → Slot.cancel → Hold.release; no transition may cause itself, on its own object or another (the model's check 12)")]),
+        ("an argument reading the actor, its text read as a line", two + [("holds.yaml", clauses(clause.replace("inputs.why", "actor.id"), moved))],
+         [("holds.yaml", "check 64", "reads the actor outside an outcome value: follows on cancel to Hold.release(note := actor.id) limit 5")]),
+        ("its transition only via one it does not follow", two + [("holds.yaml", p(holds, release, release[:-3] + ", only_via: [Slot.move] }\n"))],
+         [("holds.yaml", "check 13", "Hold.release names parent Slot.move, which never reaches it")]),
+    ]
+    ok = True
+    for name, files, want in cases:
+        found, _notes = check(files)
+        got = sorted((x[0], x[3], x[4]) for x in found)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a follow, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def history_plants():
     """A type's history before a freeze at step 3 (issue #89, ADR-0272): clean on an owned whole and its parts that
     declare the same, an identifier minted on it unique or unique in scope; refused on a mirror, naming no instant,
@@ -14578,6 +14877,7 @@ def main():
     ok &= rest_inputs_plants()
     ok &= rest_sets_and_chains_plants()
     ok &= each_plants()
+    ok &= follows_plants()
     ok &= history_plants()
     ok &= history_pair_plants()
     ok &= type_loop_plants()

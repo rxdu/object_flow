@@ -1,0 +1,23 @@
+module: holds
+imports: { hub: [Slot] }
+categories: [live, closed]
+types:
+  Hold:
+    description: A hold on a slot.
+    tracking: record
+    attributes:
+      slot:
+        reference: Slot
+        description: The slot held.
+        follows:
+          - { on: [cancel, move], transition: release, inputs: { note: inputs.why }, limit: 5 }
+          - { on: [move], transition: shift, inputs: { label: slot.label }, limit: 5 }
+      label: { type: string, optional: true, description: Where it is. }
+      note: { type: string, optional: true, description: Why it ended. }
+    states:
+      HELD: { description: Held., category: live }
+      RELEASED: { description: Released., category: closed, final: true }
+    transitions:
+      take: { kind: initial, to: HELD, required_inputs: [slot], description: Takes it. }
+      shift: { kind: internal, from: [HELD], required_inputs: [label], description: Shifts it. }
+      release: { kind: external, from: [HELD], to: RELEASED, optional_inputs: [note], description: Releases it. }

@@ -60,6 +60,7 @@ const ONLY_ON_TYPES: &[&str] = &[
     "aggregation",
     "cascade",
     "survives",
+    "follows",
 ];
 const GENERATED_GUARDS: &[&str] = &[
     "actor_known",
@@ -238,6 +239,7 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
     out.extend(offered_on_errors(doc));
     out.extend(relationship_errors(doc, &library));
     out.extend(combined_errors(doc));
+    out.extend(follows_errors(doc, &library));
     out.extend(cascade_cycle_errors(doc, &library));
     out.extend(clock_errors(doc, &library));
     out.extend(personal_errors(doc, &library));
@@ -1080,6 +1082,212 @@ fn relationship_errors(doc: &Value, library: &Obj) -> Found {
     out
 }
 
+/// One follows clause, by the transition of the type referred to that
+/// drives it: the follower's type and transition, the reference, the
+/// clause's index and the clause.
+pub(crate) type Follow = (String, String, String, usize, Value);
+
+/// Each follows clause of the types given, by the transition of the type
+/// referred to that drives it, as (type, transition), in the order the
+/// types, their attributes and their clauses are declared (ADR-0292
+/// decision 7; `check-flows.py`'s `followed_by`).
+pub(crate) fn followed_by(kinds: &Obj) -> BTreeMap<Node, Vec<Follow>> {
+    let mut out: BTreeMap<Node, Vec<Follow>> = BTreeMap::new();
+    for (fname, f) in kinds {
+        for (an, spec) in obj(f, "attributes") {
+            let Some(Value::Array(clauses)) = spec.get("follows") else {
+                continue;
+            };
+            let target = target_of(spec);
+            for (i, c) in clauses.iter().enumerate() {
+                if !c.is_object() {
+                    continue;
+                }
+                let ft = c.get("transition").map(py_str).unwrap_or_default();
+                for w in list(c, "on") {
+                    out.entry((target.clone(), py_str(w))).or_default().push((
+                        fname.clone(),
+                        ft.clone(),
+                        an.clone(),
+                        i,
+                        c.clone(),
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A reference may follow transitions of the object it refers to
+/// (ADR-0292): a single reference with no opposite, declared by a concrete
+/// type that is no mirror, to a concrete type (decisions 4 and 5). Each
+/// clause's `on` names transitions of the type referred to, none initial or
+/// an erasure; its `transition` names one of the follower's own type, never
+/// initial, an assertion or an erasure, given every input it requires and
+/// none it does not take; and an `inputs.<name>` its inputs read is an input
+/// of every transition in `on` (decision 6; `check-flows.py`'s
+/// `follows_errors`).
+fn follows_errors(doc: &Value, library: &Obj) -> Found {
+    let mut kinds = library.clone();
+    for (k, v) in types(doc) {
+        kinds.insert(k, v.clone());
+    }
+    let machines = obj(doc, "machines");
+    let mut out = Found::new();
+    for (tn, t) in types(doc) {
+        for (an, spec) in obj(t, "attributes") {
+            if !spec.is_object() || !has(spec, "follows") || inherited(t, "attributes", an) {
+                continue;
+            }
+            let here = segs!["types", &tn, "attributes", an, "follows"];
+            let target = target_of(spec);
+            let other = kinds.get(&target).cloned().unwrap_or(Value::Null);
+            let why = if spec.get("reference").is_none() {
+                Some("holds no reference; only a reference follows".to_string())
+            } else if ref_of(spec).ends_with("[]") {
+                Some(
+                    "is a set of references; a follow stands on a single reference in this release"
+                        .to_string(),
+                )
+            } else if has(spec, "opposite") {
+                Some(format!(
+                    "names an opposite, by which {target}'s transitions reach it with a call; only a reference with no opposite follows"
+                ))
+            } else if machines.contains_key(&tn) {
+                Some(format!(
+                    "is required by the machine {tn}; a follow is declared by the concrete type holding the reference"
+                ))
+            } else if flag(t, "abstract") {
+                Some(format!(
+                    "is declared on the abstract {tn}; a follower is of a concrete type"
+                ))
+            } else if flag(t, "mirror") {
+                Some(format!(
+                    "is declared on the mirror {tn}, which only the import writes; no mirror follows"
+                ))
+            } else if flag(&other, "abstract") || machines.contains_key(&target) {
+                Some(format!(
+                    "refers to the abstract {target}; a follow is of a concrete type"
+                ))
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                out.push(finding(
+                    here,
+                    "names",
+                    format!("{tn}.{an} follows, and {why} (ADR-0292)"),
+                ));
+                continue;
+            }
+            if !kinds.contains_key(&target) {
+                // a type neither declared nor imported is relationship_errors'
+                continue;
+            }
+            let mine = obj(t, "transitions");
+            let theirs = obj(&other, "transitions");
+            let usable = |w: &str| {
+                theirs
+                    .get(w)
+                    .filter(|x| !matches!(kind(x), "initial" | "erasure"))
+            };
+            for (i, c) in list(spec, "follows").iter().enumerate() {
+                let where_ = ext(&here, segs![i]);
+                let on: Vec<String> = list(c, "on").iter().map(py_str).collect();
+                for w in &on {
+                    match theirs.get(w) {
+                        None => out.push(finding(
+                            where_.clone(),
+                            "names",
+                            format!("{tn}.{an} follows on '{w}', which is not a transition of {target}"),
+                        )),
+                        Some(x) if matches!(kind(x), "initial" | "erasure") => out.push(finding(
+                            where_.clone(),
+                            "names",
+                            format!(
+                                "{tn}.{an} follows on {target}.{w}, an {}, which no follow names (ADR-0292)",
+                                if kind(x) == "initial" {
+                                    "initial transition"
+                                } else {
+                                    "erasure"
+                                }
+                            ),
+                        )),
+                        Some(_) => {}
+                    }
+                }
+                let ct = c.get("transition").map(py_str).unwrap_or_default();
+                let Some(taken_x) = mine
+                    .get(&ct)
+                    .filter(|x| !x.is_null() && kind(x) != "initial")
+                else {
+                    out.push(finding(
+                        where_.clone(),
+                        "names",
+                        format!("{tn}.{an} follows to {tn}.{ct}, which is not a transition of {tn} that acts on a follower"),
+                    ));
+                    continue;
+                };
+                if kind(taken_x) == "assertion" {
+                    out.push(finding(
+                        where_.clone(),
+                        "names",
+                        format!("{tn}.{an} follows to {tn}.{ct}, an assertion, which only a request takes; an override is requested, never caused (ADR-0163)"),
+                    ));
+                    continue;
+                }
+                if kind(taken_x) == "erasure" {
+                    out.push(finding(
+                        where_.clone(),
+                        "names",
+                        format!("{tn}.{an} follows to {tn}.{ct}, an erasure, which no follow takes (ADR-0292)"),
+                    ));
+                    continue;
+                }
+                let given: BTreeSet<String> = keys(c, "inputs").into_iter().collect();
+                for i in given.difference(&taken(taken_x)) {
+                    out.push(finding(
+                        where_.clone(),
+                        "names",
+                        format!("{tn}.{an} passes '{i}' to {tn}.{ct}, which takes no input '{i}'"),
+                    ));
+                }
+                for i in required_input_names(taken_x).difference(&given) {
+                    if !obj(taken_x, "inputs")
+                        .get(i)
+                        .is_some_and(|s| has(s, "default"))
+                    {
+                        out.push(finding(
+                            where_.clone(),
+                            "names",
+                            format!("{tn}.{an} follows to {tn}.{ct} without the input '{i}', which it requires"),
+                        ));
+                    }
+                }
+                let read: BTreeSet<String> = obj(c, "inputs")
+                    .values()
+                    .flat_map(|e| input_reads(&py_str(e)))
+                    .collect();
+                for w in &on {
+                    let Some(trigger) = usable(w) else {
+                        continue;
+                    };
+                    let takes = taken(trigger);
+                    for n in read.iter().filter(|n| !takes.contains(*n)) {
+                        out.push(finding(
+                            where_.clone(),
+                            "names",
+                            format!("{tn}.{an}'s follow reads inputs.{n}, which {target}.{w} does not take; a follow reads an input every transition in its on takes (ADR-0292)"),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// An expression with each child rebuilt by `f`, the rest as it was.
 fn map_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
     let mut b = |x: &Expr| Box::new(f(x));
@@ -1838,6 +2046,8 @@ pub(crate) fn composite_parts(tn: &str, kinds: &Obj) -> Vec<(Value, Vec<Value>, 
 struct Personal<'a> {
     kinds: &'a Obj,
     fields: BTreeMap<String, Value>,
+    /// Each follows clause, by the transition that drives it (ADR-0292).
+    followed: BTreeMap<Node, Vec<Follow>>,
 }
 
 impl Personal<'_> {
@@ -1951,6 +2161,37 @@ impl Personal<'_> {
         out
     }
 
+    /// Each argument a follows clause on `tn.xn` passes its follower's
+    /// transition, as `passes` gives it (ADR-0292).
+    fn follows(&self, tn: &str, xn: &str) -> Vec<Passed> {
+        let mut out = Vec::new();
+        for (fname, ft, an, i, c) in self
+            .followed
+            .get(&(tn.to_string(), xn.to_string()))
+            .into_iter()
+            .flatten()
+        {
+            for (j, e) in obj(c, "inputs") {
+                out.push((
+                    py_str(e),
+                    Env::new(),
+                    Some(fname.clone()),
+                    ft.clone(),
+                    j.clone(),
+                    segs![
+                        "types",
+                        fname.as_str(),
+                        "attributes",
+                        an.as_str(),
+                        "follows",
+                        *i
+                    ],
+                ));
+            }
+        }
+        out
+    }
+
     /// Where input `j` of `k.ct` reaches a non-personal attribute, or none.
     fn leak(
         &self,
@@ -1991,6 +2232,7 @@ impl Personal<'_> {
         self.passes(k, x)
             .into_iter()
             .chain(self.cascades(k, ct))
+            .chain(self.follows(k, ct))
             .find_map(|(e, _env, k2, ct2, j2, _where)| {
                 let k2 = k2?;
                 if !input_reads(&e).contains(j) {
@@ -2023,9 +2265,11 @@ fn personal_errors(doc: &Value, library: &Obj) -> Found {
     // a create recording an observation passes into its fields (ADR-0270)
     let recorded = observation_kinds(&kinds);
     kinds.extend(recorded);
+    let followed = followed_by(&kinds);
     let check = Personal {
         kinds: &kinds,
         fields,
+        followed,
     };
     let none = BTreeSet::new();
     let leaks = |what: String| {
@@ -2086,6 +2330,42 @@ fn personal_errors(doc: &Value, library: &Obj) -> Found {
                             "{tn}.{xn} cascades {carried} to {k}.{ct}'s input '{j}', which {reached}"
                         )),
                     ));
+                }
+            }
+        }
+        // a follow's arguments are read over the follower, inputs.<name> the
+        // triggering transition's (ADR-0292)
+        for (an, spec) in attrs {
+            let target = if spec.is_object() {
+                target_of(spec)
+            } else {
+                String::new()
+            };
+            let trigger = obj(kinds.get(&target).unwrap_or(&Value::Null), "transitions");
+            for (i, c) in list(spec, "follows").iter().enumerate() {
+                let ct = c.get("transition").map(py_str).unwrap_or_default();
+                for (j, e) in obj(c, "inputs") {
+                    for w in list(c, "on").iter().map(py_str) {
+                        let Some(x) = trigger.get(&w) else {
+                            continue;
+                        };
+                        let inputs = personal_inputs(&kinds, &target, x);
+                        let Some(carried) =
+                            check.why(&tn, Some(x), &py_str(e), &Env::new(), &inputs, &none)
+                        else {
+                            continue;
+                        };
+                        if let Some(reached) = check.leak(&tn, &ct, j, &BTreeSet::new()) {
+                            out.push(finding(
+                                segs!["types", tn.as_str(), "attributes", an.as_str(), "follows", i],
+                                "names",
+                                leaks(format!(
+                                    "{tn}.{an}'s follow on {target}.{w} passes {carried} to {tn}.{ct}'s input '{j}', which {reached}"
+                                )),
+                            ));
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -2336,15 +2616,20 @@ type Node = (String, String);
 type Causes<'a> = &'a dyn Fn(&str, &str) -> Vec<(Node, Path)>;
 
 /// A transition causes others: by a `call` or a `create` among its effect's
-/// steps, a loop's included, and by a cascade clause on it of a part its type
-/// gives, its own or one it inherits. Transitions MUST NOT cause each other in
-/// a cycle, nor one cause itself, on its own object or another of its type
-/// (the model's check 12, ADR-0019). A transition no type of the module
-/// declares is left to the checks that name it, and an imported module cannot
-/// cause one of this module's, so no cycle passes through it. A cycle is
-/// reported at the step or the clause that closes it, once for each set of
-/// transitions a cycle passes through (`check-flows.py`'s
-/// `cascade_cycle_errors`).
+/// steps, a loop's included, by a cascade clause on it of a part its type
+/// gives, its own or one it inherits, and by a follows clause on a reference
+/// to its type, which drives each object holding the reference (ADR-0292).
+/// Transitions MUST NOT cause each other in a cycle, nor one cause itself, on
+/// its own object or another of its type (the model's check 12, ADR-0019).
+/// The graph holds the library's types beside the module's, since a follow
+/// of an imported type may close a cycle through the edges of the module
+/// that declares it, and only the module declaring the follow knows both its
+/// ends (ADR-0292 decision 8); a cycle no edge of this module is on is its
+/// own module's to report. A transition no type declares is left to the
+/// checks that name it. A cycle is reported at the step or the clause that
+/// closes it, or, where that is another module's, at the first of this
+/// module's on the cycle, once for each set of transitions a cycle passes
+/// through (`check-flows.py`'s `cascade_cycle_errors`).
 fn cascade_cycle_errors(doc: &Value, library: &Obj) -> Found {
     let module: Obj = types(doc)
         .into_iter()
@@ -2354,13 +2639,14 @@ fn cascade_cycle_errors(doc: &Value, library: &Obj) -> Found {
     for (k, v) in &module {
         kinds.insert(k.clone(), v.clone());
     }
+    let followed = followed_by(&kinds);
     let declares = |k: &str, xn: &str| {
-        module
+        kinds
             .get(k)
             .is_some_and(|t| obj(t, "transitions").contains_key(xn))
     };
     let causes = |tn: &str, xn: &str| -> Vec<(Node, Path)> {
-        let t = &module[tn];
+        let t = &kinds[tn];
         let x = &obj(t, "transitions")[xn];
         let mut out = Vec::new();
         for step in walk(x.get("effect")) {
@@ -2416,17 +2702,42 @@ fn cascade_cycle_errors(doc: &Value, library: &Obj) -> Found {
                 }
             }
         }
+        for (fname, ft, an, i, _) in followed
+            .get(&(tn.to_string(), xn.to_string()))
+            .into_iter()
+            .flatten()
+        {
+            if declares(fname, ft) {
+                out.push((
+                    (fname.clone(), ft.clone()),
+                    segs![
+                        "types",
+                        fname.as_str(),
+                        "attributes",
+                        an.as_str(),
+                        "follows",
+                        *i
+                    ],
+                ));
+            }
+        }
         out
+    };
+    // whether an edge is declared by this module: its type the module's
+    let mine = |where_: &Path| match where_.get(1) {
+        Some(Seg::Key(k)) => module.contains_key(k),
+        _ => false,
     };
     struct Search<'a> {
         causes: Causes<'a>,
+        mine: &'a dyn Fn(&Path) -> bool,
         open: BTreeSet<Node>,
         closed: BTreeSet<Node>,
         reported: BTreeSet<BTreeSet<Node>>,
         out: Found,
     }
     impl Search<'_> {
-        fn visit(&mut self, node: &Node, trail: &mut Vec<Node>) {
+        fn visit(&mut self, node: &Node, trail: &mut Vec<Node>, wheres: &mut Vec<Option<Path>>) {
             self.open.insert(node.clone());
             trail.push(node.clone());
             for (next, where_) in (self.causes)(&node.0, &node.1) {
@@ -2434,20 +2745,35 @@ fn cascade_cycle_errors(doc: &Value, library: &Obj) -> Found {
                     let at = trail.iter().position(|n| *n == next).unwrap_or(0);
                     let mut ring = trail[at..].to_vec();
                     ring.push(next);
+                    // the edges along the ring, the one closing it last
+                    let at_mine = if (self.mine)(&where_) {
+                        Some(where_.clone())
+                    } else {
+                        wheres[at + 1..]
+                            .iter()
+                            .flatten()
+                            .find(|w| (self.mine)(w))
+                            .cloned()
+                    };
+                    let Some(at_mine) = at_mine else {
+                        continue;
+                    };
                     if self.reported.insert(ring.iter().cloned().collect()) {
                         let names: Vec<String> =
                             ring.iter().map(|(u, e)| format!("{u}.{e}")).collect();
                         self.out.push(finding(
-                            where_,
+                            at_mine,
                             "names",
                             format!(
-                                "a transition causes itself, by a call, a create or a cascade: {}; no transition may cause itself, on its own object or another (the model's check 12)",
+                                "a transition causes itself, by a call, a create, a cascade or a follow: {}; no transition may cause itself, on its own object or another (the model's check 12)",
                                 names.join(" → ")
                             ),
                         ));
                     }
                 } else if !self.closed.contains(&next) {
-                    self.visit(&next, trail);
+                    wheres.push(Some(where_));
+                    self.visit(&next, trail, wheres);
+                    wheres.pop();
                 }
             }
             trail.pop();
@@ -2457,6 +2783,7 @@ fn cascade_cycle_errors(doc: &Value, library: &Obj) -> Found {
     }
     let mut search = Search {
         causes: &causes,
+        mine: &mine,
         open: BTreeSet::new(),
         closed: BTreeSet::new(),
         reported: BTreeSet::new(),
@@ -2466,7 +2793,7 @@ fn cascade_cycle_errors(doc: &Value, library: &Obj) -> Found {
         for xn in obj(t, "transitions").keys() {
             let node = (tn.clone(), xn.clone());
             if !search.open.contains(&node) && !search.closed.contains(&node) {
-                search.visit(&node, &mut Vec::new());
+                search.visit(&node, &mut Vec::new(), &mut vec![None]);
             }
         }
     }

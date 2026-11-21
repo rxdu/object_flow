@@ -1268,6 +1268,16 @@ fn only_via_checks(d: &Decl, world: &BTreeMap<&str, &Decl>, out: &mut Vec<Found4
                                 .any(|later| str_or(later, "transition", "") == t.name)
                     })
             });
+            // or a follows clause on this type's reference to the parent's
+            // type, each clause read alone (ADR-0292 decision 7)
+            let cascades = cascades
+                || obj(&d.yaml, "attributes").values().any(|sp| {
+                    str_or(sp, "reference", "") == ty
+                        && list(sp, "follows").iter().any(|c| {
+                            strings(c, "on").iter().any(|o| o == tr)
+                                && str_or(c, "transition", "") == t.name
+                        })
+                });
             let Some(pt) = pt else {
                 if !cascades {
                     add(
