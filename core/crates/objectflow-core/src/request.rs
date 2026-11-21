@@ -5969,6 +5969,14 @@ fn cascades(
             };
             let mut driven: Vec<&Object> = Vec::new();
             for p in &ids {
+                // each part read, so a refusal its parts make replays over
+                // its record, as a follow's holders are (#103)
+                if let Some(o) = ctx.work.get(p)? {
+                    ctx.effect_read
+                        .borrow_mut()
+                        .objects
+                        .insert(o.id.clone(), o.version);
+                }
                 if let Some(p) = ctx.work.get(p)?
                     && ctx
                         .work
@@ -6073,6 +6081,13 @@ fn follows(
             std::slice::from_ref(&f.reference),
             std::slice::from_ref(&target),
         )? {
+            // each holder the lookup found is read, so a refusal its
+            // followers make replays over its record (ADR-0210 decision 5;
+            // the integrity review's finding 3)
+            ctx.effect_read
+                .borrow_mut()
+                .objects
+                .insert(o.id.clone(), o.version);
             let open = lib
                 .type_(&o.type_)
                 .and_then(|ot| ot.state(&o.state))

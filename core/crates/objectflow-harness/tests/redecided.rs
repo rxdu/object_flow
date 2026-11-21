@@ -119,3 +119,84 @@ fn a_second_correction_is_refused_over_what_it_read() {
     ];
     assert_eq!(replay(&fx, &steps).unwrap(), None);
 }
+
+const SLOTS: &str = "\nmodule: hub\ncategories: [live, closed]\ntypes:\n  Slot:\n    attributes:\n      pieces: { reference: \"Piece[]\", opposite: slot, aggregation: composite, cascade: [ { on: [cancel], transition: drop, limit: 2 } ] }\n    states:\n      OPEN: { category: live }\n      CANCELLED: { category: closed, final: true }\n    transitions:\n      open: { kind: initial, to: OPEN }\n      add_piece: { kind: internal, from: [OPEN], effect: [ { create: { type: Piece, transition: add, inputs: { slot: this } } } ] }\n      cancel: { kind: external, from: [OPEN], to: CANCELLED }\n  Piece:\n    attributes:\n      slot: { reference: Slot, opposite: pieces }\n    states:\n      ON: { category: live }\n      SET: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      add: { kind: initial, to: ON, required_inputs: [slot], only_via: [Slot.add_piece] }\n      set_aside: { kind: external, from: [ON], to: SET }\n      drop: { kind: external, from: [ON], to: OFF }\n";
+
+const HOLDS: &str = "\nmodule: holds\nimports: { hub: [Slot] }\ncategories: [live, closed]\ntypes:\n  Hold:\n    attributes:\n      slot: { reference: Slot, follows: [ { on: [cancel], transition: release, limit: 2 } ] }\n    states:\n      HELD: { category: live }\n      PAUSED: { category: live }\n      RELEASED: { category: closed, final: true }\n    transitions:\n      take: { kind: initial, to: HELD, required_inputs: [slot] }\n      pause: { kind: external, from: [HELD], to: PAUSED }\n      release: { kind: external, from: [HELD], to: RELEASED }\n";
+
+fn slots() -> Fixture {
+    Fixture {
+        name: "slots".into(),
+        modules: vec![
+            ("hub.yaml".into(), SLOTS.into()),
+            ("holds.yaml".into(), HOLDS.into()),
+        ],
+    }
+}
+
+/// A cancel its followers or its parts refuse replays over its read set,
+/// which records each follower the lookup by the reference found and each
+/// part the cascade read, where it recorded none and a replay without them
+/// satisfied it (#103, the integrity review's finding 3): three holds past
+/// a follow's limit of two, a hold paused where its release is not taken
+/// from, and the same of a cascade's parts.
+#[test]
+fn a_refusal_by_followers_or_parts_is_decided_again_from_them() {
+    let take = |slot: &str| {
+        given(
+            "take",
+            None,
+            Some("Hold"),
+            serde_json::from_value(serde_json::json!({"slot": slot})).unwrap(),
+        )
+    };
+    let cases: [(&str, Vec<Step>); 4] = [
+        (
+            "three followers past the limit",
+            vec![
+                step("open", None, Some("Slot")),
+                take("slot-1"),
+                take("slot-1"),
+                take("slot-1"),
+                step("cancel", Some("slot-1"), None),
+            ],
+        ),
+        (
+            "a follower its transition is not taken from",
+            vec![
+                step("open", None, Some("Slot")),
+                take("slot-1"),
+                step("pause", Some("hold-2"), None),
+                step("cancel", Some("slot-1"), None),
+            ],
+        ),
+        (
+            "three parts past the limit",
+            vec![
+                step("open", None, Some("Slot")),
+                step("add_piece", Some("slot-1"), None),
+                step("add_piece", Some("slot-1"), None),
+                step("add_piece", Some("slot-1"), None),
+                step("cancel", Some("slot-1"), None),
+            ],
+        ),
+        (
+            "a part its transition is not taken from",
+            vec![
+                step("open", None, Some("Slot")),
+                step("add_piece", Some("slot-1"), None),
+                step("set_aside", Some("piece-2"), None),
+                step("cancel", Some("slot-1"), None),
+            ],
+        ),
+    ];
+    let failed: Vec<String> = cases
+        .into_iter()
+        .filter_map(|(name, steps)| {
+            replay(&slots(), &steps)
+                .unwrap()
+                .map(|f| format!("{name}: {f:?}"))
+        })
+        .collect();
+    assert!(failed.is_empty(), "{failed:#?}");
+}
