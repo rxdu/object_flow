@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** by the author 2026-11-21 ("supervise a session to address the issue with your recommendations, then release together with v0.32.0"), as recommended the same day for issue #103 at the author's word ("check more open issues"): decision 1, its direction, and decisions 2 to 4, where it departs from the issue's text. The trace put with the direction was not answered, and is skipped. Decisions 5 to 10 settle what the direction leaves open, accepted in advance under the author's direction of 2026-09-28 as confident recommendations. To be built for 0.32.0, with ADR-0289 to ADR-0291. Built the same day, `dd1d3f7b` to `b53901c4`.
 - **Date:** 2026-11-21
+- **Refined by:** ADR-0293 — three points its text left open: a clause's refused arithmetic names the follower, a missing `limit` is refused at step 2, and a machine's required attribute declares no follow.
 - **Supersedes in part:** ADR-0024 decision 3: a reference is still never cascaded by the type it refers to, and its own type may now declare that it follows.
 - **Relates to:** ADR-0019 (a transition's outcome cascades, atomically and acyclically); ADR-0038 (cascades apply in turn); ADR-0108 (a cascade is shown where it lands); ADR-0122 (`over-limit`); ADR-0163 (an override is never caused); ADR-0170 (a cascaded part is of a concrete type); ADR-0217 (`only_via: [any]`); `docs/research/following-a-referenced-objects-transitions.md`; issue #103
 

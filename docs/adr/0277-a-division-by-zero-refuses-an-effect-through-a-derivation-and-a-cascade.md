@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** by the author 2026-11-15 ("go with your recommendations"), on the fourth of four points put the same day for issue #97, each with a recommendation. Built the same day.
 - **Date:** 2026-11-15
+- **Refined by:** ADR-0293 — a follow's input a division by zero left with none names the follower.
 - **Refines:** ADR-0185 decision 1 (an effect's value an arithmetic left with none refuses), `declaration-syntax.md` §8.2 (the effect's row)
 - **Relates to:** ADR-0047 (a division by zero is unknown), ADR-0205 decision 2 (an arithmetic past its bound refuses wherever it is evaluated), ADR-0209 decision 5 (a `set` of a plain read clears an optional attribute), issue #97
 
