@@ -2012,10 +2012,12 @@ fn expand_rest(
                     limit: *limit,
                     fields,
                 };
+                // the default served as an expression's text, as a derived
+                // set's `{}` is, never as a value of another type (wire.md)
                 let spec = serde_json::json!({
                     "entries": served,
                     "limit": limit,
-                    "default": [],
+                    "default": "[]",
                     "derived_from": entries.target(),
                 });
                 derived.push((
@@ -3680,7 +3682,7 @@ types:
                     "said": {"type": "string"},
                     "size": {"type": "int", "optional": true},
                 },
-                "limit": 3, "default": [], "derived_from": "Line.add",
+                "limit": 3, "default": "[]", "derived_from": "Line.add",
             })
         );
         assert_eq!(

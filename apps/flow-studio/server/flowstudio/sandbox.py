@@ -1200,7 +1200,7 @@ class Sandbox:
             for n, e in ((x or {}).get(flows.ENTRIES) or {}).items():
                 served = out["transitions"][xn].setdefault("inputs", {})
                 served[n] = {"entries": jsonable(e["fields"]),
-                             "limit": e["limit"], "default": [],
+                             "limit": e["limit"], "default": "[]",
                              "derived_from": e["target"]}
         # the members of each enumeration the type's attributes are of, which
         # its rules are read against

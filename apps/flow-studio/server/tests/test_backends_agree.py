@@ -691,7 +691,7 @@ def test_entries_are_declared_offered_and_published_alike(tee):
             "qty": {"type": "int", "description": "How many units."},
             "rush": {"type": "bool", "description": "Whether it ships first.", "optional": True},
             "size": {"type": "Size", "description": "Its size.", "optional": True}},
-        "limit": 3, "default": [], "derived_from": "Line.add"}, decl
+        "limit": 3, "default": "[]", "derived_from": "Line.add"}, decl
     assert decl["enumerations"] == {"Size": ["S", "M", "L"]}, decl
     a = tee.post("/v1/request", {"actor": op, "type": "Product", "transition": "list",
                                  "inputs": {"code": "A"}})["object_id"]
