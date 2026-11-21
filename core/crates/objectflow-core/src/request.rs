@@ -3602,7 +3602,9 @@ fn entry_fields_personal(
 
 /// Whether an input is personal (`declaration-syntax.md` §10, check 10):
 /// marked so, or written by the transition's effect into a personal
-/// attribute, which makes it personal without the marking.
+/// attribute, which makes it personal without the marking; or passed, one
+/// hop on, into another object's personal attribute by a step of the
+/// effect, a cascade clause on the transition or a follows clause on it.
 pub(crate) fn input_personal(lib: &Library, t: &Type, x: &Transition, name: &str) -> bool {
     // what a create or a call passes it into, one hop on, as `writes_of`
     // reads a step (D547): an argument the taken transition holds personal,
@@ -3642,7 +3644,48 @@ pub(crate) fn input_personal(lib: &Library, t: &Type, x: &Transition, name: &str
                 && (tt.attribute(arg).is_some_and(|a| a.personal) || personal_by_own(tt, tx, arg))
         })
     }
-    personal_by_own(t, x, name) || passes(lib, &x.effect, name)
+    // and what a cascade clause of its type, or a follows clause, on the
+    // transition passes, one hop on as a step's: the transition read by its
+    // name in its type, which a version's other library may not hold, then
+    // no clause is read (#103)
+    fn clauses_pass(lib: &Library, t: &Type, xn: &str, name: &str) -> bool {
+        let cascaded = t.attributes.iter().any(|(_, end)| {
+            let Declared::Reference(part) = &end.declared else {
+                return false;
+            };
+            end.composite
+                && end
+                    .cascade
+                    .iter()
+                    .filter(|c| c.on.iter().any(|o| o == xn))
+                    .any(|c| {
+                        lib.type_(part)
+                            .is_some_and(|pt| into(pt, &c.transition, &c.inputs, name))
+                    })
+        });
+        cascaded
+            || lib
+                .followed
+                .get(t.name.as_str())
+                .and_then(|by| by.get(xn))
+                .into_iter()
+                .flatten()
+                .any(|f| {
+                    lib.type_(&f.type_).is_some_and(|ft| {
+                        ft.attribute(&f.reference)
+                            .and_then(|a| a.follows.get(f.clause))
+                            .is_some_and(|c| into(ft, &c.transition, &c.inputs, name))
+                    })
+                })
+    }
+    let xn = t
+        .transitions
+        .iter()
+        .find(|(_, y)| std::ptr::eq(y, x))
+        .map(|(n, _)| n.as_str());
+    personal_by_own(t, x, name)
+        || passes(lib, &x.effect, name)
+        || xn.is_some_and(|xn| clauses_pass(lib, t, xn, name))
 }
 
 /// Whether an input is personal by its own transition alone: marked so, or
@@ -22900,5 +22943,99 @@ types:
             assert_eq!(redacted_by(&s, &slot, erasure), json!(["why"]), "{erased}");
             assert_eq!(held_as(&s, &slot, "contact").1, Value::Text("a@b".into()));
         }
+    }
+
+    /// An input a follow or a cascade passes into a personal attribute of
+    /// the follower or the part is personal, as one a call passes there is
+    /// (check 10): a request a follower's or a part's guard refuses names it
+    /// withheld in its attempt row and keeps no value of it (ADR-0105), and
+    /// an erasure of the slot redacts it in the slot's own event, the value
+    /// it reached being the other's to erase (ADR-0210 decision 4; the
+    /// integrity review's finding 2). On both backends.
+    #[test]
+    fn an_input_a_follow_or_a_cascade_takes_into_a_personal_attribute_is_personal() {
+        // each store passes the reason by one kind of clause alone, the
+        // other's left out, so each kind is held on its own
+        let by_one = |by: &str| {
+            let (hub, holds) = if by == "Hold" {
+                (
+                    ERASE_HUB.replace(", cause: inputs.why }", " }"),
+                    ERASE_HOLDS.to_string(),
+                )
+            } else {
+                (
+                    ERASE_HUB.to_string(),
+                    ERASE_HOLDS.replace(", cause: inputs.why }", " }"),
+                )
+            };
+            assert_ne!(
+                (&hub, &holds),
+                (&ERASE_HUB.to_string(), &ERASE_HOLDS.to_string())
+            );
+            let lib =
+                Library::load(&[("hub.yaml".into(), hub), ("holds.yaml".into(), holds)]).unwrap();
+            Store::sandbox(lib, 1_767_225_600).unwrap()
+        };
+        for by in ["Hold", "Shift"] {
+            let mut s = by_one(by);
+            let slot = created(&req(
+                &mut s,
+                "open",
+                OPERATOR,
+                ("Slot", true),
+                json!({"label": "A"}),
+            ));
+            if by == "Hold" {
+                created(&req(
+                    &mut s,
+                    "take",
+                    OPERATOR,
+                    ("Hold", true),
+                    json!({"slot": slot, "blocked": true}),
+                ));
+            } else {
+                let Verdict::Satisfied { created: made, .. } =
+                    req(&mut s, "staff", OPERATOR, (&slot, false), json!({}))
+                else {
+                    panic!("a slot is staffed")
+                };
+                applied(&req(
+                    &mut s,
+                    "block",
+                    OPERATOR,
+                    (&made[0], false),
+                    json!({}),
+                ));
+            }
+            let v = req(
+                &mut s,
+                "cancel",
+                OPERATOR,
+                (&slot, false),
+                json!({"why": "a secret"}),
+            );
+            assert!(
+                matches!(&v, Verdict::Unsatisfied { clause, .. } if *clause == format!("{by}.not_blocked")),
+                "{by}: {v:?}"
+            );
+            let w = s.snapshot().unwrap();
+            let row = w
+                .attempts()
+                .unwrap()
+                .iter()
+                .find(|a| a.transition.as_deref() == Some("cancel"))
+                .unwrap()
+                .clone();
+            assert_eq!(row.withheld, vec!["why".to_string()], "{by}");
+            assert!(
+                !row.request_values.to_string().contains("a secret"),
+                "{by}: {}",
+                row.request_values
+            );
+        }
+        let mut s = erasing_store();
+        let (slot, _, _) = cancelled_with_copies(&mut s, "moving");
+        erase(&mut s, &slot);
+        assert_eq!(recorded(&s, &slot, "cancel"), json!({"why": null}));
     }
 }
