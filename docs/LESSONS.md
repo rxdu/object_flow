@@ -1087,3 +1087,13 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** On 2026-11-21, building #103, a plant runner ran each command with Python's `subprocess.run(…, shell=True)`, which is `/bin/sh`. The command read `${PIPESTATUS[0]}`, which `sh` refuses as a bad substitution, so it exited 2 before the Studio's test in it ran. Eight plants read as caught, on the first half of the command alone, and four as surviving, which only that test could catch.
 - **Correction:** Run a plant's command with the shell its syntax is written for, `["bash", "-c", "set -o pipefail; " + cmd]`, and read the deciding line of every plant, caught or not, before counting it: a status of 2 from a test command is the shell's, not the test's.
 - **Context:** Planted-defect runs over cargo, pytest and the plant runners in this repository.
+
+### A test of a dead branch may assert a live one too
+- **Pattern:** The cleanup of 2026-11-22 deleted `a_dry_run_reads_under_a_deadline_of_its_own` with the dead branch it called. An audit had said it tested only that branch. Half of its assertions held a live path, the read timeout a heavy read is given.
+- **Correction:** Before deleting a test with dead code, read every assertion. Keep any assertion that holds live code, as its own test.
+- **Context:** Dead-code removal, in any language.
+
+### A comment that narrates the defect it fixed is history, not a comment
+- **Pattern:** Comments across the core, the service and the scripts carried clauses such as "where it answered 500 …", describing the behaviour before a fix. The cleanup of 2026-11-22 removed several hundred of them.
+- **Correction:** A comment states what the code does now, with a pointer to the defect, review or ADR that holds the history. Some reasons are constraints a maintainer could break. State those in the present tense, as what would happen, for example "since reading the type whole holds the writer".
+- **Context:** Every comment and doc comment in the repository.
