@@ -3074,9 +3074,6 @@ pub fn person_dimensions(lib: &Library, tn: &str) -> Result<Vec<String>, NotRun>
     Ok(out)
 }
 
-/// Whether a metric's dimension reads an `identity` attribute of its row's
-/// object, or of one its single references reach: an actor's identity, as
-/// `assign … actor.id` records who acted (D565).
 /// The type a metric's rows are objects of: the owner's for `objects`, an
 /// observation kind's for a source naming one of the owner's kinds; none
 /// for rows that are no objects, spans, events or attempts.
@@ -3091,6 +3088,9 @@ fn row_type(lib: &Library, owner: &str, source: &str) -> Option<String> {
         .map(|(_, kind)| kind.clone())
 }
 
+/// Whether a metric's dimension reads an `identity` attribute of its row's
+/// object, or of one its single references reach: an actor's identity, as
+/// `assign … actor.id` records who acted (D565).
 fn identity_path(lib: &Library, owner: &str, item: &str, e: &Expr) -> bool {
     fn type_of(lib: &Library, owner: &str, item: &str, x: &Expr) -> Option<String> {
         match x {

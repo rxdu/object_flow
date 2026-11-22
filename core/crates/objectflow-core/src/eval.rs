@@ -440,8 +440,6 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    /// Recording what a rule's evaluation reads and consults, under the
-    /// rule's name (ADR-0088, ADR-0158).
     /// Noting the objects the clause names, for its refusal.
     pub fn with_naming(mut self, named: &'a std::cell::RefCell<Named>) -> Evaluator<'a> {
         self.naming = Some(named);
@@ -459,6 +457,8 @@ impl<'a> Evaluator<'a> {
         }
     }
 
+    /// Recording what a rule's evaluation reads and consults, under the
+    /// rule's name (ADR-0088, ADR-0158).
     pub fn with_reading(
         mut self,
         reading: &'a std::cell::RefCell<Reading>,
@@ -2329,7 +2329,6 @@ impl Evaluator<'_> {
     }
 }
 
-/// A comparison or an arithmetic operator over two values (§8.2, §8.3).
 /// The integer 0 a sum over no elements yields, read as the zero of the
 /// value it meets in a sum, a difference or a comparison. Such a sum is 0 of
 /// its element type (§8.3), which an empty set cannot tell. (This comment
@@ -2349,6 +2348,7 @@ fn zero_as(v: &Value, other: &Value) -> Value {
     }
 }
 
+/// A comparison or an arithmetic operator over two values (§8.2, §8.3).
 pub fn combine(op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
     use Value as V;
     // the zero of a sum over no elements meets a duration or an amount in a

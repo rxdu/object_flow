@@ -945,7 +945,6 @@ impl Expr {
     }
 }
 
-/// The tree of an expression written as text.
 /// A value's invariant as an attribute `holder` holding the value holds it
 /// (ADR-0255): each field `fields` names, read bare and not called, read
 /// through the holder, and the whole holding where the value is absent,
@@ -982,6 +981,7 @@ pub fn held_through(
     Ok(format!("{holder} is null or ({out})"))
 }
 
+/// The tree of an expression written as text.
 pub fn parse(text: &str) -> Result<Expr, ParseError> {
     parsed(text, false)
 }

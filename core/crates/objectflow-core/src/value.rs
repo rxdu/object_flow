@@ -365,11 +365,6 @@ pub fn in_calendar(day: i64) -> bool {
     (FIRST_DAY..=LAST_DAY).contains(&day)
 }
 
-/// A day, in days since 1970-01-01, moved by whole calendar months: its day
-/// of the month kept where the target month has it, and that month's last
-/// day where it does not, so 2026-01-31 plus a month is 2026-02-28. None
-/// where it leaves the calendar, as a date moved by days has no value there
-/// (ADR-0276, ADR-0190).
 /// A date's part, `year`, `month`, `day` or `weekday`, its weekday ISO
 /// 8601's, 1 for Monday to 7 for Sunday; none for any other name
 /// (ADR-0285 decision 2).
@@ -385,6 +380,11 @@ pub fn date_part(day: i64, part: &str) -> Option<i64> {
     })
 }
 
+/// A day, in days since 1970-01-01, moved by whole calendar months: its day
+/// of the month kept where the target month has it, and that month's last
+/// day where it does not, so 2026-01-31 plus a month is 2026-02-28. None
+/// where it leaves the calendar, as a date moved by days has no value there
+/// (ADR-0276, ADR-0190).
 pub fn add_months(day: i64, months: i64) -> Option<i64> {
     if !in_calendar(day) {
         return None;

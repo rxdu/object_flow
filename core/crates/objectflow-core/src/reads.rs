@@ -418,18 +418,6 @@ enum Key {
     State,
 }
 
-/// A query over a type or a family (`DESIGN.md` §10, ADR-0048, ADR-0127):
-/// the objects its filter holds for, a filter unknown for one selecting it
-/// not; ordered by each key, ascending unless marked `desc`, an absent value
-/// last and the object's id, creation order, breaking every tie; each with
-/// the fields asked for, or its type's summary set, or its state where the
-/// type declares none. A type it does not know, a filter or a key it cannot
-/// read, and a field no object of the type has, are refused, as values.
-///
-/// The read surface answers a filter by an index (ADR-0048): this one is
-/// answered over every object of the type, so a filter no index could
-/// answer is not refused, and a time-dependent derived attribute is
-/// evaluated rather than rewritten to its operand.
 /// Whether a filter reads a reference as something else (D556): compares
 /// it with a string, which never equals an object, so `claim == "claim-3"`
 /// held for nothing, or computes with it, as `claim == claim-3` does, an
@@ -479,12 +467,6 @@ fn misread_reference(lib: &Library, t: &Type, e: &Expr) -> bool {
     }
 }
 
-/// Whether a filter compares a member with a literal its type cannot hold
-/// (D580): a timestamp, a date, a state or an enumeration member with any
-/// literal, since none is written as one (a time is read against `now`, a
-/// state and a member by name); text with a number; a number with text; a
-/// truth with anything but a truth. Such a comparison is never true, or
-/// cannot be made, so the filter is refused rather than answered empty.
 /// Whether a filter reads what no stored object answers, so that it is
 /// unknown for every object and the page answered empty: an evaluator, which
 /// a read never asks; the request's `actor`, `inputs` or `this_event`, which
@@ -669,6 +651,12 @@ fn mistyped_logic(t: &Type, e: &Expr) -> bool {
     }
 }
 
+/// Whether a filter compares a member with a literal its type cannot hold
+/// (D580): a timestamp, a date, a state or an enumeration member with any
+/// literal, since none is written as one (a time is read against `now`, a
+/// state and a member by name); text with a number; a number with text; a
+/// truth with anything but a truth. Such a comparison is never true, or
+/// cannot be made, so the filter is refused rather than answered empty.
 fn mistyped_literal(lib: &Library, t: &Type, e: &Expr) -> bool {
     // the declared type of the member a name or a path reads, where it is
     // a stored scalar or the state
@@ -732,6 +720,21 @@ fn mistyped_literal(lib: &Library, t: &Type, e: &Expr) -> bool {
     }
 }
 
+/// A query over a type or a family (`DESIGN.md` §10, ADR-0048, ADR-0127):
+/// the objects its filter holds for, a filter unknown for one selecting it
+/// not; ordered by each key, ascending unless marked `desc`, an absent value
+/// last and the object's id, creation order, breaking every tie; each with
+/// the fields asked for, or its type's summary set, or its state where the
+/// type declares none. A type it does not know, a filter or a key it cannot
+/// read, and a field no object of the type has, are refused, as values.
+///
+/// The read surface answers a filter by an index (ADR-0048). This one reads
+/// the objects in the states its filter requires and those holding the
+/// values its conjuncts require of a stored column, by their indexes, and
+/// every object of the type where the filter requires neither (ADR-0162
+/// step 3); the filter then decides among them. So a filter no index could
+/// answer is not refused, and a time-dependent derived attribute is
+/// evaluated rather than rewritten to its operand.
 pub fn query(
     world: &World<'_>,
     type_: &str,
@@ -2527,11 +2530,6 @@ fn input_schema(t: &Type, x: &Transition) -> Vec<(String, String)> {
     out
 }
 
-/// The states a query's filter requires of an object for it to hold: those
-/// a conjunct `state == S` names, or `state == T.S`, intersected across the
-/// conjuncts of an `and`; none where it requires none this can tell. A state
-/// written bare is taken only where every type of the family resolves the
-/// name to its state of that name, as the filter's own evaluation would.
 /// The columns a filter's conjuncts hold equal to a value, which a query
 /// reads its candidates by: `<reference>.id == "<id>"` of a single
 /// reference, and `<attribute> == <literal>` of a stored text, identity or
@@ -2589,6 +2587,11 @@ fn required_columns(lib: &crate::model::Library, type_: &str, e: &Expr) -> Vec<(
     out
 }
 
+/// The states a query's filter requires of an object for it to hold: those
+/// a conjunct `state == S` names, or `state == T.S`, intersected across the
+/// conjuncts of an `and`; none where it requires none this can tell. A state
+/// written bare is taken only where every type of the family resolves the
+/// name to its state of that name, as the filter's own evaluation would.
 fn required_states(lib: &crate::model::Library, type_: &str, e: &Expr) -> Option<BTreeSet<String>> {
     use crate::expr::BinOp;
     let family: Vec<&crate::model::Type> = lib
@@ -4892,11 +4895,6 @@ types:
         assert_eq!(refused("customer == customer"), None);
     }
 
-    /// A filter no stored object can answer, an evaluator's, the request's
-    /// `actor`, `inputs` or `this_event`, or a division by a literal zero, is
-    /// refused malformed where it was answered empty, and one with a literal
-    /// past its type's range where it was not run (D580, fourth production
-    /// review A-10).
     /// A personal member is one marked so, and, where an actor type marks
     /// its identity personal, every member of type `identity`, which a
     /// read selecting by one then opts into (ADR-0206 decision 1).
@@ -4948,6 +4946,11 @@ types:
         assert!(!reason.contains("Alice"), "{reason}");
     }
 
+    /// A filter no stored object can answer, an evaluator's, the request's
+    /// `actor`, `inputs` or `this_event`, or a division by a literal zero, is
+    /// refused malformed where it was answered empty, and one with a literal
+    /// past its type's range where it was not run (D580, fourth production
+    /// review A-10).
     #[test]
     fn a_filter_no_object_can_answer_is_malformed() {
         const LEDGER: &str = r#"

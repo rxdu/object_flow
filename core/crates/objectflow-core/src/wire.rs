@@ -72,8 +72,6 @@ fn held_at(d: Decimal, scale: u8, digits: u32, what: &str) -> Result<Decimal, No
     Ok(held)
 }
 
-/// A wire value as a value of a declared type. A reference is read as an id
-/// and checked against the store by the request, not here.
 /// A control character, or one that formats text without showing:
 /// zero-width, bidirectional and invisible marks, by their code points.
 pub fn formatting(c: char) -> bool {
@@ -165,6 +163,8 @@ pub fn identity_fault(s: &str, lib: &Library) -> Option<String> {
     None
 }
 
+/// A wire value as a value of a declared type. A reference is read as an id
+/// and checked against the store by the request, not here.
 pub fn decode(
     v: &Json,
     declared: &Declared,
@@ -396,7 +396,6 @@ pub fn is_file_hash(hash: &str) -> bool {
     })
 }
 
-/// A value as the wire carries it.
 /// A file's wire form, `{"hash": "sha256:<hex>", "size": <bytes>,
 /// "media_type": "<type>/<subtype>"}`, read as a value: none where it is not
 /// an object, and why it is malformed where it is one (ADR-0173 decision 11).
@@ -443,6 +442,7 @@ pub fn file_of(v: &Json) -> Result<Value, Option<String>> {
     })
 }
 
+/// A value as the wire carries it.
 pub fn encode(v: &Value) -> Json {
     match v {
         Value::Absent => Json::Null,

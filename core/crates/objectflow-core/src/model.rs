@@ -3658,15 +3658,6 @@ types:
         );
     }
 
-    /// A create's `rest: inputs` derives a set the target need not be given
-    /// as a set defaulting to the empty set, and derives through a target
-    /// that takes the rest of its own (issue #90, ADR-0275): a kind's
-    /// optional sets, of values and of references, are required of no
-    /// request and default to `{}`; a target's set defaulting to the empty
-    /// set derives alike, and one defaulting to a value of its own is left
-    /// underived; a create of a transition that derives the record's inputs
-    /// takes them too, each marked with the step's own target; and creates
-    /// taking the rest of each other's in a cycle load, read as they stand.
     /// A create's `each` is expanded at load into a list the act takes
     /// (ADR-0290): never optional, the empty list by default, each entry
     /// holding the target's inputs the step does not name, each as `rest:
@@ -3783,6 +3774,15 @@ types:
         );
     }
 
+    /// A create's `rest: inputs` derives a set the target need not be given
+    /// as a set defaulting to the empty set, and derives through a target
+    /// that takes the rest of its own (issue #90, ADR-0275): a kind's
+    /// optional sets, of values and of references, are required of no
+    /// request and default to `{}`; a target's set defaulting to the empty
+    /// set derives alike, and one defaulting to a value of its own is left
+    /// underived; a create of a transition that derives the record's inputs
+    /// takes them too, each marked with the step's own target; and creates
+    /// taking the rest of each other's in a cycle load, read as they stand.
     #[test]
     fn rest_inputs_derives_sets_and_through_another() {
         let text = r#"
@@ -3910,9 +3910,6 @@ types:
         ));
     }
 
-    /// A store holds one type, enumeration or machine of a name (ADR-0163):
-    /// a load refuses a name a second module declares, naming both and the
-    /// line, as two modules each declaring `Service` once did (D529).
     #[test]
     fn taken_by_generates_the_record_and_the_invariant_over_it() {
         let desk = "module: desk\ncategories: [live, closed]\ntypes:\n  Ticket:\n    attributes:\n      title: { type: string }\n    states: { OPEN: { category: live }, DONE: { category: closed, final: true } }\n    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [title] }\n      close: { kind: external, from: OPEN, to: DONE, taken_by: [human, service], effect: [ { clear: [title] } ] }\n";
@@ -3946,6 +3943,9 @@ types:
         assert_eq!((err.file.as_str(), err.line), ("desk.yaml", 4));
     }
 
+    /// A store holds one type, enumeration or machine of a name (ADR-0163):
+    /// a load refuses a name a second module declares, naming both and the
+    /// line (D529).
     #[test]
     fn a_load_refuses_a_name_two_modules_declare() {
         let people = "module: people\ncategories: [live]\ntypes:\n  Service:\n    attributes:\n      name: { type: identity, actor_kind: service }\n    states: { ACTIVE: { category: live } }\n";
