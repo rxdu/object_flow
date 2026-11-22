@@ -6551,7 +6551,7 @@ def attribute_line(name, spec, observation=False, module=None, owner=None):
     return f"attr {name} {t}" + "".join(" " + m for m in marks) + markings(spec)
 
 
-def transition_lines(xn, x, t, X, T):
+def transition_lines(xn, x, t, X):
     """One transition in the internal form, each line with its YAML path; t
     supplies the attributes and conditions its guards name."""
     conds = t.get("conditions") or {}
@@ -6650,12 +6650,11 @@ def to_text(doc, library=None):
             emit(f"  state {sn} category {st['category']}" + (" terminal" if st.get("final") else "")
                  + (" superseding" if st.get("superseding") else ""), M + ("states", sn))
         for xn, x in m["transitions"].items():
-            for line, path in transition_lines(xn, x, machine_as_type(m), M + ("transitions", xn), M):
+            for line, path in transition_lines(xn, x, machine_as_type(m), M + ("transitions", xn)):
                 emit(line, path)
         emit("}", M)
     for tn, t in types(doc):
         T = ("types", tn)
-        conds = t.get("conditions") or {}
         emit(f"# {t['description']}", T)
         emit(f"type {tn}" + (f" extends {t['extends']}" if t.get("extends") else "") + " version 1"
              + (" abstract" if t.get("abstract") else "") + (" mirror" if t.get("mirror") else "") + " {", T)
@@ -6702,7 +6701,7 @@ def to_text(doc, library=None):
             emit(f"  invariant {iname}: {' '.join(inv['expression'].split())}", T + ("invariants", iname))
         merged = bound(t, machines)
         for xn, x in (t.get("transitions") or {}).items():
-            for line, path in transition_lines(xn, x, merged, T + ("transitions", xn), T):
+            for line, path in transition_lines(xn, x, merged, T + ("transitions", xn)):
                 emit(line, path)
         emit("}", T)
         for coll, ob in (t.get("observations") or {}).items():
@@ -6934,7 +6933,6 @@ def literals(doc):
 
 
 # ── examples (flow-format.md §11, ADR-0136) ─────────────────────────────────
-EXAMPLE_CLOCK = "2026-01-01T00:00:00Z"   # the instant every example's clock starts at
 EXAMPLES_ORDER = ["examples_for", "setups", "examples"]
 # the guards the engine generates, which an example may expect to refuse (DESIGN.md §6)
 GENERATED_GUARDS = {"actor_known", "actor_active", "occurred_within", "whole_open", "not_erased", "subject_open", "corrects_current",
@@ -12305,7 +12303,7 @@ types:
 """
 
 
-def moved_type_plants(people):
+def moved_type_plants():
     """A version that moves a type's objects, checked against the one before (ADR-0229): the split clean, its
     reference following the move; a personal value carried or given into an attribute that is not; a move between
     tracking kinds; a type that does not move yet; an old state no entry places, noticed; and a reference to a type
@@ -15037,7 +15035,7 @@ def main():
     ok &= binder_plant(people)
     ok &= abstract_summary_plant(people)
     ok &= migration_plants(people)
-    ok &= moved_type_plants(people)
+    ok &= moved_type_plants()
     ok &= renamed_enumeration_plants()
     ok &= moved_state_plants()
     ok &= moved_attribute_plants()

@@ -321,7 +321,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 # a type is cut over only after every type referencing it (ADR-0075), so a mirror stores no
                 # reference to a type this store owns
                 toks = rspec.split()
-                if rk == "ref" and toks and (stores(d, rspec, by_name) or ("[]" in toks[0] and "inverse" not in rspec)):
+                if rk == "ref" and toks and (stores(rspec, by_name) or ("[]" in toks[0] and "inverse" not in rspec)):
                     far = by_name.get(toks[0].rstrip("?[]"))
                     if far is not None and far.kind == "type" and not far.mirror:
                         add(53, f"{d.name}.{rn} is a mirror referencing {far.name}, which this store owns, "
@@ -455,7 +455,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 for rn, (rk, rspec, _rln) in rels.items():
                     # a required reference this end stores, which the store holds NOT NULL
                     if rk != "ref" or not rspec.split() or rspec.split()[0].endswith("?") \
-                       or not stores(d, rspec, by_name) or rn in written: continue
+                       or not stores(rspec, by_name) or rn in written: continue
                     add(8, f"{d.name}.{tn} never writes required reference '{rn}'", ln)
             if kind == "assert":
                 if not re.search(r"input\s+reason\b", body): add(29, f"{d.name}.{tn} asserts with no reason input", ln)
@@ -484,7 +484,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 elif tgt in rels:
                     rk17, sp17, _l17 = rels[tgt]
                     first = sp17.split()[0] if sp17.split() else ""
-                    if not (rk17 == "ref" and first.endswith("?") and stores(d, sp17, by_name)):
+                    if not (rk17 == "ref" and first.endswith("?") and stores(sp17, by_name)):
                         add(17, f"{d.name}.{tn} clears relationship end '{tgt}', which is not "
                                 "an optional, singular, stored ref", ln)
                 elif tgt in d.req_spec:
@@ -611,7 +611,7 @@ def analyse(text, base=0, capdecl=None, catdecl=None, reserved=None, world=None)
                 for n in names:
                     if n and n not in req and n not in capdecl and n != "state":
                         add(35, f"{d.name}.{tn} names '{n}', which the machine does not require", ln)
-    out += data_checks(decls, by_name, text, base)
+    out += data_checks(decls, by_name, text)
     return out
 
 
@@ -623,7 +623,7 @@ SOURCES = ("labels", "intervals", "transitions", "attempts", "attempt_counts")
 SCALARS = ("string", "bool", "int", "decimal", "money", "timestamp", "duration", "identity", "file", "event", "date", "actor_kind")
 
 
-def stores(d, spec, by_name):
+def stores(spec, by_name):
     """Whether a singular `ref` end stores its value (§3.3), as check 7 decides it."""
     toks = spec.split()
     if not toks or "[]" in toks[0]:
@@ -661,7 +661,7 @@ def beyond_own_fields(expr):
     return reaches(tree)
 
 
-def data_checks(decls, by_name, text, base=0):
+def data_checks(decls, by_name, text):
     """Checks 54 to 62: the constructs of ADR-0082 to ADR-0087, ADR-0092, ADR-0110 and ADR-0111."""
     out = []
     def add(c, d, l): out.append((c, d, l))
@@ -833,7 +833,7 @@ def data_checks(decls, by_name, text, base=0):
         for rn, (rk, spec, rln) in d.rels.items():
             if "assignee" not in spec.split():
                 continue
-            if rk != "ref" or not stores(d, spec, by_name):
+            if rk != "ref" or not stores(spec, by_name):
                 add(59, f"{d.name}.{rn} is an assignee and is not a singular stored ref", rln)
             tgt = by_name.get(spec.split()[0].rstrip("?[]"))
             if tgt is not None:
@@ -894,7 +894,7 @@ def tracked(d, member, by_name):
         return bool(toks) and toks[0][:1].isupper() and "[]" not in toks[0] and toks[0].rstrip("?") not in VALUES
     if member in d.rels:
         rk, spec, _l = d.rels[member]
-        return rk in ("ref", "owner") and (rk == "owner" or stores(d, spec, by_name))
+        return rk in ("ref", "owner") and (rk == "owner" or stores(spec, by_name))
     return False
 
 
@@ -930,7 +930,7 @@ def actor_reads(text, base):
     return out
 
 
-def line_checks(text, base, capdecl, reserved, machine_caps):
+def line_checks(text, base):
     out = []
     # a reserved word may name a member (§9.2), and a bare name resolves to the member
     # first; where one is named labels, only <Type>.labels is the label source (check 55)
@@ -1074,7 +1074,7 @@ def self_test():
         for fixture in (fixtures if isinstance(fixtures, list) else [fixtures]):
             n += 1
             found = {c for c, _, _ in analyse(fixture, 0, {"X", "Q"}, {"live", "closed"}, set())}
-            found |= {c for c, _, _ in line_checks(fixture, 0, {"X", "Q"}, set(), set())}
+            found |= {c for c, _, _ in line_checks(fixture, 0)}
             found |= {c for c, _, _ in state_literals(fixture, 0, {d.name: d for d in parse(fixture)})}
             if check not in found:
                 bad.append((check, sorted(found)))
@@ -1195,7 +1195,6 @@ def declaration_findings(src, is_spec):
     reserved = set()
     if rw := re.search(r"\n`(module use .+?)`\n", SPEC.read_text(), flags=re.S):
         reserved = set(rw.group(1).split())
-    machine_caps = {w for m in re.findall(r"^\s*requires capability ([^\n]+)$", src, flags=re.M) for w in re.findall(r"[A-Z][A-Z_0-9]*", m)}
 
     world = {}
     for bstart, blk in blocks:
@@ -1207,7 +1206,7 @@ def declaration_findings(src, is_spec):
         findings += imp
     for bstart, blk in blocks:
         findings += analyse(blk, bstart, capdecl, catdecl, reserved, world)
-        findings += line_checks(blk, bstart, capdecl, reserved, machine_caps)
+        findings += line_checks(blk, bstart)
         findings += state_literals(blk, bstart, world)
     return findings, blocks, ndecl, rw
 
