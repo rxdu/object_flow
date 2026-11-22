@@ -1,10 +1,11 @@
-//! The store, on SQLite, laid out as `docs/design/storage-schema.md` §2 and §3
-//! say: the directory `of_object`, the log `of_event`, the counters, one
-//! table of typed columns per declared type, and a side table per
-//! set-valued attribute (ADR-0153 decision 4).
+//! The store, on SQLite or PostgreSQL (ADR-0213), laid out as
+//! `docs/design/storage-schema.md` §2 and §3 say: the directory `of_object`,
+//! the log `of_event`, the counters, one table of typed columns per declared
+//! type, and a side table per set-valued attribute (ADR-0153 decision 4).
 //!
-//! A request reads a snapshot of every object inside its transaction, decides
-//! on it, and writes what changed in the same transaction (`DESIGN.md` §6).
+//! A request reads the objects it reaches inside its transaction, each on its
+//! first read (ADR-0162), decides on them, and writes what changed in the
+//! same transaction (`DESIGN.md` §6).
 //! The schema is the second line of defence: the request has already refused
 //! what a constraint would, and a constraint that fires is a fault in the
 //! core, reported, never a verdict.
@@ -1057,11 +1058,8 @@ fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
 /// The index on each attribute a query may filter on, `indexed`, and on each
 /// external identifier, which every import, publish and `lookup` reads by
 /// value, where a reference's or a single-attribute key's index does not
-/// already serve it (`storage-schema.md` §10). The core made none before
-/// D593, so every read by such an attribute, an import's legacy key among
-/// them, read its whole table, and none on an external identifier not marked
-/// `indexed` before D606, so each import batch's checks of them grew with
-/// the store; [`Store::open`] makes one a store lacks.
+/// already serve it (`storage-schema.md` §10). [`Store::open`] makes one a
+/// store lacks, as a store an earlier core made lacks them (D593, D606).
 fn attribute_indexes(lib: &Library, t: &Type) -> Vec<String> {
     let name = table(&t.name);
     // an observation kind's and the labels' last event, which their export
@@ -3308,9 +3306,9 @@ pub fn may_approve(lib: &Library, kind: &str) -> bool {
 /// more are opened while more reads run at once (ADR-0178 decision 6).
 pub const IDLE_READERS: usize = 8;
 
-/// A deployment's read connections to its store's file (ADR-0178): a read
-/// takes one, idle or new, in a read transaction of its own, and gives it
-/// back when it ends.
+/// A deployment's read connections to its store's file or database
+/// (ADR-0178, ADR-0213): a read takes one, idle or new, in a read
+/// transaction of its own, and gives it back when it ends.
 #[derive(Debug)]
 pub struct Readers {
     from: ReadFrom,
@@ -3839,11 +3837,11 @@ impl Store {
     }
 
     /// A read of a deployment's store beside its writes (ADR-0178): a
-    /// connection of its own to the store's file, in one read transaction,
-    /// so every statement of the read sees one committed state; the library
-    /// of the declaration version that state is at, the one given where they
-    /// agree, so a read racing a publish reads each row under the rules it
-    /// was written under; and the clock and evaluator answers given.
+    /// connection of its own to the store's file or database, in one read
+    /// transaction, so every statement of the read sees one committed state;
+    /// the library of the declaration version that state is at, the one given
+    /// where they agree, so a read racing a publish reads each row under the
+    /// rules it was written under; and the clock and evaluator answers given.
     pub fn reading(
         conn: Connection,
         lib: Arc<Library>,
@@ -4458,12 +4456,12 @@ impl Store {
     /// `before`, adding each to its day's count in the rollup, which the
     /// `attempt_counts` source reads with the rows that remain; or deletes the
     /// idempotency records applied before it, after which a retry under a
-    /// pruned key is a new request. It refuses, as a value, a task it does not
-    /// know and a `before` inside the retention the store was built with,
-    /// which a store built with none puts everywhere; it changes no governed
-    /// state or history, and returns the rows it moved or removed. Archiving
-    /// events, a tiering of the log a single SQLite file has none of, is not
-    /// run.
+    /// pruned key is a new request. It refuses, as a value, an actor the store
+    /// does not know or one not in a state it acts in, a task it does not know,
+    /// a store built with no retention for the task, and a `before` inside the
+    /// retention; it changes no governed state or history, and returns the
+    /// rows it moved or removed. Archiving events, a tiering of the log a
+    /// single SQLite file has none of, is not run.
     pub fn maintain(
         &mut self,
         actor: &str,
@@ -6619,9 +6617,9 @@ pub(crate) fn read_superseded_into(
 }
 
 /// The actors whose identities are equal but for the case of their ASCII
-/// letters, each group's object ids in id order, across every actor type:
-/// which an earlier release took, and this one takes as one actor (eighth
-/// production review CASE-PAIR, ADR-0195 decision 2).
+/// letters, each group's object ids sorted by their text, across every actor
+/// type: which an earlier release took, and this one takes as one actor
+/// (eighth production review CASE-PAIR, ADR-0195 decision 2).
 pub fn identity_groups(conn: &Connection, lib: &Library) -> Stored<Vec<Vec<String>>> {
     let mut by: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (tn, t) in &lib.types {
@@ -7339,8 +7337,9 @@ pub struct CursoredSpan {
     pub order: i64,
 }
 
-/// The event that last wrote an interval: the one that opened it, closed it
-/// or relabelled it in a correction, as `of_interval_by_cursor` indexes it.
+/// The event that last wrote an interval: the one that opened it, closed it,
+/// relabelled it in a correction, or carried it to its member's new name in
+/// a publish, as `of_interval_by_cursor` indexes it.
 const SPAN_CURSOR: &str = "max(i.entered_position, coalesce(i.left_position, 0), \
      coalesce(i.corrected_by, 0), coalesce(i.moved_position, 0))";
 
@@ -8732,8 +8731,9 @@ mod tests {
     }
 
     /// A span, or an attribute's last write, named twice in one write keeps
-    /// the later, as a statement for each left it, now that each goes in a
-    /// statement of many rows (Gate P on PostgreSQL), on either backend.
+    /// the later, as one statement for each would, though `upsert_spans` and
+    /// `write_index` write many rows a statement (Gate P on PostgreSQL), on
+    /// either backend.
     #[test]
     fn a_span_or_a_write_named_twice_in_one_write_keeps_the_later() {
         let text = "\nmodule: notes\ncategories: [live]\ntypes:\n  Note:\n    attributes:\n      text: { type: string }\n    states:\n      ON: { category: live }\n    transitions:\n      write: { kind: initial, to: ON, required_inputs: [text] }\n";

@@ -446,7 +446,7 @@ fn checks_by(old: &Library, now: i64, draft: &Draft<'_>) -> Result<Checked, NotR
             // an example's failure by the name the design gives it (ADR-0136
             // decision 5, publish-and-import.md §1 step 1)
             "example" => (Severity::Fatal, "example_failed".to_string()),
-            // an example the core does not yet run has not passed, and
+            // an example the core does not run has not passed, and
             // nothing unchecked is installed (ADR-0155 decision 1, ADR-0156
             // decision 3)
             "notrun" => (Severity::Fatal, "example_not_run".to_string()),

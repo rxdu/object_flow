@@ -1442,11 +1442,15 @@ fn pragma(sql: &str) -> Option<String> {
     )
 }
 
-/// The store's SQL, written for SQLite, as PostgreSQL takes it: its
-/// placeholders numbered as `$n`, its integers, reals and blobs as
-/// PostgreSQL names them, `instr` as `strpos`, and an insert that ignores a
-/// conflict as one that does nothing on it. Text in quotes is left as it
-/// is.
+/// The store's SQL, written for SQLite, as PostgreSQL takes it: its pragmas
+/// as `pragma` answers them, its placeholders numbered as `$n`, its
+/// integers, reals and blobs as PostgreSQL names them, an integer primary key
+/// an identity, `sqlite_master`, `pragma_table_info` and SQLite's JSON
+/// functions as the catalog makes them, a reference to a type's table one to
+/// the directory, an empty list as SQLite reads it, a scalar `max` or `min`
+/// as `GREATEST` or `LEAST`, `instr` as `strpos`, and an insert that ignores
+/// a conflict as one that does nothing on it. Text in quotes and comments is
+/// left as it is.
 pub fn to_postgres(sql: &str) -> String {
     // pragmas, one to a statement, each as PostgreSQL takes it
     if sql

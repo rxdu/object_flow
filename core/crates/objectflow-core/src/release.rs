@@ -589,8 +589,10 @@ pub struct UpgradeReport {
 /// table and recording the operator's act as an `upgrade` event on the
 /// operator; a dry run runs every step in one transaction and rolls it
 /// back. Refused, as a value, where the file holds no store, the store is at
-/// a release no chain leads from, the actor is no operator of the store, or
-/// a step changes the built-ins (decision 6).
+/// a release no chain leads from, the actor is no operator of the store, a
+/// flow version the store records does not load with this release's loader
+/// (the audit's durability U4), or a step changes the built-ins
+/// (decision 6).
 pub fn upgrade(
     path: &Path,
     now: i64,
