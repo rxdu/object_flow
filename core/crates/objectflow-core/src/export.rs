@@ -1480,8 +1480,8 @@ types:
             (&json!(cross), &json!("calm"), &Json::Null)
         );
         assert_eq!(page(&s, "Job.attempts", Some(&a1)), (Vec::new(), a1));
-        // what it cannot read is refused, a value; what it does not serve
-        // yet is not run
+        // what it cannot read, a source it does not serve among them, is
+        // refused, a value
         let w = s.snapshot().unwrap();
         for (source, cursor, why) in [
             ("Nope.intervals", None, "unknown_source"),

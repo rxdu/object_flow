@@ -508,7 +508,9 @@ pub enum Value {
     },
     /// A set, in the order its elements were added.
     Set(Vec<Value>),
-    /// A row of an object's own flow data: a span of `intervals` (§6.9).
+    /// A row of named fields: a row of a metric's source or of an object's
+    /// flow data, such as a span of `intervals` (§6.9), or a derived member
+    /// of several fields, such as a proposal's `last_verdict`.
     /// Its fields are shared, so a metric copies a row by its reference
     /// and not field by field; a row is never changed once built.
     Row(std::sync::Arc<BTreeMap<String, Value>>),

@@ -1,8 +1,10 @@
-//! The reads the first slice offers (`DESIGN.md` §10): an object as `get`
-//! returns it, and what it offers its actor, `availability`, decided as
-//! ADR-0152 states: the actor, the state and each guard that reads no input,
-//! in the order of refusals; what reads an input waits for it; no evaluator
-//! asked; neither the effect nor the invariants run.
+//! The reads of objects (`DESIGN.md` §10): `get`, `query`, `available`,
+//! `exceptions` and `availability`; which of them wait among the analytics
+//! (`query_scans`, `grows_with_store`); and whether each reads by a personal
+//! value. `availability` is decided as ADR-0152 states: the actor, the state
+//! and each guard that reads no input, in the order of refusals; what reads
+//! an input waits for it; no evaluator asked; neither the effect nor the
+//! invariants run.
 
 use std::collections::{BTreeMap, BTreeSet};
 

@@ -3,8 +3,11 @@
 //!
 //! JSON's own where JSON keeps a value exactly: absence is null, a bool a
 //! boolean, an int a number within ±(2^53 − 1), text and an identity a
-//! string, a reference the object's id, a set an array. Every other value is
-//! a string in the model's notation: a decimal `"19.99"`, money `"USD
+//! string, a reference the object's id, a set an array. A file is an object,
+//! `{hash, size, media_type}` (ADR-0173 decision 11); a value of several
+//! fields is an object of its fields (ADR-0254), as a row is; and a list of
+//! entries is an array of objects, one an entry (ADR-0290). Every other value
+//! is a string in the model's notation: a decimal `"19.99"`, money `"USD
 //! 19.99"`, a duration `"30 min"`, a date `"2026-10-04"`, a timestamp in RFC
 //! 3339 at UTC, a state or an enumeration member by its name.
 
@@ -347,7 +350,7 @@ pub fn decode(
                         _ => return Err(wrong()),
                     };
                     // more places than the scale is refused, never rounded,
-                    // and more digits than `p`, as declaration-syntax.md §4
+                    // and more digits than `p`, as declaration-syntax.md §3.1
                     // says it holds (third production review, minor)
                     Ok(Value::Decimal(held_at(d, scale, digits, &v.to_string())?))
                 }
@@ -627,7 +630,7 @@ mod tests {
         );
     }
 
-    /// A `decimal(p,s)` holds `p` digits, as declaration-syntax.md §4 says,
+    /// A `decimal(p,s)` holds `p` digits, as declaration-syntax.md §3.1 says,
     /// where 18 were taken whatever its `p` (third production review,
     /// minor); an amount holds the store's 18.
     #[test]

@@ -1,5 +1,7 @@
 //! The import: a port of another system's records into this store's mirror
-//! types, one transaction per batch, each object written through the
+//! types, the observations and labels on the objects it may write, and the
+//! finished history of an owned type while its `history` is open
+//! (ADR-0272), one transaction per batch, each object written through the
 //! built-in assertion, each class of violation decided by a person in the
 //! disposition file (`publish-and-import.md` §4, §6, ADR-0154).
 

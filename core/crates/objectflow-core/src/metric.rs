@@ -6,8 +6,7 @@
 //!
 //! It is a port of the reference runner's (`scripts/flowrun.py`:
 //! `Evaluator.metric`, `read_metric`, `metric_rows`, `over_rows`, `kind`),
-//! which the examples and the runner's own metrics self-test hold it to. The
-//! attempt log and labels are not kept, and a read of either is not run.
+//! which the examples and the runner's own metrics self-test hold it to.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -540,7 +539,7 @@ impl Num {
 
 /// The reach of a dimension's path for one row: a path through a set end
 /// reaches each distinct value, and the row is counted under each
-/// (ADR-0123). `None` where the value is not a set.
+/// (ADR-0123). `One` where the value is not a set.
 enum Reach {
     One(Value),
     Many(Vec<Value>),
@@ -642,7 +641,8 @@ fn uncorrected_on(
         .collect()
 }
 
-/// What a metric's rows are: each an object, a span or an event of a type,
+/// What a metric's rows are: each an object, a span, an event, an
+/// observation, a label, an attempt or a day's count of attempts, of a type,
 /// and the member that names the kind of actor behind one.
 struct Rows {
     rows: Vec<Value>,
@@ -1010,8 +1010,9 @@ impl<'w> Reader<'w> {
 
     /// A metric's rows (`declaration-syntax.md` §6.9): each object of the
     /// type or its family, each span of its state or of a tracked member,
-    /// each event of a transition, or each observation of one of its kinds
-    /// that nothing has corrected.
+    /// each event of a transition, each attempt, each day's count of
+    /// attempts, or each observation of one of its kinds or label on one of
+    /// its objects that nothing has corrected.
     #[allow(clippy::too_many_arguments)]
     fn rows(
         &self,

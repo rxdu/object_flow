@@ -1,12 +1,14 @@
 //! A flow module as the core holds it, read from its description
 //! (`flow-format.md` §2 to §4) by the strict loader.
 //!
-//! The model keeps everything the first slice runs, each expression parsed
-//! once, and names everything it does not (ADR-0153 decision 3): a type that
-//! binds a machine or extends a base, a transition with an effect. A request that reaches one is answered
-//! as not run, naming it, and never guessed. Whether a module is well formed
-//! is the flow checker's to say, in this slice (ADR-0153 decision 5); the
-//! loader refuses only what it cannot read.
+//! The model keeps everything a request runs, each expression parsed once,
+//! and names what it cannot: a machine a type binds that no module declares
+//! (`Type::beyond`). A request that reaches one is answered as not run,
+//! naming it, and never guessed. Whether a module is well formed is the
+//! checker's to say (`check`, ADR-0156). The loader refuses what it cannot
+//! read or the store could not hold: a name two modules declare, a generated
+//! name a type declares itself, and an attribute named as a column the store
+//! keeps.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -376,9 +378,9 @@ pub struct Type {
     pub conditions: Vec<(String, Condition)>,
     pub invariants: Vec<(String, Expr)>,
     pub transitions: Vec<(String, Transition)>,
-    /// What this type's structure holds that the first slice's model does
-    /// not: a request on it is not run, naming the first (ADR-0153 decision
-    /// 3).
+    /// What keeps a request on this type from running: a machine it binds
+    /// that no module declares. A request on it is not run, naming the
+    /// first.
     pub beyond: Vec<String>,
     /// The observation kinds recorded on it: each collection's name and the
     /// kind it holds, in the order declared (`flow-format.md` §4.4).
@@ -1644,7 +1646,7 @@ pub struct Library {
     /// built-ins every store holds nor the observation kinds, which a
     /// recording creates. What a sandbox's load reports it installed.
     pub declared: Vec<String>,
-    /// The declaration version it is installed as (`storage-schema.md` §5).
+    /// The declaration version it is installed as (`storage-schema.md` §6).
     pub version: i64,
     /// Its source: each module's description by its name, and each examples
     /// file by `<module>.examples`, in the order given (ADR-0135, ADR-0136).
@@ -2259,8 +2261,9 @@ fn bind(t: &mut Type, m: &Type) {
     }
 }
 
-/// The built-in type of the store's operator, its first actor (ADR-0126):
-/// one object, `operator`, a human, active from the store's creation.
+/// The store's operator, its first actor (ADR-0126): the id and the identity
+/// of the one object of [`OPERATOR_TYPE`], a human, active from the store's
+/// creation.
 pub const OPERATOR: &str = "operator";
 
 /// The built-in type of the store's operator.

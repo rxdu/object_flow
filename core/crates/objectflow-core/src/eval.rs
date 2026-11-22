@@ -3,8 +3,8 @@
 //!
 //! It follows the reference runner's evaluator case for case
 //! (`scripts/flowrun.py`, `Evaluator`), as the replay of the design's examples
-//! holds it to (ADR-0153 decision 6). A construct the first slice does not run
-//! is answered as [`NotRun`], naming it, and never guessed.
+//! holds it to (ADR-0153 decision 6). A construct the core does not run is
+//! answered as [`NotRun`], naming it, and never guessed.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -15,10 +15,11 @@ use crate::model::{Declared, Type};
 use crate::value::{Decimal, Value, minor_unit, unit_seconds};
 use crate::world::{Object, World};
 
-/// Why the core did not run what it was asked: a construct the first slice
-/// does not run (ADR-0153 decision 3), or a read of the store that failed,
-/// which is unavailable storage, never a construct not run (`library-api.md`
-/// §7, ADR-0164).
+/// Why the core did not answer what it was asked: a construct it does not
+/// run; a read of the store that failed, which is unavailable storage, never
+/// a construct not run (`library-api.md` §7, ADR-0164 decision 1); an
+/// evaluator's call left unanswered; a read past its deadline; or an
+/// arithmetic past its type's bound.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NotRun {
     /// A construct the core does not run, named.
