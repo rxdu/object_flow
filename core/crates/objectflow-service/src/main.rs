@@ -7747,6 +7747,75 @@ mod tests {
         assert!(two.take(Instant::now() + timeout, timeout).is_ok());
     }
 
+    /// A read that grows with the store is given the read timeout as its
+    /// deadline (ADR-0194 decision 2).
+    #[test]
+    #[allow(clippy::panic)]
+    fn a_heavy_read_reads_under_the_read_timeout() {
+        use std::time::{Duration, Instant};
+        let dir =
+            std::env::temp_dir().join(format!("objectflow-heavy-deadline-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let path = dir.join("store.sqlite");
+        store_file(&path, true).unwrap_or_else(|e| panic!("{e}"));
+        let Ok(store) = Store::open(&path, wall_clock()) else {
+            panic!("the store did not open")
+        };
+        let sandbox = Sandbox {
+            deployment: true,
+            path: Some(path.clone()),
+            store: Some(store),
+            ..Default::default()
+        };
+        let reads = Reads {
+            path: Some(path.clone()),
+            pool: Readers::new(&path, objectflow_core::store::BUSY_TIMEOUT),
+            seen: std::sync::RwLock::new(Seen::of(&sandbox)),
+            floor: AtomicI64::new(0),
+        };
+        let shared: Shared = Arc::new(Service {
+            writer: Mutex::new(sandbox),
+            reads: Some(reads),
+            endpoints: std::collections::BTreeMap::new(),
+            tokens: std::collections::BTreeMap::new(),
+            evaluator_timeout: Duration::from_secs(5),
+            deployment: true,
+            read_timeout: Duration::from_secs(1),
+            dry_run_timeout: Duration::from_secs(600),
+            admission: Admission::new(1),
+            worklists: Admission::new(1),
+            objects: Admission::new(1),
+            dry_runs: Admission::for_dry_runs(),
+            agents: Admission::new(1),
+            served: Mutex::new(std::collections::BTreeMap::new()),
+            in_flight: std::sync::atomic::AtomicUsize::new(0),
+            writer_since: AtomicI64::new(0),
+            connections: Connections::default(),
+            store_path: Some(path.clone()),
+            trims: std::sync::atomic::AtomicU64::new(0),
+            trimming: std::sync::atomic::AtomicBool::new(false),
+            store_identity: None,
+            watch: Watch::default(),
+            groups: Groups::default(),
+        });
+        let deadline = |pool: &Admission| -> Duration {
+            let Ok((_slot, reading)) = heavy_reading(&shared, pool, None) else {
+                panic!("no read")
+            };
+            let Reading::Own(Some(store), _) = &reading else {
+                panic!("no store read")
+            };
+            store
+                .deadline
+                .map(|at| at.saturating_duration_since(Instant::now()))
+                .unwrap_or_default()
+        };
+        let worklist = deadline(&shared.worklists);
+        assert!(worklist <= Duration::from_secs(1), "{worklist:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A write its client does not take fails within the idle timeout, and
     /// one the client takes, however slowly, does not (seventh production
     /// review, ADR-0194 decision 6).
