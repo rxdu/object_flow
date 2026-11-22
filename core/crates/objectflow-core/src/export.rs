@@ -32,9 +32,11 @@ pub struct ExportPage {
 }
 
 /// The rows of a source after a cursor, exclusive, in cursor order: `log`,
-/// `<Type>.intervals` or `<Type>.attempts`. A source naming no type the
-/// store declares, or a cursor that is not one, is refused as a value; a
-/// source the slice does not serve yet is not run.
+/// `<Type>.intervals`, `<Type>.attempts`, `<Type>.attempt_counts`,
+/// `<Type>.transitions`, `<Type>.labels` or an observation kind's records,
+/// as one page of [`export_page`] with no limit on its rows. A source the
+/// store does not serve, or a cursor that is not one, is refused as a value.
+#[cfg(test)]
 pub fn export(world: &World<'_>, source: &str, cursor: Option<&str>) -> Result<ExportPage, NotRun> {
     export_page(world, source, cursor, usize::MAX)
 }

@@ -217,10 +217,12 @@ fn continued<'w>(
     Ok(world.get(id)?.filter(|o| world.lib.is_a(&o.type_, type_)))
 }
 
-/// `exceptions(type)` (`DESIGN.md` §10): the objects of the type or its
-/// family whose state an assertion last set, the import's excepted, and
-/// those holding an admitted invariant violation, in id order, each with
-/// its state; a type the store does not declare is refused, a value.
+/// `exceptions(type)` (`DESIGN.md` §10), its first page: at most
+/// [`PAGE_DEFAULT`] of the objects of the type or its family whose state an
+/// assertion last set, the import's excepted, and those holding an admitted
+/// invariant violation, in id order, each with its state; a type the store
+/// does not declare is refused, a value.
+#[cfg(test)]
 pub fn exceptions(world: &World<'_>, type_: &str) -> Result<QueryPage, NotRun> {
     exceptions_from(world, type_, None)
 }
@@ -293,6 +295,7 @@ fn state_item(o: &Object) -> Item {
 /// asks no evaluator (ADR-0048, ADR-0049). A type or a transition the store
 /// does not declare, and a transition only a cascade takes, are refused, a
 /// value.
+#[cfg(test)]
 pub fn available(
     world: &World<'_>,
     actor: &str,
