@@ -28,7 +28,7 @@ bytes = "1.12.1"
 tokio-postgres-rustls = "0.14.0"
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-platform-verifier = "0.7.1"
-serde = { version = "1.0.229", features = ["derive"] }
+serde = "1.0.229"
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 sha2 = "0.11.0"
 # the schema's patterns, in the core's checker (ADR-0156 decision 2)
