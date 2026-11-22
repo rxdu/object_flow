@@ -2297,9 +2297,6 @@ fn take_unwound(
             }
         }
     }
-    if let Some(what) = t.at_outcome.first() {
-        return stop_not_run(what.clone());
-    }
     // the attributes as the transition finds them, what it changed measured
     // against them
     let before_attrs = ctx

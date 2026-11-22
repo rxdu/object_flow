@@ -1417,7 +1417,6 @@ impl<'a> Evaluator<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
     fn aggregate(
         &self,
         kind: &str,

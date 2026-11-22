@@ -380,9 +380,6 @@ pub struct Type {
     /// not: a request on it is not run, naming the first (ADR-0153 decision
     /// 3).
     pub beyond: Vec<String>,
-    /// What only an applying request reaches that the first slice does not
-    /// run: its refusals are still decided, and an outcome is not run.
-    pub at_outcome: Vec<String>,
     /// The observation kinds recorded on it: each collection's name and the
     /// kind it holds, in the order declared (`flow-format.md` §4.4).
     pub observations: Vec<(String, String)>,
@@ -992,7 +989,6 @@ impl Reader<'_> {
 
     fn type_(&self, module: &str, name: &str, node: &Node) -> Loaded<Type> {
         let beyond = Vec::new();
-        let at_outcome = Vec::new();
         // each part it inherits, with its cascade and survives, where every
         // request of the type was not run (the values audit's K-11)
         let mut inherited_parts = Vec::new();
@@ -1097,7 +1093,6 @@ impl Reader<'_> {
             invariants,
             transitions,
             beyond,
-            at_outcome,
             observations: node
                 .get("observations")
                 .map(Node::entries)
@@ -1293,7 +1288,6 @@ impl Reader<'_> {
             invariants,
             transitions,
             beyond: Vec::new(),
-            at_outcome: Vec::new(),
             observations: Vec::new(),
             observation_on: Some(subject.to_string()),
             state_machine: None,
@@ -2365,7 +2359,6 @@ fn operator_type() -> Type {
             ),
         ],
         beyond: Vec::new(),
-        at_outcome: Vec::new(),
         observations: Vec::new(),
         observation_on: None,
         state_machine: None,
@@ -2452,7 +2445,6 @@ fn proposal_type() -> Type {
         invariants: Vec::new(),
         transitions: Vec::new(),
         beyond: Vec::new(),
-        at_outcome: Vec::new(),
         observations: Vec::new(),
         observation_on: None,
         state_machine: None,
@@ -2697,7 +2689,6 @@ fn label_type() -> Type {
             ),
         ],
         beyond: Vec::new(),
-        at_outcome: Vec::new(),
         observations: Vec::new(),
         observation_on: Some(ANY_TYPE.to_string()),
         state_machine: None,
@@ -2849,7 +2840,6 @@ fn subscription_type() -> Type {
             ),
         ],
         beyond: Vec::new(),
-        at_outcome: Vec::new(),
         observations: Vec::new(),
         observation_on: None,
         state_machine: None,

@@ -3865,8 +3865,6 @@ fn imported_object(o: &J) -> Result<ImportedObject, Fault> {
         created_by_kind: field("created_by_kind")?,
         occurred_at: instant(o.get("occurred_at"), "occurred_at")?,
         legacy_entries,
-        // everything a batch carries is imported (ADR-0154 decision 6)
-        beyond: Vec::new(),
     })
 }
 

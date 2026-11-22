@@ -61,8 +61,6 @@ pub struct ImportedObject {
     /// Its history from before the store, each entry its own fields and,
     /// in `about`, those describing another object (ADR-0163).
     pub legacy_entries: Vec<EntryIn>,
-    /// What the object carries that the core does not yet import, by name.
-    pub beyond: Vec<String>,
 }
 
 /// A span the legacy record gives, of a value an object held before its
@@ -467,9 +465,6 @@ fn decide(
     // the keys of every object it places and every reference it resolves
     let external = world.external_all()?;
     let mut report = ImportReport::default();
-    if let Some(what) = batch.objects.iter().find_map(|o| o.beyond.first()) {
-        return Err(NotRun::Unsupported(format!("an import of {what}")));
-    }
     let refused = |mut report: ImportReport, r: ImportRefusal| {
         report.refusal = Some(r);
         report.created.clear();
