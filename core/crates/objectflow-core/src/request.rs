@@ -1,20 +1,19 @@
-//! A request on one object, in the order of refusals (`DESIGN.md` §6), as the
-//! reference runner takes it (`scripts/flowrun.py`, `Runner.attempt`):
+//! A request on one object, in the order of refusals `DESIGN.md` §6 gives
+//! (ADR-0122): the actor and its principal; the object, its transition and
+//! the version its caller read; the transition's requestability and the
+//! object's state; the inputs; the guards, a `deny` refusing, a `warn` told
+//! as a flag and an `audit` recorded; the outcome, with its effect, cascades
+//! and followers; and the invariants the writes could violate, on each object
+//! in ascending id order. The reference runner takes the same order
+//! (`scripts/flowrun.py`, `Runner.attempt`), but it never has a principal or
+//! a version read.
 //!
-//! 1. the actor, by the generated guard `actor_known`;
-//! 2. the object, `not found`; the transition, `unknown transition`;
-//! 3. `not requestable`, a transition only via others; `unavailable`, a
-//!    state the transition is not taken from;
-//! 4. `invalid input`: a name it does not take, a value not of its type, an
-//!    object of another type, a required input left out;
-//! 5. the generated `<attribute>_provided` guards, then its own guards in
-//!    order, a `deny` refusing, a `warn` told as a flag, an `audit` recorded;
-//! 6. the outcome: the state, and the attributes its inputs write;
-//! 7. every invariant, on every object in ascending id order: the declared,
-//!    each state's required attributes, and uniqueness.
+//! A key its actor applied before replays the request it was applied to
+//! (`request_told`, `DESIGN.md` §6 step 2). The reference runner keeps no
+//! keys.
 //!
-//! What the first slice does not run is answered as [`NotRun`] where the
-//! request reaches it, so every refusal decided before it is still decided
+//! What the core does not run is answered as [`NotRun`] where the request
+//! reaches it, so every refusal decided before it is still decided
 //! (ADR-0153 decision 3).
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -71,7 +70,7 @@ pub struct Request {
     pub context: Option<String>,
 }
 
-/// Why a request gets no verdict: a construct the slice does not run, or a
+/// Why a request gets no verdict: what the core did not run ([`NotRun`]), or a
 /// key its actor applied before to a different request, a fault in the
 /// caller's key generation (`library-api.md` §7, ADR-0077).
 #[derive(Clone, Debug, PartialEq)]
@@ -207,10 +206,9 @@ fn subscription_inputs(
 
 /// Whether a key's recorded digest replays a request of this digest: the
 /// same digest, both halves alike (ADR-0205 decision 3). A digest an erasure
-/// marked, whole as 0.2.0 did or its personal half as this release does,
+/// marked, whole as 0.2.0 did or its personal half as later releases do,
 /// equals none a request makes, so it replays nothing and a key confirms no
-/// guess of what was erased, where 0.2.0's `erased` digest replayed whatever
-/// was sent (the audit's write path K-03).
+/// guess of what was erased (the audit's write path K-03).
 fn replays(recorded: &str, digest: &str) -> bool {
     recorded == digest
 }
@@ -411,8 +409,8 @@ pub struct Refusal {
     pub objects: Vec<String>,
 }
 
-/// Why a request stops before it applies: a refusal, or a construct the
-/// slice does not run.
+/// Why a request stops before it applies: a refusal, or what the core did
+/// not run ([`NotRun`]).
 enum Stop {
     /// Boxed, since what a refusal read makes it large beside the rest.
     Refused(Verdict, Box<Refusal>),
@@ -520,11 +518,8 @@ fn invariant_objects(world: &World<'_>, o: &Object, n: &str) -> Result<BTreeSet<
 /// - text stays within what a request can send;
 /// - every other kind is written only to an attribute of its own kind.
 ///
-/// An integer written to a decimal was stored in its units, `5` read as
-/// `0.05`, and a decimal to an integer likewise, `10.50` read as `1050`; a
-/// date written to a timestamp left its object unreadable (the audit's
-/// values, ADR-0205 decision 1). Past the store's 18 digits nothing is
-/// written.
+/// Past the store's 18 digits nothing is written (the audit's values,
+/// ADR-0205 decision 1).
 pub(crate) fn fit_value(declared: &Declared, many: bool, v: Value) -> Result<Value, String> {
     if v.is_absent() {
         return Ok(v);
@@ -541,8 +536,7 @@ pub(crate) fn fit_value(declared: &Declared, many: bool, v: Value) -> Result<Val
     }
     let kind = v.kind();
     // the kind carries its article, and the type is written as a module
-    // writes it, where both read `a a member of an enumeration where
-    // Scalar("Binding") is held`
+    // writes it
     let wrong = || {
         Err(format!(
             "{kind} where {} is held",
@@ -1010,9 +1004,10 @@ fn decide_or_stop(
     cause: Option<i64>,
 ) -> Result<(Verdict, Option<Change>), Stop> {
     let lib = world.lib;
-    // 1. the actor
+    // `DESIGN.md` §6 step 1: the actor and its principal
     let who = request_who(world, req)?;
-    // 2. the object and the transition
+    // `DESIGN.md` §6 step 3: the object, its transition and the version its
+    // caller read
     let (tn, oid) = match &req.object_id {
         Some(id) => match world.get(id)? {
             None => return refused(Verdict::NotFound),
@@ -1064,7 +1059,7 @@ fn decide_or_stop(
         }
     };
     stale(world, req)?;
-    // 3. not requestable, and unavailable: the operator's creation is taken
+    // not requestable, and unavailable: the operator's creation is taken
     // only by creating the store (ADR-0126), and its retirement by nothing,
     // since it is irreversible and would leave the store with no operator,
     // reading no one's kind (ADR-0184 decision 1)
@@ -1090,7 +1085,7 @@ fn decide_or_stop(
             state: o.state.clone(),
         });
     }
-    // 4. the inputs it does not take, and those not of their type
+    // the inputs it does not take, and those not of their type
     let unknown: Vec<String> = req
         .inputs
         .keys()
@@ -1237,10 +1232,11 @@ fn decide_or_stop(
         }
         Err(stop) => return Err(stop),
     };
-    // 7. the invariants the writes could violate, in ascending id order of
-    // the object each is on (DESIGN.md §5.6, ADR-0045), except a violation an
-    // admission lets stand, which is discharged once the invariant holds
-    // again (ADR-0054); an assertion admits what it names
+    // `DESIGN.md` §6 step 7: the invariants the writes could violate, in
+    // ascending id order of the object each is on (DESIGN.md §5.6,
+    // ADR-0045), except a violation an admission lets stand, which is
+    // discharged once the invariant holds again (ADR-0054); an assertion
+    // admits what it names
     let first = ctx.events.iter().map(|e| e.position).min().unwrap_or(0);
     let mut admitted = Vec::new();
     // every failing invariant on every object, by object id, then in the
@@ -1951,7 +1947,7 @@ fn take_unwound(
             return refused(Verdict::invalid_input(wrong));
         }
     }
-    // 5. the generated guards, in the order flow-format.md §4.8 states,
+    // the generated guards, in the order flow-format.md §4.8 states,
     // then the transition's own. occurred_within: the requested transition's
     // bound, its backdating_limit or its kind's max_recording_delay, takes an
     // occurred time no further back than the bound and not after now; one
@@ -2322,7 +2318,7 @@ fn take_unwound(
         .work
         .get_if(oid.as_deref())?
         .map(|o| tracked_values(lib, t, o));
-    // 6. the outcome, its position allocated as it begins applying; its
+    // the outcome, its position allocated as it begins applying; its
     // cause is the transition taking place below it, and it is the cause of
     // every one it takes (DESIGN.md §6 step 8)
     let position = alloc.position();
@@ -3440,8 +3436,7 @@ struct Taking<'s> {
 /// clause of the cause's composite ends on it, read over the cause's
 /// object; and a follows clause on it of the caused object's type, read
 /// over the follower, the cause's object through the reference (ADR-0292
-/// decision 6). A cascade's argument was missed until #103, and a follow's
-/// with it.
+/// decision 6).
 fn taking<'s>(
     lib: &'s Library,
     cause_type: &'s Type,
@@ -4406,8 +4401,7 @@ fn file(
     // in the order the request refuses them (`DESIGN.md` §6): an input the
     // transition does not take or not of its type, every other input at
     // fault named with it; then a list past its limit (ADR-0290 decision 4);
-    // then a reference naming nothing, a blank text or an input left out. A
-    // proposal of a transition taking no list is refused as it always was
+    // then a reference naming nothing, a blank text or an input left out
     let refuse = |wrong: Vec<(String, InputReason)>, entries: Vec<EntryFault>| {
         let (inputs, reasons) = wrong.into_iter().unzip();
         refused(Verdict::InvalidInput {
@@ -4732,8 +4726,9 @@ fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
 /// A request on a change to the declaration (`DESIGN.md` §9, ADR-0155):
 /// `draft` and `revise` take the source and its reference; `submit` and
 /// `refresh` run the dry run and attach its report, refused while it finds
-/// anything fatal; `reopen`, `reject` and `withdraw` move it on; `supersede`
-/// is a publish's; and `publish`, the approval, is the next slice's.
+/// anything fatal; `reopen`, `reject` and `withdraw` move it on; and
+/// `supersede` and `publish`, the approval, are refused `not requestable`,
+/// each the `publish` operation's (ADR-0196 decision 7).
 fn decide_change(
     world: &World<'_>,
     alloc: &mut Allocator,
@@ -7748,8 +7743,8 @@ fn writes_of(
     (writes, by_actor)
 }
 
-/// A request run against a store, in one transaction: its verdict, or that
-/// the first slice does not run what it reaches.
+/// A request run against a store, in one transaction: its verdict, or why it
+/// has none ([`NoVerdict`]).
 pub fn request(
     store: &mut crate::store::Store,
     req: &Request,
@@ -9154,9 +9149,9 @@ types:
     /// records; left out, the attribute keeps its value (issue #71,
     /// ADR-0262). It clears a text marked `not_blank`, whose blank is still
     /// refused, and a reference, which names no object. An input a
-    /// transition does not list clearable keeps its value given null, as
-    /// before, and a call passing an absent value clears nothing, since a
-    /// call passes none. On both backends.
+    /// transition does not list clearable keeps its value given null, and a
+    /// call passing an absent value clears nothing, since a call passes none.
+    /// On both backends.
     #[test]
     fn a_clearable_input_given_null_clears_its_attribute() {
         const VISITS: &str = r#"
@@ -11556,8 +11551,9 @@ types:
     /// at fault named with it when filed; then a list past its limit
     /// (ADR-0290 decision 4); then a reference naming nothing or an input
     /// left out. So a list past its limit with a required input left out, or
-    /// a reference naming nothing, is `over_limit`, executed or filed, and a
-    /// proposal of a transition taking no list is refused as it always was.
+    /// a reference naming nothing, is `over_limit`, executed or filed; and a
+    /// proposal of a transition taking no list names a type fault and an
+    /// input left out together.
     #[test]
     fn a_proposal_is_refused_in_the_order_a_request_is() {
         let (mut s, listed, _) = placing();
@@ -11610,7 +11606,7 @@ types:
             v => panic!("{v:?}"),
         }
         // a transition taking no list: a type fault and an input left out,
-        // named together as before
+        // named together
         let order = created(&req(
             &mut s,
             "place",
@@ -13360,8 +13356,8 @@ types:
     /// is personal on the caller's event too, as one its own effect writes
     /// into its own is (check 10), one hop on: the export omits it, where it
     /// exported it in clear (caller taint, found probing the write path
-    /// audit's last minor). What an erasure reaches through it is left as
-    /// it was, the author's to decide.
+    /// audit's last minor). The caller's erasure redacts it on the caller's
+    /// own event, and nothing it flowed into (ADR-0210 decision 4).
     #[test]
     fn an_input_passed_into_a_personal_attribute_is_personal_for_the_caller() {
         const CRM: &str = r#"
