@@ -249,9 +249,9 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
     out.extend(expression_type_errors(doc, &library));
     let cats = categories(doc);
     let imported = imported(doc);
-    // the document's enumerations and its types' states, read once, where
-    // each type read every type's again: a change of 8,000 types ran past
-    // eleven minutes (ninth production review N-8)
+    // the document's enumerations and its types' states, read once for
+    // every type, since each type reading every type's again is quadratic
+    // in the types (ninth production review N-8)
     let values = Values::of(doc);
     let superseded = superseded_types(&library);
     for (tn, t) in types(doc) {
@@ -905,9 +905,9 @@ fn relationship_errors(doc: &Value, library: &Obj) -> Found {
         .collect();
     let imported = imported(doc);
     let machines = obj(doc, "machines");
-    // the library and the module's types together, built once: built for
-    // each type, the copy made a module of 3,000 types take 83 s to check,
-    // under the writer's lock as a submit's dry run (DRYRUN-LOCK)
+    // the library and the module's types together, built once for every
+    // type, since building it for each type copies the library once a type
+    // (DRYRUN-LOCK)
     let mut kinds = library.clone();
     for (k, v) in &module {
         kinds.insert(k.clone(), v.clone());
@@ -2006,8 +2006,6 @@ fn personal_inputs(kinds: &Obj, tn: &str, x: &Value) -> BTreeSet<String> {
 /// is given.
 type Passed = (String, Env, Option<String>, String, String, Path);
 
-/// The module's types, those checked before it, and the observation kinds
-/// they declare, as check 10 reads them.
 /// Each composite end of a type, its own or inherited, with its cascade
 /// clauses and where they are given.
 pub(crate) fn composite_parts(tn: &str, kinds: &Obj) -> Vec<(Value, Vec<Value>, Path)> {
@@ -2390,10 +2388,9 @@ fn personal_errors(doc: &Value, library: &Obj) -> Found {
         }
     }
     // a metric over objects reads no personal value through a reference or
-    // a derived attribute either, where check 56, reading its item's own
-    // members, passed `d.owner.name`, `max(d.owner.salary)` and
-    // `d.owner_name`, and an agent's metric read answered each person's name
-    // and salary (sixteenth production review N6, ADR-0203 decision 2)
+    // a derived attribute either, which check 56, reading its item's own
+    // members alone, does not see (sixteenth production review N6, ADR-0203
+    // decision 2)
     fn chains(e: &Expr, item: &str, out: &mut Vec<Vec<String>>) {
         if let Expr::Path(..) = e {
             let mut members = Vec::new();
@@ -2411,9 +2408,7 @@ fn personal_errors(doc: &Value, library: &Obj) -> Found {
         }
     }
     // a copy of an identity is the identity, personal where an actor type
-    // marks its own so (ADR-0203 decision 1), where a metric grouped by an
-    // approver set from actor.id answered each person's address (the
-    // audit's personal data R8)
+    // marks its own so (ADR-0203 decision 1, the audit's personal data R8)
     let identities_personal = check.kinds.values().any(|k| {
         obj(k, "attributes")
             .values()
@@ -3708,8 +3703,7 @@ impl Ty {
     }
 }
 
-// patterns compiled once, where each call compiled its own (ninth
-// production review N-8)
+// patterns compiled once (ninth production review N-8)
 static MONEY_TYPE: LazyLock<Regex> = LazyLock::new(|| re(r"^money\((\w+)\)$"));
 static DECIMAL_TYPE: LazyLock<Regex> = LazyLock::new(|| re(r"^decimal\(\d+,\s*\d+\)$"));
 static PLACE_N: LazyLock<Regex> = LazyLock::new(|| re(r"^n(:.*)?$"));
@@ -3736,9 +3730,8 @@ fn attribute_type(spec: Option<&Value>, enums: &BTreeSet<String>) -> Option<Ty> 
             fields.clone().into_iter().collect(),
         ))));
     }
-    // a set of values, of its element's type, where it typed as nothing, so
-    // a set added, multiplied, ordered or negated published and was not run
-    // (the differential battery, 2026-10-15)
+    // a set of values, of its element's type (the differential battery,
+    // 2026-10-15)
     if let Some(base) = typ.strip_suffix("[]") {
         let element = serde_json::json!({ "type": base });
         return attribute_type(Some(&element), enums).map(|e| Ty::Values(Box::new(e)));
@@ -3842,14 +3835,13 @@ struct Typing<'a> {
     /// check 58 does not reach through a transition's body, a derived
     /// attribute, an invariant, a uniqueness condition and a backfill.
     flow_names: bool,
-    /// Each derived attribute's type, by its type and name, once typed: a
-    /// chain of attributes each reading the one before twice typed each
-    /// 2^n times, forty holding the dry run's slot past six minutes
-    /// (eleventh production review).
+    /// Each derived attribute's type, by its type and name, once typed,
+    /// since a chain of attributes each reading the one before twice would
+    /// otherwise type each 2^n times (eleventh production review).
     known: &'a std::cell::RefCell<BTreeMap<(String, String), Option<Ty>>>,
     /// Each observation kind as the checks see one, whose objects a member
     /// of its subject's type names (§6.8), so that a binder over them reads
-    /// its fields, where each typed as nothing.
+    /// its fields.
     observed: &'a Obj,
 }
 
@@ -3898,7 +3890,7 @@ impl Typing<'_> {
     }
 
     fn member(&self, tn: &str, m: &str, seen: &BTreeSet<(String, String)>) -> Option<Ty> {
-        // the type read where it is, where each member cloned it whole
+        // the type read where it is, not cloned for each member
         static NONE: Value = Value::Null;
         let t = self.declared(tn).unwrap_or(&NONE);
         if m == "state" {
@@ -3925,9 +3917,8 @@ impl Typing<'_> {
             return known.clone();
         }
         // a derived attribute typed through at most TYPING_DEPTH others,
-        // past which its type is unknown: each typed the whole chain below
-        // it again, a chain of 1,000 taking 171 s and one of 3,000 deeper
-        // than a stack (tenth production review)
+        // past which its type is unknown, so a chain of thousands runs no
+        // deeper than a stack holds (tenth production review)
         if let Some(derived) = obj(t, "derived_attributes").get(m)
             && !seen.contains(&pair)
             && seen.len() < TYPING_DEPTH
@@ -4024,9 +4015,7 @@ impl Typing<'_> {
                     }
                     Some(Ty::Int)
                 } else if name == "date" {
-                    // the UTC day of a timestamp, or a date itself, where any
-                    // argument typed and the core did not run the date of a
-                    // text (ADR-0283)
+                    // the UTC day of a timestamp, or a date itself (ADR-0283)
                     if let Some(arg) = arg
                         && !matches!(arg, Ty::Timestamp | Ty::Date)
                     {
@@ -4160,8 +4149,7 @@ impl Typing<'_> {
     /// A flow function names what its object's type has: `time_in` a
     /// state, `entered_at` a state or a tracked member, wherever an
     /// expression is typed, as the model's check 58 has it for a
-    /// transition's body (the audit's values G2, where `time_in` of a member
-    /// answered 0 s).
+    /// transition's body (the audit's values G2).
     fn flow_function_names(
         &mut self,
         f: &Expr,
@@ -4251,8 +4239,8 @@ impl Typing<'_> {
             // a read's filter's, never a flow's
             Expr::Param(_) | Expr::Lit(_) => None,
             // an amount in a currency the engine has no minor unit for, or
-            // with more places than its minor unit, is one it cannot hold,
-            // where it was rounded (the audit's values L1 and L6)
+            // with more places than its minor unit, is one it cannot hold
+            // (the audit's values L1 and L6)
             Expr::Money(c, amount) => {
                 match crate::value::minor_unit(c) {
                     None => self.fail(format!(
@@ -4270,10 +4258,8 @@ impl Typing<'_> {
                 }
                 Some(Ty::Money(c.clone()))
             }
-            // a duration is whole seconds, where `1.5 s` was rounded to 2 s
-            // (the audit's values L2)
-            // and holds 64 bits of them, where one past was not run (ADR-0202
-            // decision 8)
+            // a duration is whole seconds (the audit's values L2) and holds
+            // 64 bits of them (ADR-0202 decision 8)
             Expr::Dur(n, unit) => {
                 if let Some(size) = crate::value::unit_seconds(unit) {
                     let t = match n {
@@ -4317,9 +4303,8 @@ impl Typing<'_> {
                     return Some(Ty::State(tn.to_string()));
                 }
                 // an enumeration's name is no value, and a name naming
-                // nothing is none, where each typed as nothing and was not
-                // run (the values audit's K-9); an all-capital name is a
-                // state's, another rule's
+                // nothing is none (the values audit's K-9); an all-capital
+                // name is a state's, another rule's
                 if self.enums.contains(n) {
                     self.fail(format!("{n} is an enumeration, which is no value: name one of its members, as {n}.<MEMBER>"));
                     return None;
@@ -4358,9 +4343,7 @@ impl Typing<'_> {
                     }
                     return attribute_type(spec.as_ref(), self.enums);
                 }
-                // who acted, as an outcome value reads it (§8.1), where its
-                // members typed as nothing, so `"by " + actor.id` passed and
-                // was not run (D687)
+                // who acted, as an outcome value reads it (§8.1, D687)
                 if matches!(&**base, Expr::Name(b) if b == "actor") && !env.contains_key("actor") {
                     return match m.as_str() {
                         "id" => Some(Ty::Identity),
@@ -4397,8 +4380,8 @@ impl Typing<'_> {
                     {
                         return None;
                     }
-                    // a type's member is one of its states, where it typed as
-                    // nothing and was not run (the values audit's K-9)
+                    // a type's member is one of its states (the values
+                    // audit's K-9)
                     if self.kinds.contains_key(b) {
                         self.fail(format!("{b}.{m} names no state of {b}"));
                         return None;
@@ -4522,8 +4505,8 @@ impl Typing<'_> {
                 // a member function on what has it, `held` on a row of
                 // intervals or transitions, the others on an object,
                 // `intervals(m)` of a member its type tracks; and a flow
-                // function names a state or a member, never a literal; where
-                // each published and was not run (the values audit's K-8)
+                // function names a state or a member, never a literal (the
+                // values audit's K-8)
                 if let Expr::Path(base, name) = &**f
                     && let Some(bt) = self.of(base, tn, x, env, seen)
                 {
@@ -4598,8 +4581,7 @@ impl Typing<'_> {
                 }
             }
             // the event it reads is one no type here names, so a value of a
-            // type it can tell is not one, where an int was read as a log
-            // position (the values audit's G7)
+            // type it can tell is not one (the values audit's G7)
             Expr::Changed(_, ev) => {
                 if let Some(given) = self.of(ev, tn, x, env, seen) {
                     self.fail(format!(
@@ -4622,8 +4604,8 @@ impl Typing<'_> {
                 }
                 Some(Ty::Bool)
             }
-            // a negative of a number, an amount or a duration, where any other
-            // typed as its operand and was not run (the values audit's K-5)
+            // a negative of a number, an amount or a duration (the values
+            // audit's K-5)
             Expr::Neg(inner) => {
                 let v = self.of(inner, tn, x, env, seen);
                 if let Some(t) = &v
@@ -4643,8 +4625,8 @@ impl Typing<'_> {
                 body,
                 ..
             } => {
-                // a metric's own count, over its rows, where it typed as an
-                // int and was not run (the values audit's K-9)
+                // a metric's own count, over its rows, which no expression
+                // outside a metric has (the values audit's K-9)
                 if var.is_none() {
                     self.fail("count(where …) and count(distinct …) count a metric's rows, which no expression outside a metric has".to_string());
                     return None;
@@ -4653,9 +4635,8 @@ impl Typing<'_> {
                 if let (Some(var), Some(coll)) = (var, collection)
                     && let Expr::Set(items) = &**coll
                 {
-                    // a literal's elements share one type, its item's, where a
-                    // mixed one typed as nothing and was not run (the values
-                    // audit's K-10)
+                    // a literal's elements share one type, its item's (the
+                    // values audit's K-10)
                     let known: Vec<Ty> = items
                         .iter()
                         .filter_map(|item| self.of(item, tn, x, env, seen))
@@ -4700,8 +4681,7 @@ impl Typing<'_> {
                             // a set of values, its item of their type (K-10)
                             Some(e) => Some(e),
                             None => {
-                                // an aggregate ranges over a collection, where
-                                // one over a single value was not run (K-10)
+                                // an aggregate ranges over a collection (K-10)
                                 let t = t.text();
                                 self.fail(format!("{fn} ranges over {t}, which is no collection", fn = kind));
                                 return None;
@@ -4755,9 +4735,7 @@ impl Typing<'_> {
                             self.fail(format!("sum adds {}, which does not add", b.text()));
                         } else if matches!(b, Ty::Enumeration(_)) {
                             // the least or the greatest member, of what has no
-                            // order, which the core did not run and the
-                            // reference runner answered by name (the values
-                            // audit's R4, as K-4)
+                            // order (the values audit's R4, as K-4)
                             self.fail(format!(
                                 "{kind} orders {}, and an enumeration has no order",
                                 b.text()
@@ -4799,8 +4777,7 @@ impl Typing<'_> {
                             }
                         }
                     }
-                    // membership in a collection, where one in a single value
-                    // was not run (the values audit's K-6)
+                    // membership in a collection (the values audit's K-6)
                     _ => {
                         if let Some(rt) = self.of(r, tn, x, env, seen)
                             && !matches!(rt, Ty::Objects(_) | Ty::Values(_) | Ty::Rows(_))
@@ -4890,8 +4867,8 @@ impl Typing<'_> {
                                 .flatten()
                                 .find(|v| matches!(v, Ty::Enumeration(_)))
                         {
-                            // an enumeration has no order, which was not run
-                            // (the values audit's K-4)
+                            // an enumeration has no order (the values audit's
+                            // K-4)
                             self.fail(format!(
                                 "it orders {}, and an enumeration has no order",
                                 e.text()
@@ -4901,11 +4878,10 @@ impl Typing<'_> {
                                 matches!(v, Ty::State(_) | Ty::Values(_) | Ty::Record(..))
                             })
                         {
-                            // nor has a state or a set, which was not run and
-                            // the runner ordered by name or crashed on (the
-                            // differential battery, 2026-10-15), nor a value
-                            // of several fields, equal by its fields alone
-                            // (ADR-0254 decision 3)
+                            // nor has a state or a set (the differential
+                            // battery, 2026-10-15), nor a value of several
+                            // fields, equal by its fields alone (ADR-0254
+                            // decision 3)
                             let what = match v {
                                 Ty::State(_) => "a state",
                                 Ty::Record(..) => "a value of several fields",
@@ -4981,8 +4957,8 @@ impl Typing<'_> {
         if matches!(op, BinOp::Add | BinOp::Sub) {
             if l.scalar() && r.scalar() {
                 // a literal takes its partner's scale (§8.1), and one of more
-                // places than a decimal holds would lose them, where `rate +
-                // 0.005` was rounded on its write (the audit's values W5)
+                // places than a decimal holds would lose them (the audit's
+                // values W5)
                 for (a, b) in [(&l, &r), (&r, &l)] {
                     if let (Ty::Number(p), Ty::Decimal(Some(s))) = (a, b)
                         && p > s
@@ -4994,8 +4970,8 @@ impl Typing<'_> {
                     }
                 }
                 // two literals keep the more places, and a literal beside an
-                // int its own, as the core aligns them, where `i + 1.5` was
-                // an int and written to one (the differential battery)
+                // int its own, as the core aligns them (the differential
+                // battery)
                 if let (Ty::Number(a), Ty::Number(b)) = (&l, &r) {
                     return Some(Ty::Number(*a.max(b)));
                 }
@@ -5050,8 +5026,7 @@ impl Typing<'_> {
             }
             // a date less a date is a duration, and a date plus or minus a
             // duration a date, as §8.3's Dates says and the core runs; every
-            // other with a date is an error, where it typed as nothing (the
-            // values audit's K-1)
+            // other with a date is an error (the values audit's K-1)
             if op == BinOp::Sub && l == Ty::Date && r == Ty::Date {
                 return Some(Ty::Duration);
             }
@@ -5123,8 +5098,8 @@ impl Typing<'_> {
             return None;
         }
         if matches!(l, Ty::Timestamp | Ty::Date) || matches!(r, Ty::Timestamp | Ty::Date) {
-            // neither is multiplied nor divided, where it typed as nothing
-            // and was not run (the values audit's K-1, K-2)
+            // neither is multiplied nor divided (the values audit's K-1,
+            // K-2)
             let verb = if op == BinOp::Mul {
                 "multiplies"
             } else {
@@ -5287,8 +5262,7 @@ fn metric_arith(op: BinOp, a: Ty, b: Ty) -> Result<Option<Ty>, String> {
             .into_iter()
             .find(|k| matches!(k, Ty::Timestamp | Ty::Date))
     {
-        // neither is multiplied nor divided, as K-1 refuses elsewhere, where
-        // a metric's was not run or answered a date's seconds (the
+        // neither is multiplied nor divided, as K-1 refuses elsewhere (the
         // differential battery)
         let verb = if op == BinOp::Mul {
             "multiplies"
@@ -5617,8 +5591,7 @@ fn typed_write_error(
     let (Some(target), Some(got)) = (target, got) else {
         return None;
     };
-    // a set holds a set and nothing else does, where either was written and
-    // refused at run time (the differential battery)
+    // a set holds a set and nothing else does (the differential battery)
     if matches!(target, Ty::Values(_)) != matches!(got, Ty::Values(_)) {
         return Some(format!(
             "{}, to {loc}, which holds {}: a write's value must fit its target",
@@ -5847,7 +5820,7 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
                     .collect();
                 let mut exprs = step_expressions(&step);
                 // a loop's filter reads each item, bound as the loop's own
-                // steps see it, where it typed as nothing
+                // steps see it
                 let filter = (step.kind == "foreach" && step.body().get("where").is_some())
                     .then(|| exprs.pop())
                     .flatten();
@@ -5901,8 +5874,7 @@ fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
                     ));
                 }
                 // an element added or removed fits its set, and a loop ranges
-                // over a collection, where each published and the core
-                // refused or did not run it (the values audit's K-10)
+                // over a collection (the values audit's K-10)
                 if matches!(step.kind, "add" | "remove")
                     && let Some(misfit) = typed_element_error(
                         &mut typing,
@@ -6006,9 +5978,8 @@ fn argument_type_errors(doc: &Value, library: &Obj) -> Found {
     let recorded = observation_kinds(&kinds);
     kinds.extend(recorded);
     let enums: BTreeSet<String> = keys(doc, "enumerations").into_iter().collect();
-    // a value no literal or name tells is typed as an expression is, where an
-    // int passed to a time or an amount to an int was taken and the core
-    // refused the call (the differential battery, 2026-10-16)
+    // a value no literal or name tells is typed as an expression is (the
+    // differential battery, 2026-10-16)
     let mut typing_enums = enums.clone();
     for list_ in obj(doc, "imports").values() {
         if let Value::Array(names) = list_ {
@@ -6091,9 +6062,8 @@ fn argument_type_errors(doc: &Value, library: &Obj) -> Found {
                             return None;
                         }
                         // an identity and a string the typing gives the
-                        // benefit of the doubt, as it does in a comparison,
-                        // where `actor.principal` passed to an identity input
-                        // was refused (`alike`)
+                        // benefit of the doubt, as it does in a comparison
+                        // (`alike`)
                         let kind = typed_kind(&got)?;
                         let doubt = target.as_ref().is_some_and(|t| {
                             matches!(
@@ -6352,9 +6322,8 @@ fn value_errors(values: &Values, tn: &str, t: &Value) -> Found {
             let (owner, value) = (owner.as_str(), value.as_str());
             if !VALUE_CASE.is_match(value) {
                 // a member of another case: an enumeration's is one of its
-                // values, and an owner nothing declares names nothing, where
-                // Foo.bar and Kind.small passed and the core did not run
-                // them; ActorKind.<kind> is the typing's, whatever a module
+                // values, and an owner nothing declares names nothing;
+                // ActorKind.<kind> is the typing's, whatever a module
                 // declares (ADR-0282, ADR-0269)
                 match enums.get(owner).filter(|_| owner != ACTOR_KIND) {
                     Some(k) if !k.contains(value) => out.push(finding(
@@ -6402,9 +6371,8 @@ fn value_errors(values: &Values, tn: &str, t: &Value) -> Found {
 /// What a parsed expression names that only its module can resolve, in the
 /// order written: each qualified name, a capitalised owner and its member,
 /// `Kind.SMALL`, and each bare upper-case name, a state. Read from the tree,
-/// where a pattern over the text took a string literal's or a money
-/// literal's word for a name (`check-flows.py`'s `names_written`,
-/// ADR-0282).
+/// so a string literal's or a money literal's word names nothing
+/// (`check-flows.py`'s `names_written`, ADR-0282).
 fn names_written(e: &Expr, qualified: &mut Vec<(String, String)>, bare: &mut Vec<String>) {
     match e {
         Expr::Path(b, m) => {
@@ -6588,9 +6556,9 @@ fn read_errors(tn: &str, t: &Value, categories: &BTreeSet<String>) -> Found {
 }
 
 /// The names an expression of a type may read, described rather than
-/// copied for each expression, where a set of every member made for each
-/// derived attribute made a type's check quadratic in them (tenth production
-/// review).
+/// copied for each expression, since a set of every member made for each
+/// derived attribute would make a type's check quadratic in them (tenth
+/// production review).
 enum Scope<'s> {
     /// A set, and the names its expression binds beside it.
     Of(&'s BTreeSet<String>, Option<std::rc::Rc<BTreeSet<String>>>),
@@ -7221,9 +7189,7 @@ fn identifier_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
                     .and_then(|w| w.parse::<u64>().ok().or(Some(u64::MAX)))
                     .is_some_and(|w| w > crate::model::IDENTIFIER_WIDTH as u64)
                 {
-                    // a width a number can fill, where one of a million
-                    // panicked as each object was made (tenth production
-                    // review)
+                    // a width a number can fill (tenth production review)
                     out.push(finding(
                         fw.clone(),
                         "names",
@@ -7511,8 +7477,7 @@ fn formula_errors(tn: &str, t: &Value, mn: &str, m: &Value) -> Found {
             ));
         }
     }
-    // count(<expression>) over the rows answers nothing, which the core did
-    // not run (D687)
+    // count(<expression>) over the rows answers nothing (D687)
     if COUNT_CALL.find_iter(&expression).any(|at| {
         let rest = expression[at.end()..].trim_start();
         !(rest.starts_with(')') || COUNTED.is_match(rest))
@@ -7525,8 +7490,7 @@ fn formula_errors(tn: &str, t: &Value, mn: &str, m: &Value) -> Found {
     }
     // a metric's value combines aggregates over its rows, literals and now
     // by + - * / and a negative, which is all the core computes over them
-    // (declaration-syntax.md §6.9); any other form published and was not
-    // run (the values audit's M2)
+    // (declaration-syntax.md §6.9, the values audit's M2)
     if let Some(held) = crate::expr::parse(&expression)
         .ok()
         .and_then(|e| metric_value_form(&e))
