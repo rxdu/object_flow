@@ -402,7 +402,8 @@ pub fn diagnostics(
             false,
         );
     }
-    // a file deletion still pending: the core holds no files yet
+    // `pending_file_deletion` lists none: the core holds no file's bytes
+    // (ADR-0160, ADR-0239 decision 6)
     Ok(Ok(out))
 }
 

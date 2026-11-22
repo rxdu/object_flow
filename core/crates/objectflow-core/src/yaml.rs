@@ -42,10 +42,9 @@ pub enum Node {
 }
 
 /// A mapping's keys by their place among its entries, made once on the
-/// first lookup, where each lookup searched the entries: a line found for
-/// each finding of a module of 60,000 types searched them all, quadratic in
-/// the types (thirteenth production review D). It is a cache, so it takes
-/// no part in a node's equality.
+/// first lookup, since a search of the entries for each finding's line is
+/// quadratic in a large module's types (thirteenth production review D).
+/// It is a cache, so it takes no part in a node's equality.
 #[derive(Clone, Debug, Default)]
 pub struct KeyIndex(std::sync::OnceLock<std::collections::HashMap<String, usize>>);
 
@@ -233,8 +232,8 @@ enum Open {
     Seq(Vec<Node>, usize),
     /// A mapping's entries, the key awaiting its value, its line, its keys'
     /// lines, and its keys as a set, so a repeated key is found by one
-    /// look, where each key was compared with every earlier one and a draft
-    /// of 100k keys held the writer 37.8 s (ninth production review N-4).
+    /// look, never by comparing each key with every earlier one, quadratic
+    /// in the keys (ninth production review N-4).
     Map(
         Vec<(String, Node)>,
         Option<(String, usize)>,
@@ -249,15 +248,14 @@ fn line_of(span: &Span) -> usize {
 }
 
 /// How deep a description's collections may nest, which no module comes
-/// near: a tree 300,000 deep, 600 KB of block sequences, loaded and then
-/// overflowed the stack of a walk or a drop over it, aborting the service
-/// (YAML-DEPTH). `check-flows.py`'s `NESTING`.
+/// near, so no walk or drop over the tree overflows the stack, as one over a
+/// tree 300,000 deep would (YAML-DEPTH). `check-flows.py`'s `NESTING`.
 pub const NESTING: usize = 64;
 
 /// The document a text holds, as a tree; an empty text is a null scalar.
 pub fn load(text: &str) -> Result<Node, YamlError> {
     // a byte-order mark at the start is no part of the text, as YAML reads
-    // it, where it became part of the first key (fifth production review)
+    // it (fifth production review)
     let text = text.strip_prefix('\u{FEFF}').unwrap_or(text);
     let mut parser = Parser::new_from_str(text);
     let chars: Vec<char> = text.chars().collect();
@@ -417,9 +415,9 @@ pub fn load(text: &str) -> Result<Node, YamlError> {
 mod tests {
     use super::*;
 
-    /// A key's line in a large mapping is found by an index, where each
-    /// lookup searched the keys: a line for each finding of a module of
-    /// 60,000 types was quadratic in them (thirteenth production review D).
+    /// A key's line in a large mapping is found by an index, since a search
+    /// of its keys for each finding's line is quadratic in them (thirteenth
+    /// production review D).
     #[test]
     fn a_keys_line_in_a_large_mapping_is_found_by_its_index() {
         let n = 50_000;
@@ -435,8 +433,8 @@ mod tests {
     }
 
     /// A description nested past the bound is refused with its line, and
-    /// one nested 300,000 deep, which aborted the service, is refused as
-    /// promptly, nothing built of it (YAML-DEPTH).
+    /// one nested 300,000 deep is refused as promptly, nothing built of it
+    /// (YAML-DEPTH).
     #[test]
     fn a_description_nested_past_its_bound_is_refused() {
         let at = |depth: usize| format!("x:\n  {}z\n", "- ".repeat(depth));

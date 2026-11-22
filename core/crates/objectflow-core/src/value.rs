@@ -203,9 +203,8 @@ impl PartialOrd for Decimal {
 
 impl Ord for Decimal {
     /// Exact at any two scales: aligned where both fit 128 bits, else by
-    /// sign, then whole part, then fraction, each of which fits, where two
-    /// that did not align were compared by sign alone and
-    /// `0.000…01 == 1000000000` held (the audit's values A3).
+    /// sign, then whole part, then fraction, each of which fits (the audit's
+    /// values A3).
     fn cmp(&self, other: &Decimal) -> Ordering {
         if let Some((a, b, _)) = self.aligned(other) {
             return a.cmp(&b);
@@ -332,8 +331,8 @@ pub fn civil_from_days(z: i64) -> (i64, u32, u32) {
 
 /// A calendar day written `2026-10-04`, in days since 1970-01-01.
 /// A date written `YYYY-MM-DD` exactly, its year 0001 to 9999, as RFC 3339
-/// writes one: a space, a sign, a one-digit month or a year past 9999 was
-/// read and stored (second production review, minor).
+/// writes one: a space, a sign, a one-digit month or a year past 9999 is
+/// refused (second production review, minor).
 pub fn parse_date(text: &str) -> Option<i64> {
     let digits = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_digit());
     let mut parts = text.splitn(3, '-');
@@ -352,9 +351,9 @@ pub fn parse_date(text: &str) -> Option<i64> {
 }
 
 /// The calendar a date or a time is written in, 0001-01-01 to
-/// 9999-12-31T23:59:59Z, as the wire reads one: a value past it is written
-/// as text no read takes back, which an effect wrote, making its object and
-/// its type unreadable for good (fifth production review BRICK, ADR-0190).
+/// 9999-12-31T23:59:59Z, as the wire reads one: a value past it would be
+/// written as text no read takes back, making its object and its type
+/// unreadable (fifth production review BRICK, ADR-0190).
 pub const FIRST_DAY: i64 = -719_162;
 pub const LAST_DAY: i64 = 2_932_896;
 pub const FIRST_SECOND: i64 = FIRST_DAY * 86_400;
@@ -621,8 +620,8 @@ impl Value {
 
     /// Equality as `==` reads it: numbers by value, sets by their elements
     /// in any order, each element of either equal to one of the other,
-    /// anything else by identity of kind and content. Their order decided it,
-    /// and `{2}` was not `{2.0}` (the values audit's A8).
+    /// anything else by identity of kind and content, so `{2}` is `{2.0}`
+    /// (the values audit's A8).
     pub fn equals(&self, other: &Value) -> bool {
         if let (Value::Set(a), Value::Set(b)) = (self, other) {
             return a.iter().all(|x| b.iter().any(|y| x.equals(y)))
@@ -662,9 +661,8 @@ mod tests {
         Decimal::parse(text).unwrap()
     }
 
-    /// Two decimals compare exactly at any two scales, where two that did
-    /// not align within 128 bits compared by sign alone (the audit's values
-    /// A3).
+    /// Two decimals compare exactly at any two scales, two that do not align
+    /// within 128 bits among them (the audit's values A3).
     #[test]
     fn decimals_compare_exactly_at_any_two_scales() {
         let d = |s: &str| Decimal::parse(s).unwrap();
@@ -902,8 +900,8 @@ mod tests {
 
     /// A date and a timestamp are read as RFC 3339 writes them, each field
     /// its digits exactly and the year 0001 to 9999: a space, a sign, a
-    /// one-digit field, a year past 9999 or the year 0 was read and stored
-    /// (second production review, minor).
+    /// one-digit field, a year past 9999 or the year 0 is refused (second
+    /// production review, minor).
     #[test]
     fn dates_and_timestamps_are_read_exactly() {
         for good in ["0001-01-01", "9999-12-31", "2024-02-29"] {

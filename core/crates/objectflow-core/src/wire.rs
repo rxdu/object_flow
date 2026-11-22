@@ -155,8 +155,8 @@ pub fn identity_fault(s: &str, lib: &Library) -> Option<String> {
     if let Some((prefix, n)) = s.rsplit_once('-')
         && !n.is_empty()
         && n.chars().all(|c| c.is_ascii_digit())
-        // in any case of its letters, where `Staff-2` named a person and
-        // `staff-2` an object (fifteenth production review)
+        // in any case of its letters, since `staff-2` would otherwise name an
+        // object and `Staff-2` a person (fifteenth production review)
         && lib.types.keys().any(|t| t.to_lowercase() == prefix.to_lowercase())
     {
         return Some(format!(
@@ -186,8 +186,8 @@ pub fn decode(
         };
         let mut out: Vec<Value> = Vec::new();
         for item in items {
-            // a null is no element, where it reached the store and failed
-            // its constraint `500` (the differential battery, 2026-10-15)
+            // a null is no element, since the store's constraint would fail
+            // on it as a fault (the differential battery, 2026-10-15)
             if item.is_null() {
                 return Err(NotOfType(
                     "null is no element of a set".to_string(),
@@ -312,8 +312,8 @@ pub fn decode(
                     let s = v.as_str().ok_or_else(wrong)?;
                     // an identity names one actor as it reads: one holding
                     // a control, zero-width or bidirectional formatting
-                    // character is refused, where it named another actor
-                    // than the one it showed (fifth production review
+                    // character is refused, since it could name another
+                    // actor than the one it shows (fifth production review
                     // IDENTITY, ADR-0190 decision 4)
                     if t == "identity"
                         && let Some(why) = identity_fault(s, lib)
@@ -326,8 +326,8 @@ pub fn decode(
                             InputReason::Malformed,
                         ));
                     }
-                    // at most 64 KiB, where a title of 1.9 MB was stored
-                    // (third production review, ADR-0188 decision 1)
+                    // at most 64 KiB (third production review, ADR-0188
+                    // decision 1)
                     if s.len() > TEXT_BYTES {
                         return Err(NotOfType(
                             format!("a string holds at most {TEXT_BYTES} bytes, not {}", s.len()),
@@ -545,8 +545,7 @@ mod tests {
             .map(|v| encode(&v)),
             Ok(json!(["a-1", "a-2"]))
         );
-        // a null is no element of a set, refused as its type is, where it
-        // reached the store's constraint
+        // a null is no element of a set, refused as its type is
         for v in [json!([null]), json!(["a", null])] {
             assert_eq!(
                 decode(&v, &s("string"), true, &l).map_err(|e| e.1),
@@ -630,9 +629,8 @@ mod tests {
         );
     }
 
-    /// A `decimal(p,s)` holds `p` digits, as declaration-syntax.md §3.1 says,
-    /// where 18 were taken whatever its `p` (third production review,
-    /// minor); an amount holds the store's 18.
+    /// A `decimal(p,s)` holds `p` digits, as declaration-syntax.md §3.1 says
+    /// (third production review, minor); an amount holds the store's 18.
     #[test]
     fn a_decimal_holds_its_precisions_digits() {
         let l = lib();

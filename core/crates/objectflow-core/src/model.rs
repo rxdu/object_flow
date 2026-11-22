@@ -491,8 +491,10 @@ impl Library {
                         .and_then(|tt| tt.attribute(o))
                         .is_some_and(|back| back.many)
                 }),
-                // a value's fields are not timed in this slice (ADR-0254),
-                // and no attribute holds a list of entries (ADR-0290)
+                // a value's fields are not timed (ADR-0254), as `DESIGN.md`
+                // §5.2 times only an enumeration and a singular stored
+                // reference, and no attribute holds a list of entries
+                // (ADR-0290)
                 Declared::Value(_) | Declared::Entries(_) => false,
             };
             if tracked {
@@ -991,8 +993,8 @@ impl Reader<'_> {
 
     fn type_(&self, module: &str, name: &str, node: &Node) -> Loaded<Type> {
         let beyond = Vec::new();
-        // each part it inherits, with its cascade and survives, where every
-        // request of the type was not run (the values audit's K-11)
+        // each part it inherits, with its cascade and survives (the values
+        // audit's K-11)
         let mut inherited_parts = Vec::new();
         for (part, entry) in node
             .get("inherited_parts")
@@ -3012,9 +3014,9 @@ impl Library {
         }
         // a type's own invariant named as one a base's attribute generates,
         // `<attribute>_not_blank` or a value's `<attribute>_<invariant>`, is
-        // refused as one named after its own attribute's is, where it took
-        // the generated one's place in the subtype and a text marked never
-        // blank was written blank there; an attribute the type declares
+        // refused as one named after its own attribute's is, since it would
+        // take the generated one's place in the subtype and let a text marked
+        // never blank be written blank there; an attribute the type declares
         // again is its own (ADR-0257 decision 3, ADR-0255)
         for t in lib.types.values() {
             for b in bases(&t.name, &lib.types) {
@@ -3301,8 +3303,8 @@ impl Library {
         // target's personal attribute, or passed by the target transition,
         // one hop on, into another object's, which needs the library whole.
         // So a refused request's attempt row, and every other reader of the
-        // list's marking, withholds the list whole, where one whose field
-        // the target passed on was kept in clear (issue #102)
+        // list's marking, withholds the list whole, a field the target passes
+        // on included (issue #102)
         let mut lists = Vec::new();
         for (tn, t) in &lib.types {
             for (xn, x) in &t.transitions {
@@ -3406,8 +3408,7 @@ types:
 
     /// A part an abstract base declares takes, on each subtype, the cascade
     /// and survives its `inherited_parts` entry gives (`flow-format.md`
-    /// §4.14), where such a subtype was named beyond the slice and every
-    /// request of it not run (the values audit's K-11).
+    /// §4.14, the values audit's K-11).
     #[test]
     fn an_inherited_part_goes_with_each_subtype_as_it_says() {
         const NOTES: &str = r#"

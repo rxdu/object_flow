@@ -111,9 +111,8 @@ fn wide_mul(a: u128, b: u128) -> (u128, u128) {
 }
 
 impl Ord for Rat {
-    /// Exact: by sign, then by the cross products in 256 bits, where two
-    /// whose products passed 128 bits were compared as floats (the audit's
-    /// values A4).
+    /// Exact: by sign, then by the cross products in 256 bits, so two whose
+    /// products pass 128 bits compare exactly too (the audit's values A4).
     fn cmp(&self, o: &Rat) -> Ordering {
         match (self.n.signum(), o.n.signum()) {
             (a, b) if a != b => a.cmp(&b),
@@ -138,9 +137,8 @@ impl PartialOrd for Rat {
 mod tests {
     use super::*;
 
-    /// Two values whose cross products pass 128 bits compare exactly, where
-    /// they compared as floats and two neighbours were equal (the audit's
-    /// values A4).
+    /// Two values whose cross products pass 128 bits compare exactly, two
+    /// neighbours among them (the audit's values A4).
     #[test]
     fn rationals_compare_exactly_past_128_bits() {
         let m = i128::MAX;
