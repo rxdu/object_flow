@@ -2,7 +2,7 @@
 //! reference a repository's own checks use (ADR-0135, ADR-0155 decision 2):
 //! every module of the design with its examples file, byte for byte.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
 

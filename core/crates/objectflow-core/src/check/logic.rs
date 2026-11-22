@@ -1606,7 +1606,6 @@ pub type Logic = (Path, bool, &'static str, String);
 /// conditions it read it decided in full, reading nothing outside the type,
 /// of all it read (ADR-0137 decision 3); `followed` holds its transitions a
 /// follows clause names, each of which may change another object (ADR-0292).
-#[allow(clippy::too_many_lines)]
 pub fn analyse_type(
     tn: &str,
     t: &Value,
@@ -1888,7 +1887,6 @@ pub fn analyse_type(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use serde_json::json;

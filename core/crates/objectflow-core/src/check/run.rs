@@ -676,7 +676,6 @@ impl Player<'_> {
         Ok(Some(self.type_of(&id)?))
     }
 
-    #[allow(clippy::too_many_lines)]
     fn compare(&mut self, want: &Json, v: &Verdict, tested: &Json) -> Played<Option<String>> {
         let wanted = str_or(want, "verdict", "");
         let text = |r: Option<crate::model::Remedy>| {

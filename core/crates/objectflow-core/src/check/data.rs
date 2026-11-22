@@ -407,7 +407,6 @@ fn body_texts(x: &Value) -> Vec<String> {
 }
 
 /// The data checks over every declaration.
-#[allow(clippy::too_many_lines)]
 pub fn checks(docs: &[Value], all: &[Decl], world: &BTreeMap<&str, &Decl>, out: &mut Vec<Found4>) {
     let (kinds, metrics) = kinds_and_metrics(docs);
     // the values the modules declare, whose attributes are not tracked

@@ -2,7 +2,7 @@
 //! (ADR-0132 decision 2): every expression in the design's modules, and a
 //! hand-written set that reaches each construct of the grammar, each held to
 //! the tree the Python parser gives it, or to its refusing it.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::expect_used, clippy::panic)]
 
 mod common;
 

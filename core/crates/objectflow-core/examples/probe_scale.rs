@@ -7,7 +7,7 @@
 //! over-read: one type, five events an object, an in-memory SQLite store,
 //! one machine; times are the median of nine runs at each size, in
 //! milliseconds. Run with `cargo run --release --example probe_scale`.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::unwrap_used, clippy::panic)]
 
 use std::collections::BTreeMap;
 use std::time::Instant;

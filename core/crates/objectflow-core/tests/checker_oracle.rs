@@ -4,7 +4,7 @@
 //! found, run again through the core and compared by file, line, code and
 //! message, for the codes the core's checker covers so far.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::expect_used)]
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

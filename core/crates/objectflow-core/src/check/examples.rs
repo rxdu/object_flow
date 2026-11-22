@@ -586,7 +586,6 @@ impl Checker {
         errs
     }
 
-    #[allow(clippy::too_many_lines)]
     fn steps_errors(
         &self,
         steps: &[Value],
@@ -1204,7 +1203,7 @@ pub fn example_errors(
     (c.out, requested, exercised)
 }
 
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments)]
 fn expect_errors(
     c: &mut Checker,
     want: &Value,

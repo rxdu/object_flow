@@ -5,7 +5,7 @@
 //! 175 then. `scripts/check-compat.py` holds the digests and the reference
 //! runner to the same corpus.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::expect_used)]
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
