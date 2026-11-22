@@ -3191,11 +3191,9 @@ async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 ));
             }
         }
-        // a check of a change's submit runs its dry run, one at a time as a
-        // submit's does, where six at once took 9.3 GB outside every bound
-        // (fifth production review DRYRUN-MEMORY, ADR-0190 decision 2)
-        // a check of a change's submit runs its dry run as a submit does,
-        // its checks with no read open (ADR-0195 decision 1)
+        // a check of a change's submit runs its dry run as a submit does, one
+        // at a time, its checks with no read open (fifth production review
+        // DRYRUN-MEMORY, ADR-0190 decision 2, ADR-0195 decision 1)
         let prepared = match &req.object_id {
             Some(id) if shared.reads.is_some() && changes_the_flow(&shared, &req)? => {
                 match dry_running(&shared, id, actor_id(&body)?, &req.actor)? {
@@ -3242,8 +3240,8 @@ async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let mut told = verdict_told(&c.verdict, Some(&c.told));
         // a check writes nothing: the positions its simulation took, and a
         // creation's id, the next real request takes for what it writes, so
-        // a satisfied check names none and says them not computed, where it
-        // named them as its own (the audit's write path A-05)
+        // a satisfied check names none and says them not computed (the audit's
+        // write path A-05)
         if matches!(c.verdict, Verdict::Satisfied { .. }) {
             told["events"] = json!([]);
             let mut not = vec!["events"];
@@ -3276,8 +3274,8 @@ fn cursor_of(body: &J) -> Result<Option<i64>, Fault> {
             .parse::<i64>()
             .map(Some)
             .map_err(|_| Fault::Bad(format!("{c} is no cursor this store handed out"))),
-        // a cursor of another JSON type said as one, where a number read as
-        // a value the store never handed out (the guides' audit G-98)
+        // a cursor of another JSON type said as one, never read as a value the
+        // store handed out (the guides' audit G-98)
         Some(other) => Err(Fault::Bad(format!(
             "a cursor is a string, as the store hands it out, and {other} is a {}",
             match other {
@@ -3458,8 +3456,8 @@ async fn maintain(State(shared): State<Shared>, Body(body): Body) -> Answer {
     answering(move || {
         let task = object(&body, "task")?.map(|_| &body["task"]);
         // the indexes rebuilt, one at a time, the writer taken for each
-        // alone, so writes wait at most one index's rebuild, 0.6 s on the
-        // six-year store, where the whole took 5.2 s (ADR-0204 decision 9.5)
+        // alone, so writes wait at most one index's rebuild (ADR-0204
+        // decision 9.5)
         if let (Some(actor), Some("rebuild_indexes")) = (
             actor_id(&body)?,
             task.map(|t| text(t, "name")).transpose()?.flatten(),
@@ -3581,8 +3579,8 @@ const CONTEXT_BYTES: usize = 16 * 1024;
 fn idempotency_key_of(body: &J) -> Result<Option<String>, Fault> {
     match body.get("idempotency_key") {
         None | Some(J::Null) => Ok(None),
-        // a key is a retry's handle, kept per actor: one of a megabyte was
-        // stored as given (third production review, minor)
+        // a key is a retry's handle, kept per actor, at most `KEY_BYTES`
+        // (third production review, minor)
         Some(J::String(k)) if k.len() > KEY_BYTES => Err(Fault::Bad(format!(
             "idempotency_key takes at most {KEY_BYTES} bytes"
         ))),
@@ -3685,8 +3683,8 @@ fn request_parts(body: &J, named: bool) -> Result<Request, Fault> {
         // why the request was sent and by which route (library-api.md §3)
         context: match body.get("context") {
             None | Some(J::Null) => None,
-            // recorded on each event the request writes: 1.9 MB was stored
-            // as given (third production review, minor)
+            // recorded on each event the request writes, at most
+            // `CONTEXT_BYTES` (third production review, minor)
             Some(J::String(c)) if c.len() > CONTEXT_BYTES => {
                 return Err(Fault::Bad(format!(
                     "context takes at most {CONTEXT_BYTES} bytes"
@@ -3966,8 +3964,8 @@ async fn import_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "a batch admits through its disposition file, not admitted (ADR-0154)".to_string(),
             ));
         }
-        // a misspelt key read as absent raised no sequence, so a go-live's
-        // numbers could take a legacy record's (found 2026-10-15)
+        // a misspelt key refused, never read as absent, so a sequence's raise
+        // is never dropped and a go-live's numbers never take a legacy record's
         takes_only(
             b,
             "a batch",
@@ -4050,8 +4048,8 @@ fn object_json(s: &Store, id: &str) -> Answer {
         return Err(Fault::Internal(format!("the type {}", o.type_)));
     };
     // the version its row was last written under, which its last event
-    // carries (storage-schema.md §3), read by the object's index alone,
-    // where its whole history was read (the audit's cost B11)
+    // carries (storage-schema.md §3), read by the object's index alone
+    // (the audit's cost B11)
     let declaration_version = world.version_of(&o.id)?;
     // the type it was of under that version, the pair naming the
     // declaration its values were written under (ADR-0244)
@@ -4093,8 +4091,8 @@ async fn get(State(shared): State<Shared>, Body(body): Body) -> Answer {
         )?;
         let mut r = reading(&shared)?;
         let s = r.store()?;
-        // with follow, where its supersession chain ends: taken and ignored
-        // until the third production review read it (DESIGN.md §5)
+        // with follow, where its supersession chain ends (third production
+        // review, DESIGN.md §5)
         if follow {
             let end = reads::followed(&s.snapshot()?, id)?;
             return object_json(s, &end);
@@ -4114,8 +4112,7 @@ async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
             ));
         };
         // an expected_version is a version, read as such even where a
-        // preview ignores it, where one of any JSON type was taken
-        // (thirteenth production review)
+        // preview ignores it (thirteenth production review)
         let expected = int(&body, "expected_version")?;
         if flag(&body, "dry_run")? {
             // a preview is a read: a deployment's runs beside the writes,
@@ -4170,10 +4167,9 @@ async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// A change's dry run as its three routes run it, a submit's or refresh's,
 /// a preview's and a check's: its slot taken; the change read; its checks
 /// run with no read of the store open, so an erasure's cut of the
-/// write-ahead log never waits for them, where an agent's large change held
-/// an erased value in the store's files for the whole of a 38.7 s check;
-/// and its impact on a second read, stopped by an urgent cut as every read
-/// is (eighth production review ERASE-WAL-DRYRUN, ADR-0195 decision 1).
+/// write-ahead log never waits for them, however long they run; and its
+/// impact on a second read, stopped by an urgent cut as every read is
+/// (eighth production review ERASE-WAL-DRYRUN, ADR-0195 decision 1).
 fn dry_running(
     shared: &Shared,
     change: &str,
@@ -4226,9 +4222,8 @@ fn dry_running(
 /// said as such: a submit's and a preview's run on a read beside the
 /// writes, and are never computed again under the lock (PUBLISH-SCALE).
 fn dry_run_late(shared: &Shared) -> Fault {
-    // the store's size or the change's: either may make a dry run long,
-    // where it blamed the store when the module was (ninth production
-    // review)
+    // the store's size or the change's: either may make a dry run long
+    // (ninth production review)
     Fault::TimedOut(format!(
         "the change's dry run passed --dry-run-timeout ({} s), waiting for its slot and running, and was stopped; a large store or a large change needs a longer one, and one that waited behind another's may be sent again",
         shared.dry_run_timeout.as_secs()
@@ -4418,30 +4413,27 @@ async fn events(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 "events takes positions, a list of integers".to_string(),
             ));
         };
-        // a page's worth at most, where one position repeated 200,000 times
-        // built an answer of gigabytes (second production review)
+        // a page's worth at most (second production review)
         if positions.len() > reads::PAGE_LIMIT {
             return Err(Fault::Bad(format!(
                 "events takes at most {} positions",
                 reads::PAGE_LIMIT
             )));
         }
-        // each position once, where one named a thousand times answered a
-        // 7 kB request with 201 MB (fifth production review, ADR-0190
-        // decision 6)
+        // each position once (fifth production review, ADR-0190 decision 6)
         let mut seen = std::collections::BTreeSet::new();
         if let Some(twice) = positions.iter().find(|p| !seen.insert(**p)) {
             return Err(Fault::Bad(format!(
                 "events takes each position once, not {twice} twice"
             )));
         }
-        // waiting its turn: a thousand large positions answered 16.5 MB,
-        // eight at once 572 MB (ADR-0192 decision 5); in the objects' pool,
-        // never behind a worklist (ADR-0195 decision 5)
+        // waiting its turn, since a page of large events is megabytes (ADR-0192
+        // decision 5); in the objects' pool, never behind a worklist (ADR-0195
+        // decision 5)
         let (_slot, mut r) = heavy_reading(&shared, &shared.objects, actor_id(&body)?)?;
         let s = r.store()?;
-        // at most a page's bytes, where a thousand of large inputs answered
-        // 108 MB (seventh production review, ADR-0194 decision 6)
+        // at most a page's bytes (seventh production review, ADR-0194
+        // decision 6)
         let found = s.events_within(&positions)?.map_err(|fit| {
             Fault::Bad(format!(
                 "events' answer would pass {} MiB at its {}th position; ask for fewer",
@@ -4493,8 +4485,7 @@ async fn declaration(State(shared): State<Shared>, Body(body): Body) -> Answer {
     answered_off(move || {
         let mut r = reading(&shared)?;
         let s = r.store()?;
-        // its type required, as wire.md says, where none was read as a type
-        // of no name and answered 404 (the guides' audit G-93)
+        // its type required, as wire.md says (the guides' audit G-93)
         let name = text(&body, "type")?
             .ok_or_else(|| Fault::Bad("declaration names a type".to_string()))?;
         // the version asked for, the installed one where none is
@@ -4517,8 +4508,7 @@ async fn declaration(State(shared): State<Shared>, Body(body): Body) -> Answer {
         };
         let mut out = t.source.clone();
         // a retired type takes no transition but its erasure, and its
-        // declaration lists only what it still takes, where it listed every
-        // transition the version that last declared it held (ADR-0229)
+        // declaration lists only what it still takes (ADR-0229)
         if t.retired
             && let Some(J::Object(xs)) = out.get_mut("transitions")
         {
@@ -4695,9 +4685,8 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
         };
         let order = strings("order")?.unwrap_or_default();
         let fields = strings("fields")?;
-        // a few keys and fields, each once, where 100k order keys took 5.1 s
-        // and 10k fields named again 6.7 s (ninth production review, ADR-0196
-        // decision 9)
+        // a few keys and fields, each once, since a long list costs seconds
+        // to read (ninth production review, ADR-0196 decision 9)
         for (k, names, most) in [
             ("order", Some(&order), QUERY_ORDER_KEYS),
             ("fields", fields.as_ref(), QUERY_FIELDS),
@@ -4804,8 +4793,8 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
             ),
             Some(_) => return Err(Fault::Bad("keep takes dimension names".to_string())),
         };
-        // a dimension kept once, where one named 5,000 times ran to the read's
-        // deadline (seventh production review, ADR-0194 decision 6)
+        // a dimension kept once (seventh production review, ADR-0194
+        // decision 6)
         if let Some(keep) = &keep {
             let mut seen = std::collections::BTreeSet::new();
             if let Some(twice) = keep.iter().find(|d| !seen.insert(d.as_str())) {
@@ -4816,9 +4805,8 @@ async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
         }
         let over = match text(&body, "over")? {
             None => None,
-            // a window back from now is positive, where one of "-5 days"
-            // answered an empty page (fifth production review, ADR-0191
-            // decision 3)
+            // a window back from now is positive (fifth production review,
+            // ADR-0191 decision 3)
             Some(by) => Some(parse_duration(by).filter(|s| *s > 0).ok_or_else(|| {
                 Fault::Bad(format!(
                     "over takes a positive duration such as '30 days': {by}"
@@ -4883,8 +4871,8 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
             }
             // a store file moved, gone or replaced under the service, said
             // before the path is read, which reads the file that replaced
-            // it, and answered 503 as a write is, where one gone answered
-            // 500 (fourth and fifth production reviews, ADR-0191 decision 4)
+            // it, and answered 503 as a write is (fourth and fifth
+            // production reviews, ADR-0191 decision 4)
             if let Some(replaced) = store_lost(&shared) {
                 let body = json!({"release": BUILTINS, "shape": "deployment",
                                   "code": fault_code(503, &replaced), "fault": replaced});
@@ -4901,9 +4889,8 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
                 objectflow_core::release::store_release_at,
             ) {
                 Ok(Some(r)) if r == BUILTINS => {}
-                // a code an operator acts on, as every one of /health's is,
-                // where it answered 500 internal (ninth production review,
-                // ADR-0196 decision 9)
+                // a code an operator acts on, as every one of /health's is
+                // (ninth production review, ADR-0196 decision 9),
                 // and latched, as a write's finding is, since `/health` is
                 // asked on a listener of its own too (ADR-0205 decision 8)
                 Ok(at) => {
@@ -4943,11 +4930,9 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
                               "requests_in_flight": shared.in_flight.load(Ordering::SeqCst),
                               "connections_open": shared.connections.open.load(Ordering::SeqCst),
                               "disk_free_bytes": free});
-            // a volume too full for a checkpoint answers 503, said, where a
-            // full disk answered 200 and a write then failed (ADR-0188
-            // decision 3); and a store file moved or replaced, a log no one
-            // reads, and writes stopped behind another process's lock, each
-            // answered 200 (fourth production review)
+            // a volume too full for a checkpoint answers 503, said (ADR-0188
+            // decision 3); and so do a full volume, a log no one reads, and
+            // writes stalled or failing (fourth production review)
             let now = wall_millis();
             let fault = if let Some(bytes) = free.filter(|b| disk_low(*b)) {
                 Some(format!(
@@ -4971,8 +4956,7 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
                 .waiting()
                 .filter(|_| shared.writer_since.load(Ordering::SeqCst) != 0)
             {
-                // from a write's first retry, where it was said only once
-                // a write was refused, 40 s on (ADR-0195 decision 6)
+                // from a write's first retry (ADR-0195 decision 6)
                 Some(format!(
                     "writes_stalled: a write has waited {} s for another process's lock on the store",
                     (now - since).max(0) / 1000
@@ -5068,8 +5052,8 @@ async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
             ));
         }
         if sandbox.due.is_none() {
-            // an operator's act whether or not one is due: another actor was
-            // answered that nothing was due (third production review)
+            // an operator's act whether or not one is due (third production
+            // review)
             let s = store(&mut sandbox)?;
             if !is_operator(&s.snapshot()?, actor)? {
                 return Err(Fault::Conflict(format!(
@@ -5090,10 +5074,8 @@ async fn upgrade(State(shared): State<Shared>, Body(body): Body) -> Answer {
                 // the upgrade's own connection, the only one open on a store
                 // due an upgrade, removes the write-ahead log as it closes,
                 // whether it ran, rolled back as a dry run does or was
-                // refused: the log noted again, as the service's own act,
-                // where the next write found it gone and latched the store
-                // replaced, telling the operator to restore a store nothing
-                // had harmed (issue #27)
+                // refused: the log noted again, as the service's own act, so
+                // the next write does not latch the store replaced (issue #27)
                 note_log(&shared);
                 (upgraded?, path.display().to_string())
             }
@@ -5262,8 +5244,8 @@ async fn logged(
         shared.watch.wrote(status, wall_millis());
     }
     // what a publish, an import or a long read freed, given back to the
-    // system, which glibc kept: 975 MB held after one publish on 37k
-    // objects, 23 MB once given back (third production review MEMORY-2)
+    // system, which glibc otherwise keeps (third production review
+    // MEMORY-2)
     if route == "/v1/publish" || route == "/v1/import_batch" || took >= HEAVY {
         give_back(&shared);
     }
@@ -5707,7 +5689,7 @@ fn args() -> Result<Args, String> {
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         // an option where a value belongs, `--store --create` for a path
-        // forgotten, refused naming both, where it was taken as the value
+        // forgotten, refused naming both, never taken as the value
         let mut value = || match args.next() {
             Some(v) if v.starts_with("--") => {
                 Err(format!("{a} takes a value, and is given the option {v}"))
@@ -5865,8 +5847,8 @@ fn args() -> Result<Args, String> {
     if out.create && !out.deployed() {
         return Err("--create makes a deployment's store, which --store names".to_string());
     }
-    // a socket path no socket can have is refused before anything is made,
-    // where --create made the store first (fourteenth production review)
+    // a socket path no socket can have is refused before anything is made
+    // (fourteenth production review)
     if let Some(said) = out.socket.as_deref().and_then(socket_too_long) {
         return Err(said);
     }
@@ -5906,9 +5888,9 @@ fn token_from(file: &std::path::Path) -> Result<String, String> {
     if token.is_empty() {
         return Err(format!("{} holds no token", file.display()));
     }
-    // a header's value holds no control character, where a token holding a
-    // line break was taken and every call then failed (ninth production
-    // review, ADR-0196 decision 9)
+    // a header's value holds no control character, so a token holding a
+    // line break is refused at the start, not at every call (ninth
+    // production review, ADR-0196 decision 9)
     if token.chars().any(char::is_control) {
         return Err(format!(
             "{} holds a token with a control character, such as a line break inside it, which no header can carry",
@@ -5926,7 +5908,7 @@ const SOCKET_PATH: usize = 107;
 /// nests at most `expr::MAX_NESTING` levels and its tree is at most
 /// `expr::MAX_DEPTH` deep, and evaluating one level of a tree took about
 /// 8 KiB of stack in a release build, measured 2026-10-11; 16 MiB holds
-/// those many times over, where the runtime's default 2 MiB did not hold a
+/// those many times over, and the runtime's default 2 MiB does not hold a
 /// 256-level tree (F1).
 const WORKER_STACK: usize = 16 * 1024 * 1024;
 
@@ -5936,9 +5918,9 @@ const MAX_CONNECTIONS: usize = 4_096;
 
 fn main() {
     // a thread for every request the connection cap lets run, and room
-    // beside them, so /health and /metrics always have one: at tokio's 512,
-    // 700 requests waiting on an evaluator held /health on --metrics-bind
-    // 17.9 s (thirteenth production review N4)
+    // beside them, so /health and /metrics always have one, never waiting
+    // behind requests that hold every thread on an evaluator (thirteenth
+    // production review N4)
     let ran = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .max_blocking_threads(MAX_CONNECTIONS + 64)
@@ -5962,14 +5944,12 @@ const LOG_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// A store refused at its start, its fault said once, and where a `-wal`
 /// or `-shm` lies beside it what a copy restored beside another state's
-/// needs: SQLite's own words, "malformed database schema", read as a broken
-/// backup, where the copy was whole (seventh production review
+/// needs, whatever SQLite's own words say (seventh production review
 /// MSG-RESTORE, ADR-0194 decision 6).
 fn refused_start(path: &std::path::Path, fault: &dyn std::fmt::Display) -> std::io::Error {
     // where a log beside it holds frames, as the start's note judges one,
-    // and said as what a restore may have done, where every refused start
-    // after any earlier run told an operator they had restored (the audit's
-    // durability C5)
+    // and said as what a restore may have done, never after a clean earlier
+    // run (the audit's durability C5)
     let beside = std::fs::metadata(wal_path(path)).is_ok_and(|m| m.len() > 0);
     std::io::Error::other(if beside {
         format!(
@@ -6010,10 +5990,8 @@ const GRACE: std::time::Duration = std::time::Duration::from_secs(30);
 /// asks or SIGINT as a terminal does: it takes no new connection, answers
 /// the requests in flight, and exits; past [`GRACE`] it exits without them
 /// (ADR-0183 decision 9). SIGHUP, which a log rotation's `kill -HUP` sends,
-/// is said and ignored, where it ended the service at once with nothing in
-/// flight answered, an end systemd's `Restart=on-failure` counts clean and
-/// does not restart (eleventh production review): the log goes to standard
-/// error, and there is nothing to reopen.
+/// is said and ignored (eleventh production review): the log goes to
+/// standard error, and there is nothing to reopen.
 fn stopping() -> std::io::Result<impl std::future::Future<Output = ()>> {
     use tokio::signal::unix::{SignalKind, signal};
     let mut term = signal(SignalKind::terminate())?;
@@ -6079,8 +6057,8 @@ async fn keep_the_log_short(shared: Shared) {
 }
 
 /// On PostgreSQL, an erasure's vacuum still due tried again every
-/// `CUT_EVERY`, where it waited for the next write and an idle store kept
-/// the erased rows' old versions (personal data on PostgreSQL 9).
+/// `CUT_EVERY`, never waiting for the next write (personal data on
+/// PostgreSQL 9).
 async fn keep_erasures_vacuumed(shared: Shared) {
     let mut every = tokio::time::interval(CUT_EVERY);
     loop {
@@ -6092,8 +6070,7 @@ async fn keep_erasures_vacuumed(shared: Shared) {
 
 /// An erasure's vacuum, due, tried once with the writer where it is free,
 /// since a write runs it itself; said once it has waited a minute, with
-/// why, and once it is done, where a vacuum that stayed due was never said
-/// (personal data on PostgreSQL 5).
+/// why, and once it is done (personal data on PostgreSQL 5).
 fn vacuum_back(shared: &Service) {
     let Ok(mut w) = shared.writer.try_lock() else {
         return;
@@ -6140,9 +6117,9 @@ fn vacuum_back(shared: &Service) {
 const STALL_LOOK: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// A wait for another process's lock looked for on a tick of its own, which
-/// reads only what the store tells and never the writer: on the log's cut's
-/// tick, which takes the writer, it was said only once the stalled write
-/// gave up, and never in a stall of 30 s (ninth production review).
+/// reads only what the store tells and never the writer: the log's cut's
+/// tick takes the writer, so a stall it looked for would be said only once
+/// the stalled write gave up (ninth production review).
 async fn watch_for_stalls(shared: Shared) {
     let mut every = tokio::time::interval(STALL_LOOK);
     loop {
@@ -6156,9 +6133,8 @@ async fn watch_for_stalls(shared: Shared) {
 }
 
 /// Free space on the store's volume below what a checkpoint needs, said in
-/// the log once as it falls below and once as it recovers, where only
-/// `/health` and `/metrics` said it (ADR-0200 decision 7). Whether a line
-/// was said.
+/// the log once as it falls below and once as it recovers (ADR-0200
+/// decision 7). Whether a line was said.
 fn tell_low_disk(watch: &Watch, free: Option<u64>) -> bool {
     let Some(free) = free else {
         return false;
@@ -6180,8 +6156,8 @@ fn tell_low_disk(watch: &Watch, free: Option<u64>) -> bool {
 }
 
 /// A write waiting for another process's lock on the store, said once in
-/// the log as it waits, where nothing named a stall (eighth production
-/// review, ADR-0195 decision 6). Whether it was said.
+/// the log as it waits (eighth production review, ADR-0195 decision 6).
+/// Whether it was said.
 fn tell_a_stall(shared: &Service) -> bool {
     let Some(since) = shared.watch.waiting() else {
         return false;
@@ -6203,11 +6179,11 @@ fn tell_a_stall(shared: &Service) -> bool {
 /// one still runs, the cut is left for the next look and the held reads go
 /// on, unless it is urgent, an erasure's truncation due or the log past
 /// `WAL_URGENT` times its limit: then the reads running are stopped, each
-/// answered `503 read_timeout`, and the log is cut. Reads that always
-/// overlapped kept it growing until they paused, 3.2 GB in 150 s, and kept
-/// an erasure's frames in it (fourth production review A-5, A-14); waiting
-/// out the longest held every new read behind it, a person's worklist 25 s
-/// behind an agent's sweep (seventh production review CUTSTALL, ADR-0194
+/// answered `503 read_timeout`, and the log is cut. Without that stop,
+/// reads that always overlap keep the log growing until they pause, an
+/// erasure's frames in it (fourth production review A-5, A-14); and the
+/// hold is a moment, since waiting out the longest read would hold every
+/// new read behind it (seventh production review CUTSTALL, ADR-0194
 /// decision 4). Whether it was cut.
 fn cut_back(shared: &Service, limit: u64) -> bool {
     let Some(path) = &shared.store_path else {
@@ -6244,8 +6220,8 @@ fn cut_back(shared: &Service, limit: u64) -> bool {
     // every pool held a moment, one that does not drain in it holding the
     // rest too
     // every pool barred before any is waited for, so no read begins in one
-    // while the cut waits on another, to be found running and stopped, as a
-    // worklist begun while a report held the cut was (ADR-0205 decision 14)
+    // while the cut waits on another, to be found running and stopped
+    // (ADR-0205 decision 14)
     let moment = std::time::Instant::now() + CUT_HOLD;
     for p in &pools {
         p.bar();
@@ -6331,8 +6307,7 @@ fn trim_due(seen: u64, answered: u64, in_flight: usize) -> bool {
 
 /// A state told to systemd's notify socket where the unit names one,
 /// `Type=notify`: `READY=1` once the service answers and `STOPPING=1` as it
-/// stops, where a unit could only guess when the socket was ready (fourth
-/// production review).
+/// stops (fourth production review).
 fn notify(state: &str) {
     let Some(path) = std::env::var_os("NOTIFY_SOCKET") else {
         return;
@@ -6424,10 +6399,9 @@ impl tokio::io::AsyncWrite for Conn {
 }
 
 /// A connection whose writes its client does not take within the idle
-/// timeout fails them, so the connection closes: an answer no one read was
-/// held without bound, eight of them 750 MB for 40 s and more (seventh
-/// production review, ADR-0194 decision 6). A write that moves at all, a
-/// slow client's, starts the timeout again.
+/// timeout fails them, so the connection closes and no answer no one reads
+/// is held without bound (seventh production review, ADR-0194 decision 6).
+/// A write that moves at all, a slow client's, starts the timeout again.
 struct Unread<T> {
     io: T,
     idle: std::time::Duration,
@@ -6694,9 +6668,8 @@ async fn served(
                 continue;
             }
         };
-        // this listener's own connections against its own cap, where the
-        // count both listeners share left --metrics-bind refusing every
-        // health check once the main listener held 16 (sixth production
+        // this listener's own connections against its own cap, so the main
+        // listener's connections never fill --metrics-bind's (sixth production
         // review F9)
         let at_cap = open
             .lock()
@@ -6845,9 +6818,8 @@ fn bind_socket(path: &std::path::Path) -> std::io::Result<tokio::net::UnixListen
 /// Whether a file that holds something is a store: a SQLite database with
 /// the store's declarations' table.
 fn is_store(path: &std::path::Path) -> std::io::Result<bool> {
-    // with the advice a restore beside another state's log needs, where a
-    // backup restored beside a later -wal was refused with SQLite's words
-    // alone (eighth production review, ADR-0195 decision 7)
+    // with the advice a restore beside another state's log needs (eighth
+    // production review, ADR-0195 decision 7)
     objectflow_core::release::holds_store(path).map_err(|e| refused_start(path, &e))
 }
 
@@ -6864,9 +6836,8 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
         .map(|m| m.len() > 0)
         .unwrap_or(false);
     // a database holding not a table is no store: what a crash while
-    // --create made one leaves, which a start with --create makes, where
-    // every start refused it as no ObjectFlow store (the audit's durability
-    // W11)
+    // --create made one leaves, which a start with --create makes (the
+    // audit's durability W11)
     let empty = sized && objectflow_core::release::holds_nothing(path).unwrap_or(false);
     let held = sized && !empty;
     let mut notes = Vec::new();
@@ -6888,9 +6859,9 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
         .parent()
         .filter(|d| !d.as_os_str().is_empty())
         .unwrap_or(std::path::Path::new("."));
-    // a directory that does not exist is said so, where the start told it
-    // to use --create, which then failed (ninth production review, ADR-0196
-    // decision 9)
+    // a directory that does not exist is said so, never answered with
+    // advice to use --create, which would fail (ninth production review,
+    // ADR-0196 decision 9)
     if !dir.is_dir() {
         return Err(std::io::Error::other(format!(
             "the directory {} does not exist; make it, owned by the service's user, then start once with --create",
@@ -6901,9 +6872,8 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
         if !create {
             // an empty database beside a log holding frames is also what a
             // file copied without its log and restored beside a later
-            // state's leaves: said as a restore's, where it advised a start
-            // with --create, which would take that log in (found as a
-            // deployment's ids became UUIDv7s, ADR-0226)
+            // state's leaves: said as a restore's, since a start with
+            // --create would take that log in (ADR-0226)
             if empty && std::fs::metadata(&wal).is_ok_and(|m| m.len() > 0) {
                 return Err(refused_start(
                     path,
@@ -6923,9 +6893,8 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
             }));
         }
         // a directory that does not exist, among the faults, names the path
-        // it was asked for (third production review)
-        // with what to do, where it gave the system's words alone (tenth
-        // production review)
+        // it was asked for, with what to do (third and tenth production
+        // reviews)
         let named = |e: std::io::Error| {
             std::io::Error::other(format!(
                 "{}: {e}; give the service's user the directory {} and its write permission",
@@ -6953,8 +6922,8 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
         ));
     }
     // and a directory it cannot write in, where SQLite makes the store's
-    // -wal and -shm, said so, where it gave SQLite's "attempt to write a
-    // readonly database" (ninth production review, ADR-0196 decision 9)
+    // -wal and -shm, said so (ninth production review, ADR-0196
+    // decision 9)
     let probe = dir.join(format!(".objectflow-start-{}", std::process::id()));
     match std::fs::OpenOptions::new()
         .write(true)
@@ -6971,8 +6940,7 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
             )));
         }
     }
-    // a directory is no store, where it was told to get write permission
-    // (eleventh production review)
+    // a directory is no store (eleventh production review)
     if path.is_dir() {
         return Err(std::io::Error::other(format!(
             "{} is a directory; --store names the store's file in it, such as {}",
@@ -6980,8 +6948,8 @@ fn store_file(path: &std::path::Path, create: bool) -> std::io::Result<Vec<Strin
             path.join("store.sqlite").display()
         )));
     }
-    // a store the service cannot write is refused, where it started, said
-    // 200 at /health and answered every write 500 (ADR-0192 decision 7)
+    // a store the service cannot write is refused at the start (ADR-0192
+    // decision 7)
     std::fs::OpenOptions::new()
         .append(true)
         .open(path)
@@ -7143,10 +7111,9 @@ async fn serve() -> std::io::Result<()> {
     // a stop asked for once it listens is a graceful one
     let stop = stopping()?;
     // both addresses bound before the store is touched, so a start refused
-    // for a busy one changes no file, where it had already turned a restored
-    // copy to WAL, made its indexes and folded its log (the audit's
-    // durability C3); where it listens said once the store is open, so the
-    // line still means it serves
+    // for a busy one changes no file (the audit's durability C3); where it
+    // listens said once the store is open, so the line still means it
+    // serves
     let mut listening_said = Vec::new();
     let listening = match &a.socket {
         Some(path) => {
@@ -7161,8 +7128,7 @@ async fn serve() -> std::io::Result<()> {
             let at = l.local_addr()?;
             listening_said.push(format!("listening on http://{at}"));
             // the service authenticates nobody, so an address beyond
-            // loopback is said, where it started without a word (fourth
-            // production review)
+            // loopback is said (fourth production review)
             if !at.ip().is_loopback() {
                 listening_said.push(format!(
                     "listening beyond loopback, on {at}: the service authenticates nobody, so whoever reaches this address may act as any actor; bind 127.0.0.1 or give --socket, behind the application that authenticates (core/README.md)"
@@ -7187,9 +7153,9 @@ async fn serve() -> std::io::Result<()> {
         // upgrade until it runs, and one at any other refuses to start, so
         // there is no downgrade (ADR-0177 decision 4)
         noted = store_file(path, a.create)?;
-        // a second service on the store said at the start, where it started
-        // with an ambiguous line; it is served, as ADR-0178 decision 2 lets
-        // an upgrade's old copy share the store (ADR-0192 decision 7)
+        // a second service on the store said at the start; it is served, as
+        // ADR-0178 decision 2 lets an upgrade's old copy share the store
+        // (ADR-0192 decision 7)
         noted.extend(hold_store(path)?);
         let at = objectflow_core::release::store_release_at(path)
             .map_err(|e| refused_start(path, &e))?;
@@ -7200,10 +7166,9 @@ async fn serve() -> std::io::Result<()> {
         sandbox.path = Some(path.clone());
         sandbox.retentions = a.retentions;
         // the file and its log checked before anything opens them to write,
-        // so a refused start leaves both as they were, where it wrote another
-        // state's log into a restored copy (fourth production review A-16);
-        // a store due an upgrade too, which was upgraded, and so written,
-        // unchecked (the audit's durability C4)
+        // so a refused start leaves both as they were (fourth production
+        // review A-16), a store due an upgrade among them (the audit's
+        // durability C4)
         if at.is_some() {
             let checked = Store::checked_file(path).map_err(|e| refused_start(path, &e))?;
             if let Some(fault) = checked {
@@ -7227,8 +7192,8 @@ async fn serve() -> std::io::Result<()> {
             }
             _ => {
                 // its opening's fault said as a restore beside another
-                // state's log needs, where it gave SQLite's words alone
-                // (eighth production review, ADR-0195 decision 7)
+                // state's log needs (eighth production review, ADR-0195
+                // decision 7)
                 let mut s = Store::open(path, wall_clock()).map_err(|e| refused_start(path, &e))?;
                 // a copy restored at its opening, said (ADR-0207)
                 if let Some(r) = &s.restored {
@@ -7275,8 +7240,7 @@ async fn serve() -> std::io::Result<()> {
     if let Some(url) = &a.postgres {
         let config = postgres_config(url, a.password_file.as_deref())?;
         // a store at an earlier release served its upgrade alone, as a
-        // file's is, where it was refused at the start and stranded
-        // (durability on PostgreSQL 6)
+        // file's is, never stranded (durability on PostgreSQL 6)
         let at = objectflow_core::release::store_release_postgres(&config)
             .map_err(|e| std::io::Error::other(format!("{config:?}: {e}")))?;
         let busy = a
@@ -7305,8 +7269,8 @@ async fn serve() -> std::io::Result<()> {
         } else {
             let mut s = Store::open_postgres(&config, wall_clock(), a.create)
                 .map_err(|e| std::io::Error::other(format!("{config:?}: {e}")))?;
-            // a copy restored at its opening, said, as a file's is, where the
-            // start said nothing of it (durability on PostgreSQL 2)
+            // a copy restored at its opening, said, as a file's is
+            // (durability on PostgreSQL 2)
             if let Some(r) = &s.restored {
                 noted.push(restore_said(&format!("{config:?}"), r));
             }
@@ -7451,8 +7415,8 @@ async fn serve() -> std::io::Result<()> {
     let shared = Arc::new(service);
     let router = app(shared.clone(), deployment);
     let _ = BODY_READ.set(a.idle_timeout);
-    // `/metrics` and `/health` alone on an address of their own, where a
-    // service on a socket could not be scraped (fourth production review)
+    // `/metrics` and `/health` alone on an address of their own, so a
+    // service on a socket can be scraped (fourth production review)
     if let Some(l) = metrics_listener {
         say!("metrics and health on http://{}", l.local_addr()?);
         let router = Router::new()
@@ -7469,7 +7433,7 @@ async fn serve() -> std::io::Result<()> {
         ));
     }
     // what a run of short requests left held, given back once the service
-    // is idle, where it waited for a heavy request (fourth production
+    // is idle, never waiting for a heavy request (fourth production
     // review)
     tokio::spawn(idle_trims(shared.clone()));
     if shared.store_path.is_some() {
@@ -7500,11 +7464,9 @@ async fn serve() -> std::io::Result<()> {
         a.max_connections,
     )
     .await;
-    // the socket goes with the service; a start replaces one left by a
-    // service that was killed
-    // and one already gone said, the stop going on to its checkpoint, where
-    // the stop ended in an error and the checkpoint was skipped (the audit's
-    // durability C7)
+    // the socket goes with the service, and one already gone is said, the
+    // stop going on to its checkpoint (the audit's durability C7); a start
+    // replaces one left by a service that was killed
     if let Some(path) = &a.socket
         && let Err(e) = std::fs::remove_file(path)
     {
@@ -7516,8 +7478,8 @@ async fn serve() -> std::io::Result<()> {
     // its log into a file that is not the store's, or out of one that is
     // gone (ADR-0205 decision 8)
     if let Some(why) = shared.watch.latched.get() {
-        // a store on PostgreSQL has no file to carry a log into, where the
-        // stop named SQLite's (durability on PostgreSQL 10)
+        // a store on PostgreSQL has no file to carry a log into, and the stop
+        // names none (durability on PostgreSQL 10)
         if shared.store_path.is_some() {
             say!(
                 "the write-ahead log was not carried into the store's file, the store being lost: {why}"
@@ -7681,8 +7643,8 @@ mod tests {
         assert!(log_blocked(1_000_000, 1_000_000 + LOG_BLOCKED_MS + 1));
     }
 
-    /// A body naming a key twice is refused, where the last one won; one
-    /// naming each once reads as it did (ADR-0190 decision 8).
+    /// A body naming a key twice is refused; one naming each once reads as
+    /// it did (ADR-0190 decision 8).
     #[test]
     fn a_body_names_each_key_once() {
         assert!(
@@ -7700,8 +7662,7 @@ mod tests {
     }
 
     /// A fault's reason is said in the log at most 1 KiB long, cut on a
-    /// character's boundary, where a filter of 1.9 MB was written whole
-    /// (fourth production review A-10).
+    /// character's boundary (fourth production review A-10).
     #[test]
     fn a_faults_reason_is_said_bounded() {
         assert_eq!(said("short"), "short");
@@ -7899,10 +7860,9 @@ mod tests {
 
     /// The log's cut holds new reads a moment: where a read runs past it, a
     /// cut not yet urgent is left for the next look and the held reads are
-    /// let in, and an urgent one stops the read running and cuts, where it
-    /// held every new read until the longest ended, a person's worklist 25 s
-    /// behind an agent's sweep (seventh production review CUTSTALL,
-    /// ADR-0194 decision 4).
+    /// let in, and an urgent one stops the read running and cuts, so no new
+    /// read waits for the longest to end (seventh production review
+    /// CUTSTALL, ADR-0194 decision 4).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[allow(clippy::panic)]
     async fn a_cut_holds_new_reads_a_moment_and_stops_long_ones_when_urgent() {
@@ -8052,9 +8012,7 @@ mod tests {
 
     /// An agent's reads wait in a pool of their own: with every worklist
     /// slot held an agent's query is answered, and with the agents' held a
-    /// person's is, where four of an agent's queries held every worklist slot
-    /// and a person waited 28.6 s (sixth production review P5, ADR-0192
-    /// decision 3).
+    /// person's is (sixth production review P5, ADR-0192 decision 3).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[allow(clippy::panic)]
     async fn an_agents_reads_wait_in_a_pool_of_their_own() {
@@ -8206,9 +8164,8 @@ mod tests {
                 )
             }
         };
-        // an order key or a field named twice, or past their most, is a 400,
-        // where 100k order keys took 5.1 s (ninth production review,
-        // ADR-0196 decision 9)
+        // an order key or a field named twice, or past their most, is a 400
+        // (ninth production review, ADR-0196 decision 9)
         for body in [
             json!({"actor": op, "type": "Bot", "order": ["key", "key"]}),
             json!({"actor": op, "type": "Bot", "fields": ["key", "state", "key"]}),
@@ -8528,8 +8485,8 @@ mod tests {
         });
         assert!(held.iter().all(Result::is_ok), "no slot free");
         let waited = |answer: Answer, started: Instant, route: &str| {
-            // a change's dry run's wait said by its own flag, where it named
-            // --read-timeout and --max-reads (ninth production review N-8)
+            // a change's dry run's wait said by its own flag (ninth production
+            // review N-8)
             let flag = if ["publish", "request_op", "check"].contains(&route) {
                 "--dry-run-timeout"
             } else {
@@ -9189,9 +9146,7 @@ mod tests {
 
     /// A request's panic is answered `500`, never left to unwind its
     /// connection's task, and a connection's place among the open ones is let
-    /// go however its task ends, where each panic kept one for good and
-    /// twelve under --max-connections 8 answered every request `503 busy`
-    /// (tenth production review).
+    /// go however its task ends (tenth production review).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[allow(clippy::panic)]
     async fn a_panic_is_answered_and_its_connection_lets_go_of_its_place() {
