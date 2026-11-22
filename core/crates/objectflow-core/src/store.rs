@@ -747,7 +747,6 @@ fn attempt_row(r: &crate::db::Row<'_>) -> crate::db::Result<Attempt> {
     })
 }
 
-/// A JSON column as written, null where empty.
 /// A column of a row read that does not decode, which fails the row: a
 /// damaged row is refused, never read as a default. The error names the
 /// column and what it holds, not its text, which may be personal.
@@ -1595,8 +1594,6 @@ pub(crate) fn read_idempotency(
 /// source, successor where its type supersedes, and its scalar columns.
 type RowFields = (String, i64, String, Option<String>, Vec<Sql>);
 
-/// The log the store holds, in position order, which a world reads where an
-/// operation reads it (ADR-0162 step 1).
 /// The events after a position, in position order, at most `limit`, of the
 /// objects of the types given where some are: a page of the log read from a
 /// cursor by its key, where every pull and export read the log whole
@@ -1854,6 +1851,8 @@ pub(crate) fn read_first_position(conn: &Connection, id: &str) -> crate::db::Res
     )
 }
 
+/// The log the store holds, in position order, which a world reads where an
+/// operation reads it (ADR-0162 step 1).
 pub(crate) fn read_log(conn: &Connection) -> crate::db::Result<Vec<Event>> {
     let mut log = conn.prepare(&format!("{EVENT_SELECT} ORDER BY position"))?;
     let rows = log.query_map([], event_row)?;
@@ -3889,8 +3888,6 @@ impl Store {
         Ok(store)
     }
 
-    /// A connection for reads of the store's file beside this store's
-    /// writes, waiting out a write lock as this one does (ADR-0178).
     /// After an erasure commits, the write-ahead log truncated into the
     /// store's file, so the log's earlier frames, which held what it erased,
     /// leave the files as the pages `secure_delete` zeroed do (D584). A
@@ -4096,6 +4093,8 @@ impl Store {
         Ok(busy == 0)
     }
 
+    /// A connection for reads of the store's file beside this store's
+    /// writes, waiting out a write lock as this one does (ADR-0178).
     pub fn read_connection(path: &std::path::Path) -> Stored<Connection> {
         let conn = Connection::open_with_flags(path, crate::db::OpenFlags::READ_ONLY.one_thread())?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
@@ -4207,12 +4206,12 @@ impl Store {
         (Arc::clone(&self.lib), Arc::clone(&self.earlier))
     }
 
-    /// The DDL of a type's table and its set tables (§3, §3.3).
     /// Which database the store is on (ADR-0213).
     pub fn backend(&self) -> crate::db::Backend {
         self.conn.backend()
     }
 
+    /// The DDL of a type's table and its set tables (§3, §3.3).
     fn type_ddl(&self, t: &Type) -> String {
         let parts = table_parts(&self.lib, t, false);
         parts.create(&table(&t.name), &[])
@@ -4264,16 +4263,6 @@ impl Store {
         Ok(())
     }
 
-    /// `maintain` (`DESIGN.md` §10): prunes attempt rows recorded before
-    /// `before`, adding each to its day's count in the rollup, which the
-    /// `attempt_counts` source reads with the rows that remain; or deletes the
-    /// idempotency records applied before it, after which a retry under a
-    /// pruned key is a new request. It refuses, as a value, a task it does not
-    /// know and a `before` inside the retention the store was built with,
-    /// which a store built with none puts everywhere; it changes no governed
-    /// state or history, and returns the rows it moved or removed. Archiving
-    /// events, a tiering of the log a single SQLite file has none of, is not
-    /// run.
     /// The indexes a rebuild covers, and the last erasure's position it
     /// covers (ADR-0204 decision 9.5): every index the store's tables
     /// carry, its own and its types', none of SQLite's own, by name, so an
@@ -4465,6 +4454,16 @@ impl Store {
             .collect()))
     }
 
+    /// `maintain` (`DESIGN.md` §10): prunes attempt rows recorded before
+    /// `before`, adding each to its day's count in the rollup, which the
+    /// `attempt_counts` source reads with the rows that remain; or deletes the
+    /// idempotency records applied before it, after which a retry under a
+    /// pruned key is a new request. It refuses, as a value, a task it does not
+    /// know and a `before` inside the retention the store was built with,
+    /// which a store built with none puts everywhere; it changes no governed
+    /// state or history, and returns the rows it moved or removed. Archiving
+    /// events, a tiering of the log a single SQLite file has none of, is not
+    /// run.
     pub fn maintain(
         &mut self,
         actor: &str,
@@ -4596,8 +4595,6 @@ impl Store {
         Ok(())
     }
 
-    /// Decide on a snapshot and write what the decision changed, in one
-    /// transaction: the request path's frame (`DESIGN.md` §6).
     /// What a decision would be on the store as it stands, never written,
     /// not even the numbers it drew: a check's simulation (`library-api.md`
     /// §6, ADR-0054).
@@ -4667,6 +4664,8 @@ impl Store {
         }
     }
 
+    /// Decide on a snapshot and write what the decision changed, in one
+    /// transaction: the request path's frame (`DESIGN.md` §6).
     pub fn transact<T, E>(
         &mut self,
         decide: impl FnOnce(&World<'_>, &mut Allocator) -> Result<(T, Option<Change>), E>,
@@ -5742,10 +5741,6 @@ impl Store {
         Ok(positions)
     }
 
-    /// The library a version installed, loaded again from the source it
-    /// recorded (`library-api.md` §6, `declaration` at an earlier version):
-    /// none for a version the store never published; a source that no
-    /// longer loads is the store's failure, since it loaded when published.
     /// A version's source reference and digest, as its publish, or a
     /// sandbox's load, recorded them; none for a version the store never
     /// held (ADR-0135).
@@ -5767,6 +5762,10 @@ impl Store {
             .map_err(Into::into)
     }
 
+    /// The library a version installed, loaded again from the source it
+    /// recorded (`library-api.md` §6, `declaration` at an earlier version):
+    /// none for a version the store never published; a source that no
+    /// longer loads is the store's failure, since it loaded when published.
     pub fn library_at(&self, version: i64) -> Stored<Option<Library>> {
         library_of(&self.conn, version)
     }
@@ -6602,10 +6601,6 @@ impl Scope<'_> {
     }
 }
 
-/// The ids of the objects of a concrete type whose columns hold the values
-/// given, compared as each column encodes its declared type, so equal as
-/// the expression language's equality would find them; none where a value
-/// has no column to compare in, a set's or an absent one (ADR-0162 step 3).
 /// The ids of a type's objects superseded by an object, by the index on
 /// their successor's column (ADR-0191 decision 5).
 pub(crate) fn read_superseded_into(
@@ -7349,14 +7344,6 @@ pub struct CursoredSpan {
 const SPAN_CURSOR: &str = "max(i.entered_position, coalesce(i.left_position, 0), \
      coalesce(i.corrected_by, 0), coalesce(i.moved_position, 0))";
 
-/// The intervals of the types given whose cursor is past `after` and at
-/// most `upto`, each with its object's type and the transition that opened
-/// it: a span an event wrote by the cursor's index, and a legacy span, which
-/// no event opened, by its object's first imported event, read by the index
-/// on imported events. Neither reads the log or a type whole, where a page
-/// of a type's intervals read every event into memory and walked it once
-/// for each of the type's objects, 15 s and a gigabyte a page at six years
-/// (eleventh production review N1).
 /// An interval row a later commit deleted or moved, as the `.intervals`
 /// export retracts it at that commit's position (ADR-0205 decision 9).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -7400,6 +7387,14 @@ pub(crate) fn read_interval_retractions(
     Ok(rows.collect::<crate::db::Result<_>>()?)
 }
 
+/// The intervals of the types given whose cursor is past `after` and at
+/// most `upto`, each with its object's type and the transition that opened
+/// it: a span an event wrote by the cursor's index, and a legacy span, which
+/// no event opened, by its object's first imported event, read by the index
+/// on imported events. Neither reads the log or a type whole, where a page
+/// of a type's intervals read every event into memory and walked it once
+/// for each of the type's objects, 15 s and a gigabyte a page at six years
+/// (eleventh production review N1).
 pub(crate) fn read_interval_page(
     conn: &Connection,
     lib: &Library,
@@ -8680,10 +8675,6 @@ mod tests {
         assert!(matches!(page_caches_shared(), Ok(false)));
     }
 
-    /// A deployment's store on PostgreSQL is made at version 0 where the
-    /// database holds none, written by one service alone, a second refused
-    /// while the first holds it, and reopened at its version; its reads go
-    /// through connections of their own (ADR-0213).
     /// A write meeting another session's lock on PostgreSQL, met at its
     /// statement and not at its transaction's begin, is answered `stale`,
     /// `retries_exhausted`, as SQLite's is, where it was the store's fault,
@@ -8827,6 +8818,10 @@ mod tests {
         assert_eq!(last, later, "the earlier write's position kept");
     }
 
+    /// A deployment's store on PostgreSQL is made at version 0 where the
+    /// database holds none, written by one service alone, a second refused
+    /// while the first holds it, and reopened at its version; its reads go
+    /// through connections of their own (ADR-0213).
     #[test]
     fn a_store_on_postgresql_is_made_reopened_and_written_by_one_service() {
         let base = std::env::var(SANDBOX_POSTGRES).unwrap_or_default();
@@ -8898,9 +8893,6 @@ mod tests {
             .unwrap();
     }
 
-    /// A deployment's store cuts its write-ahead log back to its limit when
-    /// a checkpoint empties it, where the log grew to 792 MB beside a 133 MB
-    /// store and stayed (third production review N6).
     /// A store's file checked with the log beside it keeps both as they
     /// were, where closing a connection carried the log into the file and
     /// deleted it, as a plain connection still does (fourth production
@@ -8949,10 +8941,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A store opened beside a log holding frames, as a process killed
-    /// leaves it, is due a cut at the first look, so an erasure's
-    /// truncation due at the kill is not forgotten; one opened beside none
-    /// is not (the audit's durability W6b).
     /// The flow the release fingerprint covers loads, every type it
     /// declares hashed, where one that no longer loaded would leave the
     /// fingerprint blind to declared tables without a word (the audit's
@@ -9005,6 +8993,10 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// A store opened beside a log holding frames, as a process killed
+    /// leaves it, is due a cut at the first look, so an erasure's
+    /// truncation due at the kill is not forgotten; one opened beside none
+    /// is not (the audit's durability W6b).
     #[test]
     fn a_store_opened_beside_frames_is_due_a_cut() {
         let dir = std::env::temp_dir().join(format!("objectflow-frames-{}", std::process::id()));
@@ -9023,6 +9015,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A deployment's store cuts its write-ahead log back to its limit when
+    /// a checkpoint empties it, where the log grew to 792 MB beside a 133 MB
+    /// store and stayed (third production review N6).
     #[test]
     fn a_deployments_write_ahead_log_is_cut_back() {
         let dir = std::env::temp_dir().join(format!("of-wal-limit-{}", std::process::id()));

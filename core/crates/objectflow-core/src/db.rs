@@ -1061,10 +1061,6 @@ impl Pg {
             self.shapes.borrow_mut().clear();
             self.reshaped.set(true);
         }
-        // a table changed inside a transaction has the keys checked that
-        // were deferred to its commit, which PostgreSQL holds as pending
-        // events no change of the table may pass, and defers them again
-        // after; SQLite turns its keys off around the same rebuild
         // a name PostgreSQL would cut to 63 bytes refused before it is sent:
         // two set attributes of a long type shared one table, made `IF NOT
         // EXISTS`, a document lost and the log recording a write never made
@@ -1085,6 +1081,10 @@ impl Pg {
                 "a statement of the transaction failed, so nothing of it was committed".into(),
             )));
         }
+        // a table changed inside a transaction has the keys checked that
+        // were deferred to its commit, which PostgreSQL holds as pending
+        // events no change of the table may pass, and defers them again
+        // after; SQLite turns its keys off around the same rebuild
         let sent = if ddl && self.open.get() {
             format!("SET CONSTRAINTS ALL IMMEDIATE; {translated}; SET CONSTRAINTS ALL DEFERRED")
         } else {
@@ -1609,7 +1609,6 @@ pub fn to_postgres(sql: &str) -> String {
     out
 }
 
-/// Whether a `REFERENCES` names a type's table, `t_…`, quoted or not.
 /// Whether what follows a word is an empty list, `()` with nothing but
 /// space within.
 fn empty_list(rest: &str) -> bool {
@@ -1618,6 +1617,7 @@ fn empty_list(rest: &str) -> bool {
         .is_some_and(|r| r.trim_start().starts_with(')'))
 }
 
+/// Whether a `REFERENCES` names a type's table, `t_…`, quoted or not.
 fn references_type_table(rest: &str) -> bool {
     let r = rest.trim_start().trim_start_matches('"');
     r.starts_with("t_")
@@ -2215,7 +2215,6 @@ impl Connection {
         Ok(found)
     }
 
-    /// Which database the connection reaches.
     /// A connection of its own to the same PostgreSQL database, writable,
     /// its every statement bounded by `until`: a dry run's empty copy of the
     /// store's tables is made on it, in transactions rolled back, beside the
@@ -2228,6 +2227,7 @@ impl Connection {
         }
     }
 
+    /// Which database the connection reaches.
     pub fn backend(&self) -> Backend {
         match self.inner {
             Inner::Sqlite(_) => Backend::Sqlite,
@@ -2381,7 +2381,6 @@ impl Connection {
         })
     }
 
-    /// Whether no transaction is open.
     /// The database a connection to PostgreSQL reached, as the server names
     /// it: its cluster's system identifier, the timeline it writes on, read
     /// from its current log file's name so a promotion shows at once, and
@@ -2435,6 +2434,7 @@ impl Connection {
         }
     }
 
+    /// Whether no transaction is open.
     pub fn is_autocommit(&self) -> bool {
         match &self.inner {
             Inner::Sqlite(c) => c.is_autocommit(),
@@ -2850,10 +2850,6 @@ mod tests {
         );
     }
 
-    /// A sandbox's schema left by a process that is gone is dropped by the
-    /// next sandbox made on this machine, and one another machine made is
-    /// left, its process unknown here (the personal-data review on
-    /// PostgreSQL, outside its area).
     /// A connection to a server that takes the connection and never
     /// answers, as a frozen one does, its kernel completing the handshake,
     /// is given up at the read's deadline, where only the socket's connect
@@ -2942,6 +2938,10 @@ mod tests {
         }
     }
 
+    /// A sandbox's schema left by a process that is gone is dropped by the
+    /// next sandbox made on this machine, and one another machine made is
+    /// left, its process unknown here (the personal-data review on
+    /// PostgreSQL, outside its area).
     #[test]
     fn a_sandbox_another_machine_made_is_left() {
         let base = match std::env::var(crate::store::SANDBOX_POSTGRES) {

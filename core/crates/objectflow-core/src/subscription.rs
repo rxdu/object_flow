@@ -354,11 +354,6 @@ types:
             .collect()
     }
 
-    /// `DESIGN.md` §7: a subscription starts with nothing old; it selects
-    /// by type or family, transition and change of state; it is pulled from
-    /// its acknowledged cursor, or one given; acknowledging moves it either
-    /// way and records nothing in the log; revoked or unknown, it is refused
-    /// as a value; and its lag is derived.
     /// A subscription is refused where its filter would select nothing of
     /// the installed version or its durations make no sense, each input
     /// named, where it was taken and delivered nothing for good (D689,
@@ -427,6 +422,11 @@ types:
         ));
     }
 
+    /// `DESIGN.md` §7: a subscription starts with nothing old; it selects
+    /// by type or family, transition and change of state; it is pulled from
+    /// its acknowledged cursor, or one given; acknowledging moves it either
+    /// way and records nothing in the log; revoked or unknown, it is refused
+    /// as a value; and its lag is derived.
     #[test]
     fn a_subscription_is_pulled_acknowledged_and_lags() {
         let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();

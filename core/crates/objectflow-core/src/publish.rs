@@ -544,9 +544,6 @@ fn simulating<'l>(new: &'l Library, world: &World<'_>) -> World<'l> {
     sim
 }
 
-/// Steps 2 and 3 over the objects, after the checks: the source loaded,
-/// compared with the installed version, and every object it touches read
-/// into the report.
 /// The type at the top of a type's family in a version, which its legacy
 /// keys and its history are kept by (ADR-0272).
 fn history_root(lib: &Library, tn: &str) -> String {
@@ -1109,6 +1106,9 @@ fn removed_types(
     Ok(())
 }
 
+/// Steps 2 and 3 over the objects, after the checks: the source loaded,
+/// compared with the installed version, and every object it touches read
+/// into the report.
 fn impact(
     world: &World<'_>,
     draft: &Draft<'_>,
@@ -3644,9 +3644,6 @@ types:
         assert!(!indexed(&s));
     }
 
-    /// A state the installed version no longer declares, which a robot's
-    /// history holds from before the publish removed it, follows those it
-    /// declares in a page's order (D536).
     /// A metric read's filter a row cannot answer, a number where a boolean
     /// is read, is refused `malformed_filter` with a short reason, where it
     /// answered 501 and its fault carried what it met (ninth production
@@ -3673,6 +3670,9 @@ types:
         );
     }
 
+    /// A state the installed version no longer declares, which a robot's
+    /// history holds from before the publish removed it, follows those it
+    /// declares in a page's order (D536).
     #[test]
     fn a_removed_state_follows_the_declared_ones_in_a_page() {
         let (mut s, _, _, _) = fleet();

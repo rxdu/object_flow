@@ -185,6 +185,9 @@ pub type ExternalIds = BTreeMap<(String, String), String>;
 /// The number of chunks [`Slots`] has, the k-th holding 2^k slots.
 const CHUNKS: usize = 48;
 
+/// A chunk of [`Slots`], each slot written at most once.
+type Chunk<T> = Box<[std::cell::OnceCell<std::rc::Rc<T>>]>;
+
 /// Slots that only grow, each written once: the k-th chunk holds 2^k of
 /// them, so the n-th is found in constant time, and one written never
 /// moves, so a read through a shared reference can add an object and hand
@@ -193,9 +196,6 @@ const CHUNKS: usize = 48;
 /// through [`Slots::get_mut`] copies a value only while it is shared: a
 /// publish's simulation holds the objects its version leaves as they were
 /// without a copy of each (MEMORY, ADR-0222).
-/// A chunk of [`Slots`], each slot written at most once.
-type Chunk<T> = Box<[std::cell::OnceCell<std::rc::Rc<T>>]>;
-
 #[derive(Clone, Debug)]
 struct Slots<T> {
     chunks: [std::cell::OnceCell<Chunk<T>>; CHUNKS],
@@ -1685,7 +1685,6 @@ impl<'l> World<'l> {
         Ok(())
     }
 
-    /// Every object held, in ascending id order: creation order.
     /// The held objects of a type, its own or a subtype's, whose attribute
     /// holds the value given or none, by the index, in ascending id order;
     /// none where the value is one the index holds no key for.
