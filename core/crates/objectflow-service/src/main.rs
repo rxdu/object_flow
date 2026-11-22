@@ -6,8 +6,8 @@
 //! reads run beside it on read connections of their own (ADR-0178).
 //!
 //! A refusal is a `200` carrying the verdict, its shape named by `kind`; a
-//! fault is a `4xx` or `5xx` carrying `fault`; a construct the core's first
-//! slice does not run is a `501` naming it (ADR-0153).
+//! fault is a `4xx` or `5xx` carrying `fault`; a construct the core does not
+//! run is a `501` naming it (ADR-0153).
 //!
 //! Run as `objectflow-service --port <n>` for a sandbox, or with `--store
 //! <file>` for a deployment's store (ADR-0174); `--port 0` takes a free port,
@@ -73,8 +73,8 @@ struct Sandbox {
 }
 
 /// When the line being written to the log began, in milliseconds since
-/// 1970, 0 while none is: a pipe left full stopped the service at its next
-/// line while `/health` answered 200 (fourth production review).
+/// 1970, 0 while none is, which `/health` reads as `log_blocked` (fourth
+/// production review).
 static LOGGING_SINCE: AtomicI64 = AtomicI64::new(0);
 
 /// When the service started, in seconds since 1970, for `/metrics`
@@ -106,19 +106,15 @@ fn log_blocked(since: i64, now: i64) -> bool {
 }
 
 /// A line on the log, standard error, stamped with the wall clock, every
-/// line the service writes among them, where its start's carried no time:
-/// handed to the log's own thread through a bounded queue, never written by
-/// the caller, and dropped and counted where the queue is full, so a reader
-/// of the log that stopped reading stops no request; where two requests
-/// each wrote their own line, holding standard error's lock, a full pipe
-/// stopped both of the runtime's threads and every request with them,
-/// `/health` included (tenth production review LOG-FREEZE). The log's
+/// line the service writes among them: handed to the log's own thread
+/// through a bounded queue, never written by the caller, and dropped and
+/// counted where the queue is full, so a reader of the log that stopped
+/// reading stops no request (tenth production review LOG-FREEZE). The log's
 /// thread marks when the line it writes began, which `/health` reads as
 /// `log_blocked` past `LOG_BLOCKED_MS` (fourth production review).
 fn say(line: std::fmt::Arguments<'_>) {
-    // one line, stamped, whatever its text holds: SQLite's fault text holds
-    // a line break, which broke a refused start's line in two, the second
-    // unstamped, reported as the refusal printed twice (ADR-0202 decision 8)
+    // one line, stamped, whatever its text holds, a line break in SQLite's
+    // fault text among it (ADR-0202 decision 8)
     let text = format!("{} {line}", timestamp_text(wall_clock())).replace(['\r', '\n'], " ");
     match LOG.get_or_init(start_log).try_send(text) {
         Ok(()) => {
@@ -141,8 +137,7 @@ static LOG_QUEUED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsi
 
 /// The log's thread: each queued line written to standard error, the time
 /// its writing began marked while it is written; lines dropped since the
-/// last it wrote said first, where the log said nothing of them, only a
-/// counter in `/metrics` (eleventh production review).
+/// last it wrote said first (eleventh production review).
 fn start_log() -> std::sync::mpsc::SyncSender<String> {
     let (send, lines) = std::sync::mpsc::sync_channel::<String>(LOG_QUEUE);
     let _ = std::thread::Builder::new()
@@ -164,9 +159,8 @@ fn start_log() -> std::sync::mpsc::SyncSender<String> {
                 {
                     told = dropped;
                 }
-                // a log whose reader has gone drops the line: `eprintln!`
-                // panicked on the broken pipe, losing answers already
-                // committed (fifth production review)
+                // a log whose reader has gone drops the line and counts
+                // it, never panicking (fifth production review)
                 if writeln!(std::io::stderr().lock(), "{text}").is_err() {
                     LINES_DROPPED.fetch_add(1, Ordering::SeqCst);
                 }
@@ -190,9 +184,8 @@ macro_rules! say {
     ($($arg:tt)*) => { say(format_args!($($arg)*)) };
 }
 
-/// An endpoint as the log shows it, a password in its address hidden,
-/// where the start's line and each failed call wrote it whole (fourth
-/// production review).
+/// An endpoint as the log shows it, a password in its address hidden
+/// (fourth production review).
 fn shown(url: &str) -> String {
     let Some((scheme, rest)) = url.split_once("://") else {
         return url.to_string();
@@ -230,9 +223,9 @@ fn asked(
     let body = json!({"evaluator": call.evaluator, "function": call.function, "arguments": call.arguments})
         .to_string();
     // a redirect followed by none: a 3xx is an answer that is not a 200, so
-    // the evaluator is unknown, where a redirect sent the call to a host the
-    // operator never configured, whose answer decided a guard (eighth
-    // production review EV-REDIRECT, ADR-0195 decision 3)
+    // the evaluator is unknown, and no host the operator did not configure
+    // decides a guard (eighth production review EV-REDIRECT, ADR-0195
+    // decision 3)
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .max_redirects(0)
@@ -266,8 +259,7 @@ fn asked(
     if let Some(token) = token {
         posting = posting.header("authorization", format!("Bearer {token}"));
     }
-    // a timeout named by the flag that sets it, where it said "timeout:
-    // global" (ninth production review)
+    // a timeout named by the flag that sets it (ninth production review)
     let late = || {
         format!(
             "{} did not answer within --evaluator-timeout ({} s)",
@@ -404,9 +396,8 @@ struct Service {
     /// How long a deployment's read may take before it is stopped
     /// (ADR-0184 decision 3).
     read_timeout: std::time::Duration,
-    /// How long a change's dry run may run, or wait for its one slot: its
-    /// own, where it shared the reads' and a store whose publish outgrew
-    /// 30 s loosened every read's deadline to publish (ADR-0194 decision 2).
+    /// How long a change's dry run may run, or wait for its one slot, a
+    /// deadline apart from the reads' (ADR-0194 decision 2).
     dry_run_timeout: std::time::Duration,
     /// The analytics, metrics, exceptions, diagnostics and exports, bounded
     /// in number (ADR-0189 decision 2); the worklists, queries, the objects
@@ -417,9 +408,8 @@ struct Service {
     worklists: Admission,
     dry_runs: Admission,
     /// An object's history and events by position, each a page of 8 MiB at
-    /// most, never behind the worklists' whole-type scans, where a person's
-    /// history waited 2.4 to 4.8 s (eighth production review, ADR-0195
-    /// decision 5).
+    /// most, never behind the worklists' whole-type scans (eighth production
+    /// review, ADR-0195 decision 5).
     objects: Admission,
     /// Every read an agent makes that waits its turn, whatever it reads, so
     /// an agent's sweeping reads never hold a person's worklist slot or an
@@ -429,13 +419,12 @@ struct Service {
     /// seconds, which `GET /metrics` gives (production review OBSERVE).
     served: Mutex<std::collections::BTreeMap<(String, u16), (u64, f64)>>,
     /// The requests being answered now, and when the writer was taken, in
-    /// milliseconds since 1970, none while it is free: a writer held for
-    /// minutes answered health 200 and showed nothing (OBSERVE-2).
+    /// milliseconds since 1970, 0 while it is free, which `/health` and
+    /// `/metrics` give (OBSERVE-2).
     in_flight: std::sync::atomic::AtomicUsize,
     writer_since: AtomicI64,
     /// The connections open, those the cap closed answering nothing to make
-    /// room, and those it refused, every one answering a request: silent
-    /// connections at the cap refused every newcomer, `/health` among them
+    /// room, and those it refused while every one was answering a request
     /// (third production review C-1).
     connections: Connections,
     /// A deployment's store file, whose size and its write-ahead log's
@@ -602,9 +591,8 @@ impl Watch {
     }
 
     /// Whether writes fail: three or more answered 500 since one was
-    /// answered otherwise, the last of them lately, where `/health` said
-    /// 200 while a backup copied over the live file failed every write
-    /// (eighth production review, ADR-0195 decision 6). How many.
+    /// answered otherwise, the last of them lately (eighth production review,
+    /// ADR-0195 decision 6). How many.
     fn failing(&self, now: i64) -> Option<u64> {
         let fails = self.fails.load(Ordering::SeqCst);
         (fails >= WRITES_FAILING && now - self.failed_at.load(Ordering::SeqCst) < STALLED_MS)
@@ -639,9 +627,9 @@ fn file_identity(path: &std::path::Path) -> Option<(u64, u64)> {
     std::fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
 }
 
-/// Whether the store's path still names the file the service opened, where
-/// a file moved or replaced under it kept every write acknowledged into a
-/// file no one would read (fourth production review).
+/// Whether the store's path still names the file the service opened, so no
+/// write is acknowledged into a file moved or replaced under it (fourth
+/// production review).
 fn store_replaced(shared: &Service) -> Option<String> {
     let (Some(path), Some(opened)) = (&shared.store_path, shared.store_identity) else {
         return None;
@@ -658,9 +646,8 @@ fn store_replaced(shared: &Service) -> Option<String> {
 /// its file moved or replaced, its write-ahead log removed or replaced, its
 /// file written over in place, or a read finding it unreadable. Latched
 /// until a restart, so no write is acknowledged into a store the service
-/// already found bad, where after `/health` answered unreadable the next
-/// writes answered 200 and were lost at the next start (the audit's
-/// durability S3 to S5, D688, ADR-0205 decision 8). None while it holds.
+/// already found bad (the audit's durability S3 to S5, D688, ADR-0205
+/// decision 8). None while it holds.
 fn store_lost(shared: &Service) -> Option<String> {
     if let Some(why) = shared.watch.latched.get() {
         return Some(why.clone());
@@ -698,9 +685,9 @@ fn note_log(shared: &Service) {
 }
 
 /// Whether the store's write-ahead log is still the one its writer opened,
-/// where one removed under the service took every write acknowledged into
-/// it with it at the next start (the audit's durability S4). A log not yet
-/// made when the service opened the store is taken as the one it makes.
+/// so no write is acknowledged into a log removed under the service, which
+/// no start reads (the audit's durability S4). A log not yet made when the
+/// service opened the store is taken as the one it makes.
 fn log_replaced(shared: &Service) -> Option<String> {
     let path = shared.store_path.as_ref()?;
     let wal = wal_path(path);
@@ -720,10 +707,9 @@ fn log_replaced(shared: &Service) -> Option<String> {
     }
 }
 
-/// Whether the store's file still begins as a SQLite database does, where
-/// one written over in place, its device and inode unchanged, took the
-/// writes answered after it into a log no start could read (the audit's
-/// durability S3).
+/// Whether the store's file still begins as a SQLite database does, so a
+/// file written over in place, its device and inode unchanged, takes no
+/// write (the audit's durability S3).
 fn store_overwritten(shared: &Service) -> Option<String> {
     let path = shared.store_path.as_ref()?;
     let mut head = [0u8; 16];
@@ -797,8 +783,7 @@ struct Probed {
 /// thread of its own and waited for [`HEALTH_WAIT_MS`] from its start at
 /// most: a store whose database stops answering without closing its
 /// connections, frozen or stalled on its disk, answers `503
-/// store_stalled`, where `/health` waited on it with every other request
-/// and said nothing (durability on PostgreSQL 3). A read still running is
+/// store_stalled` (durability on PostgreSQL 3). A read still running is
 /// joined, never started again, so a stall holds one thread and one read
 /// connection however often `/health` is asked.
 fn probed(shared: &Shared) -> Result<(i64, i64), Fault> {
@@ -866,8 +851,7 @@ fn probed(shared: &Shared) -> Result<(i64, i64), Fault> {
 
 /// How long the writer has been held, in seconds, or none while it is free:
 /// through a write's retries on another process's lock and the writes
-/// refused after them, from the first retry, where it began again at each
-/// write and an alert on a minute never fired (eighth production review,
+/// refused after them, from the first retry (eighth production review,
 /// ADR-0195 decision 6).
 fn writer_held(shared: &Service) -> f64 {
     match shared.writer_since.load(Ordering::SeqCst) {
@@ -1003,8 +987,8 @@ impl Drop for Reading<'_> {
 
 /// The reads whose cost grows with the store running now, and those
 /// waiting, at most `most` running: each takes a slot before its reader, so
-/// their memory is bounded by their number, where 32 metrics on six years
-/// took 3.3 GB (fourth production review READS, ADR-0189 decision 2).
+/// their memory is bounded by their number (fourth production review
+/// READS, ADR-0189 decision 2).
 struct Admission {
     running: Mutex<usize>,
     freed: std::sync::Condvar,
@@ -1012,18 +996,14 @@ struct Admission {
     waiting: std::sync::atomic::AtomicUsize,
     /// New reads held back while the write-ahead log is cut back.
     barred: std::sync::atomic::AtomicBool,
-    /// Whether it is a change's dry runs' one slot, whose wait is said by
-    /// its own flag, where it named --read-timeout and --max-reads (ninth
-    /// production review N-8).
+    /// Whether it is a change's dry runs' one slot, whose wait is said by its
+    /// own flag (ninth production review N-8).
     dry_runs: bool,
     /// The stop of each read running in it, which an urgent cut of the log
     /// moves where it finds the pool not drained; a pool that drained keeps
-    /// its reads running, where one epoch for every pool stopped a worklist
-    /// of 0.1 s as readily as a 30 s report (the audit's cost E4, ADR-0205
-    /// decision 14).
+    /// its reads running (the audit's cost E4, ADR-0205 decision 14).
     readers: Mutex<Vec<Arc<std::sync::atomic::AtomicU64>>>,
-    /// How long its reads waited for their turn, where only how many were
-    /// waiting was said (ADR-0201 decision 11).
+    /// How long its reads waited for their turn (ADR-0201 decision 11).
     waits: Mutex<Waited>,
 }
 
@@ -1062,11 +1042,10 @@ fn read_stop() -> (Arc<std::sync::atomic::AtomicU64>, bool) {
 
 /// A read's work, run off its connection's task, so the connection sees
 /// its client go and drops the answer it waits for, which moves the read's
-/// stop: the read ends at its next step, where it ran to its deadline for
-/// no one, and a client retrying filled a pool with reads nobody waited
-/// for (D656, ADR-0205 decision 16). A panic in it is answered `500`, as
-/// [`answering`]'s is. A write stays on [`answering`], since a write
-/// completes whether or not its client waits, its key replaying it.
+/// stop: the read ends at its next step (D656, ADR-0205 decision 16). A
+/// panic in it is answered `500`, as [`answering`]'s is. A write stays on
+/// [`answering`], since a write completes whether or not its client waits,
+/// its key replaying it.
 async fn answered_off<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, Fault> + Send + 'static,
 ) -> Result<T, Fault> {
@@ -1269,11 +1248,11 @@ fn heavy_reading<'s>(
 /// A slot among the objects' reads, beside `history` and `events`, for a
 /// read of one object, what it offers or what a request of it would do,
 /// where what it computes of its type's rules grows with the store
-/// (`reads::grows_with_store`), where such reads ran in no pool and 64 of
-/// them peaked at 4.49 GB (thirteenth production review C); never among
-/// the analytics, where a person's `get` waited 25.5 s behind per-person
-/// metrics (fourteenth production review); none for any other read, which
-/// never waits.
+/// (`reads::grows_with_store`), since many such reads at once, in no pool,
+/// hold memory without bound (thirteenth production review C); never among
+/// the analytics, so a person's `get` never waits behind per-person metrics
+/// (fourteenth production review); none for any other read, which never
+/// waits.
 fn object_slot<'s>(
     shared: &'s Shared,
     id: Option<&str>,
@@ -1302,9 +1281,9 @@ fn object_slot<'s>(
 }
 
 /// The pool a read waits in: an agent's in the agents', whatever it reads,
-/// so four of an agent's queries never hold every person's worklist slot,
-/// a person waiting 28.6 s (sixth production review P5, ADR-0192 decision
-/// 3); a change's dry run in its one slot, whoever asks.
+/// so an agent's queries never hold every person's worklist slot (sixth
+/// production review P5, ADR-0192 decision 3); a change's dry run in its
+/// one slot, whoever asks.
 fn pool_of<'s>(
     shared: &'s Shared,
     pool: &'s Admission,
@@ -1325,9 +1304,8 @@ fn pool_of<'s>(
 
 /// Whether a request is a change of the flow's `submit` or `refresh`, which
 /// runs a dry run: a transition of that name on any other type is an
-/// ordinary write, which took the dry run's slot and queued behind every
-/// metric, a claim's submit waiting up to 29 s and refused `503` (fifth
-/// production review N-1, ADR-0190 decision 2).
+/// ordinary write, which takes no dry run's slot (fifth production review
+/// N-1, ADR-0190 decision 2).
 fn changes_the_flow(shared: &Shared, req: &Request) -> Result<bool, Fault> {
     let (Some(id), "submit" | "refresh") = (&req.object_id, req.transition.as_str()) else {
         return Ok(false);
@@ -1347,9 +1325,9 @@ fn reading(shared: &Shared) -> Result<Reading<'_>, Fault> {
 
 /// The library a read is given, as the writer last let it go, from memory:
 /// what a write's answer is shown under once it has committed, so no
-/// connection the database refuses answers an applied write as a fault,
-/// where a read taken for it did (the shared server's measurement,
-/// 2026-10-27); under the lock for a sandbox.
+/// connection the database refuses answers an applied write as a fault
+/// (the shared server's measurement, 2026-10-27); under the lock for a
+/// sandbox.
 fn library(shared: &Shared) -> Result<Arc<Library>, Fault> {
     let none = || Fault::Conflict("no store is open".to_string());
     let Some(reads) = &shared.reads else {
@@ -1384,7 +1362,7 @@ fn reading_until(shared: &Shared, until: std::time::Instant) -> Result<Reading<'
         return Err(due(&at));
     }
     // a store moved, gone or replaced under the service answers a read as it
-    // answers a write, where a read answered 500 (ADR-0192 decision 7)
+    // answers a write (ADR-0192 decision 7)
     if let Some(replaced) = store_lost(shared) {
         return Err(Fault::Unavailable(replaced));
     }
@@ -1425,8 +1403,8 @@ fn reading_until(shared: &Shared, until: std::time::Instant) -> Result<Reading<'
 }
 
 /// The code of the fault last said, when, and how many of it were left
-/// unsaid since: a full disk said its fault for every write, at the clients'
-/// retry rate (fourth production review).
+/// unsaid since, so a fault met at every retry is said once a second
+/// (fourth production review).
 static LAST_FAULT: Mutex<(String, i64, u64)> = Mutex::new((String::new(), 0, 0));
 
 /// How long after a fault is said another of its code is counted, not said.
@@ -1474,9 +1452,8 @@ fn fault_code(status: u16, message: &str) -> String {
     .to_string()
 }
 
-/// A fault's reason as the log says it, at most 1 KiB of it, where a filter
-/// of 1.9 MB was written whole into one line (fourth production review
-/// A-10).
+/// A fault's reason as the log says it, at most 1 KiB of it (fourth
+/// production review A-10).
 fn said(message: &str) -> std::borrow::Cow<'_, str> {
     const MOST: usize = 1024;
     if message.len() <= MOST {
@@ -1581,8 +1558,8 @@ impl From<NotRun> for Fault {
             NotRun::Unreadable(w) => Fault::Internal(format!("storage unavailable: {w}")),
             NotRun::TimedOut(w) => Fault::TimedOut(w),
             // a value a read derives or filters by past what its type
-            // holds, refused naming its object and no value, where it was
-            // answered null or its object left out (ADR-0205 decision 2)
+            // holds, refused naming its object and no value (ADR-0205
+            // decision 2)
             NotRun::OutOfRange(id) => Fault::Refused(json!({
                 "refused": "value_in_range",
                 "reason": "a value it derives or filters by is past what its type holds",
@@ -1606,8 +1583,7 @@ fn personal_refused(reason: &str) -> Fault {
 
 /// A refusal's answer without the holder of a personal value it names: a
 /// uniqueness over a personal member, or `identity_taken` where identities
-/// are personal, names no object without the request's opt-in, where a
-/// write's refusal named the person holding an address (the audit's
+/// are personal, names no object without the request's opt-in (the audit's
 /// personal data R16, ADR-0206 decision 3).
 fn without_holder(lib: &objectflow_core::model::Library, mut out: J) -> J {
     let names = |c: &J| {
@@ -1648,32 +1624,30 @@ impl From<objectflow_core::store::StoreError> for Fault {
             return Fault::Mismatch(e.0);
         }
         // a read stopped at its deadline on the database, which did not
-        // answer in time, answered as a read past its deadline is, where it
-        // waited with the database (ADR-0215)
+        // answer in time, answered as a read past its deadline is (ADR-0215)
         if e.is_deadline_passed() {
             return Fault::TimedOut(e.0);
         }
-        // a full volume answers 503, which a client may retry, where it
-        // answered 500, the service's own fault (fourth production review)
+        // a full volume answers 503, which a client may retry (fourth
+        // production review)
         if e.is_disk_full() {
             DISK_FULL_AT.store(wall_millis(), Ordering::SeqCst);
             return Fault::Unavailable(e.0);
         }
         // the store's database out of reach, which a client may retry once
-        // it is back, where it answered 500 (durability on PostgreSQL 1)
+        // it is back (durability on PostgreSQL 1)
         if e.is_unavailable() {
             return Fault::Unavailable(e.0);
         }
         // a version whose names PostgreSQL would cut, which this store
-        // cannot hold, where it answered 500 or, worse, cut them and merged
-        // two tables (records on PostgreSQL, F1)
+        // cannot hold (records on PostgreSQL, F1)
         if e.is_name_too_long() || e.is_value_too_long() {
             return Fault::Conflict(e.0);
         }
         // a lock another session held past the busy timeout, outside a
         // request, which answers it `stale`: a publish beside a backup or a
-        // long read on PostgreSQL, which a caller retries, where it
-        // answered 500 (records on PostgreSQL F3, durability 7)
+        // long read on PostgreSQL, which a caller retries (records on
+        // PostgreSQL F3, durability 7)
         if e.is_busy() {
             return Fault::Unavailable(e.0);
         }
@@ -1811,13 +1785,13 @@ const REQUEST_KEYS: &[&str] = &[
 struct Body(J);
 
 /// How long a request's body may take to arrive once its head has, set
-/// from `--idle-timeout` as the service starts: a body half-sent held its
-/// connection and its task for ever (ADR-0184 decision 4).
+/// from `--idle-timeout` as the service starts, so a body half-sent never
+/// holds its connection and its task for ever (ADR-0184 decision 4).
 static BODY_READ: std::sync::OnceLock<std::time::Duration> = std::sync::OnceLock::new();
 
-/// A JSON body read refusing an object that names a key twice, where the
-/// last one won, a second `actor` changing who was recorded (fifth
-/// production review, ADR-0190 decision 8).
+/// A JSON body read refusing an object that names a key twice, so a second
+/// `actor` never changes who is recorded (fifth production review,
+/// ADR-0190 decision 8).
 fn strict_json(bytes: &[u8]) -> Result<J, String> {
     use serde::de::{DeserializeSeed, Deserializer, Error, MapAccess, SeqAccess, Visitor};
     struct Strict;
@@ -1955,17 +1929,14 @@ impl<S: Send + Sync> axum::extract::FromRequest<S> for Body {
         let body = J::Object(body);
         // a request's text never holds U+0000, which PostgreSQL's text
         // cannot store, and a name it gives is at most 1 KiB, past which
-        // PostgreSQL's index of the attempt log refused the refusal's row: a
-        // context, a key, an actor or a transition holding either was taken
-        // by SQLite and a 500 on PostgreSQL, the refusal unrecorded (records
-        // on PostgreSQL, F4 and F5); an input's or an attribute's value is
-        // the engine's to refuse, as before
+        // PostgreSQL's index of the attempt log refuses the refusal's row
+        // (records on PostgreSQL, F4 and F5); an input's or an attribute's
+        // value is the engine's to refuse
         if let Some(why) = unholdable(&body, "", false) {
             return Err(Fault::Bad(why));
         }
         // an actor, wherever one is given, is an object of an id and a
-        // principal, where a read took one of any JSON type, `"actor": [1]`
-        // (eighth production review, ADR-0195 decision 7)
+        // principal (eighth production review, ADR-0195 decision 7)
         actor_id(&body)?;
         Ok(Body(body))
     }
@@ -2028,10 +1999,9 @@ fn unholdable(v: &J, at: &str, decoded: bool) -> Option<String> {
 
 /// A request's work, run where it may block, a panic in it answered `500`
 /// and said by the log's panic line, never left to unwind the connection's
-/// task, which kept its place among the open ones for good: twelve panics
-/// under --max-connections 8 answered every request `503 busy` (tenth
+/// task, which would keep its place among the open ones for good (tenth
 /// production review). A writer it held is poisoned, and opened again by
-/// the next write, as before.
+/// the next write.
 fn answering<T>(work: impl FnOnce() -> Result<T, Fault>) -> Result<T, Fault> {
     tokio::task::block_in_place(move || {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).unwrap_or_else(|_| {
@@ -2047,7 +2017,7 @@ fn answering<T>(work: impl FnOnce() -> Result<T, Fault>) -> Result<T, Fault> {
 /// next, its own group's leader or a later one, in the order they queued
 /// and at most [`GROUP_MOST`] at a time, and answered once its group
 /// commits. A request finding the writer free and nothing queued is a
-/// group of one and runs alone, as before.
+/// group of one and runs alone.
 fn queued(
     shared: &Shared,
     req: &Request,
@@ -2195,8 +2165,7 @@ fn alone(shared: &Shared, sandbox: &mut Sandbox, t: &Ticket) -> Requested {
 fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
     let guard = match shared.writer.lock() {
         Ok(guard) => guard,
-        // a request that panicked holding the writer left it poisoned,
-        // which made every later write 500 until a restart: taken back, and
+        // a writer a request left poisoned by panicking is taken back, and
         // a deployment's store opened again from its file, so nothing the
         // panic left half-changed in memory stays, the file's transaction
         // having been rolled back (POISON)
@@ -2229,9 +2198,8 @@ fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
     }
     // a deployment's store on PostgreSQL whose connection a statement
     // found lost, to the database's restart, a terminated session or an
-    // idle timeout: opened again before this write, its lock taken again,
-    // where every write after the loss answered 500 until a person
-    // restarted the service; where it cannot be yet, this write is answered
+    // idle timeout: opened again before this write, its lock taken again;
+    // where it cannot be yet, this write is answered
     // unavailable and the next tries again (durability on PostgreSQL 1)
     let mut guard = guard;
     // a store due an upgrade is not open, deliberately, and is not lost
@@ -2352,8 +2320,7 @@ fn store(sandbox: &mut Sandbox) -> Result<&mut Store, Fault> {
 }
 
 /// A flag of a request's body: absent or null is false, and anything but
-/// a JSON boolean is refused, never read as false, since `"dry_run":
-/// "true"` read as false installed a version (production review F6).
+/// a JSON boolean is refused, never read as false (production review F6).
 fn flag(body: &J, key: &str) -> Result<bool, Fault> {
     match body.get(key) {
         None | Some(J::Null) => Ok(false),
@@ -2363,9 +2330,8 @@ fn flag(body: &J, key: &str) -> Result<bool, Fault> {
 }
 
 /// A key of a body that holds a string: absent or null is none, and a
-/// value of any other JSON type is refused, never read as absent, where a
-/// numeric `filter` returned every object unfiltered (production review
-/// F6, TYPES).
+/// value of any other JSON type is refused, never read as absent
+/// (production review F6, TYPES).
 fn text<'a>(body: &'a J, key: &str) -> Result<Option<&'a str>, Fault> {
     match body.get(key) {
         None | Some(J::Null) => Ok(None),
@@ -2602,8 +2568,7 @@ fn event(
         "from_state": e.from_state, "to_state": e.to_state, "changes_state": e.changes_state,
         "actor_id": e.actor_id, "actor_kind": e.actor_kind, "principal": e.principal,
         // its place among its object's events and its source, which the store
-        // records and `export` answered while every other read listed them
-        // not computed (the guides' audit G-96)
+        // records (the guides' audit G-96)
         "object_seq": e.object_seq, "source": e.source,
         "declaration_version": e.declaration_version,
         // the type the object was of under it, the pair naming the
@@ -2679,9 +2644,8 @@ async fn load(State(shared): State<Shared>, Body(body): Body) -> Answer {
         }
         // the flow checked first, its modules without their examples, which
         // a publish runs, as the studio's load checks it: a flow the checker
-        // refuses is answered with its findings, where it was installed and
-        // its first request reaching what the checker names faulted 500
-        // (issue #26); `unchecked` installs it as it was
+        // refuses is answered with its findings (issue #26); `unchecked`
+        // installs it as it is
         let mut notices = 0;
         if !flag(&body, "unchecked")? {
             let modules: Vec<(String, String)> = files
@@ -2725,8 +2689,7 @@ async fn load(State(shared): State<Shared>, Body(body): Body) -> Answer {
 /// The sandbox's store made afresh. Its body, which names no key, is read
 /// and set aside before it answers, within the bound every body is read in,
 /// so a client writing the headers and the body apart is never cut off with
-/// the body unwritten, where it answered first and a client met a broken
-/// pipe.
+/// the body unwritten.
 async fn reset(State(shared): State<Shared>, _body: Drained) -> Answer {
     answering(move || {
         let mut sandbox = locked(&shared)?;
@@ -2749,8 +2712,7 @@ async fn clock(State(shared): State<Shared>, Body(body): Body) -> Answer {
     answering(move || {
         let mut sandbox = locked(&shared)?;
         let s = store(&mut sandbox)?;
-        // one move at a time, where both were taken in an order of their own
-        // (the guides' audit G-46)
+        // one move at a time (the guides' audit G-46)
         if body.get("advance").is_some() && body.get("set").is_some() {
             return Err(Fault::Bad(
                 "the clock takes advance or set, not both".to_string(),
@@ -2782,8 +2744,8 @@ async fn evaluators(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let mut sandbox = locked(&shared)?;
         store(&mut sandbox)?;
         if let Some(answers) = object(&body, "answers")? {
-            // each answer one an evaluator gives, where any other was taken
-            // and then read as unanswered (the guides' audit G-46)
+            // each answer one an evaluator gives; any other is refused, never
+            // taken as unanswered (the guides' audit G-46)
             if let Some((f, a)) = answers.iter().find(|(_, a)| {
                 !matches!(a.as_str(), Some("satisfied" | "unsatisfied" | "unanswered"))
             }) {
@@ -2818,9 +2780,9 @@ async fn request_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
             Some(id) if shared.reads.is_some() && flow => {
                 // past its deadline, or stopped by an urgent cut, it is
                 // answered so, never computed again under the lock, where
-                // every write waited for it unbounded and unsaid
-                // (PUBLISH-SCALE); any other read that cannot prepare it
-                // leaves it to the request, which says why it cannot
+                // every write would wait for it (PUBLISH-SCALE); any other
+                // read that cannot prepare it leaves it to the request, which
+                // says why it cannot
                 match dry_running(&shared, id, actor_id(&body)?, &req.actor) {
                     Ok(Some((read, report)))
                         if matches!(read.state.as_str(), "DRAFTED" | "SUBMITTED") =>
