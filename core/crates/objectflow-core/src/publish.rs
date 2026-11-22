@@ -45,8 +45,9 @@ pub struct Finding {
     pub affected: Vec<String>,
 }
 
-/// What a dry run found (`publish-and-import.md` §2's `PublishReport`, the
-/// parts the first slice computes).
+/// What a dry run found: the parts of `publish-and-import.md` §2's
+/// `PublishReport` the core computes, the rest named as not computed where
+/// [`report_json`] writes it (ADR-0155 decision 5).
 #[derive(Clone, Debug, PartialEq)]
 pub struct PublishReport {
     pub version: i64,
@@ -271,8 +272,9 @@ fn gravity(s: Severity) -> u8 {
     }
 }
 
-/// A report as the wire and a change's `report` carry it: the parts the
-/// first slice computes, and the rest named as not computed (ADR-0155).
+/// A report as the wire and a change's `report` carry it: the parts the core
+/// computes, and those it does not, `invariants` to `flags`, named in
+/// `not_computed` (ADR-0155 decision 5).
 pub fn report_json(r: &PublishReport) -> serde_json::Value {
     serde_json::json!({
         "version": r.version,

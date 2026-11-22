@@ -7820,9 +7820,9 @@ pub fn request_told(
     // what an erasure reads was personal under each earlier version
     store.load_earlier()?;
     let decided = store.transact(|world, alloc| {
-        // 2. a key its actor applied before replays that request's verdict,
-        // whatever version the retry names, and a different request under it
-        // is a fault (DESIGN.md §6, ADR-0041, ADR-0076, ADR-0077); an actor
+        // `DESIGN.md` §6 step 2: a key its actor applied before replays that
+        // request's verdict, whatever version the retry names, and a different
+        // request under it is a fault (ADR-0041, ADR-0076, ADR-0077); an actor
         // the store does not know has applied nothing, and is refused next
         let keyed = match &req.idempotency_key {
             Some(key) => resolve_actor(world, &req.actor)?.map(|who| (who.id, key.clone())),
@@ -11236,7 +11236,7 @@ types:
             ("Job", true),
             json!({"title": "Fix"}),
         ));
-        // 1. an actor the store does not hold
+        // `DESIGN.md` §6 step 1: an actor the store does not hold
         assert_eq!(
             req(&mut s, "start", "nobody", (&job, false), json!({})),
             Verdict::Unsatisfied {
@@ -11244,7 +11244,7 @@ types:
                 remedy: Some(Remedy::Dependent)
             }
         );
-        // 2. an object, a transition
+        // `DESIGN.md` §6 step 3: an object, a transition
         assert_eq!(
             req(&mut s, "start", OPERATOR, ("job-99", false), json!({})),
             Verdict::NotFound
@@ -11257,7 +11257,7 @@ types:
             req(&mut s, "open", OPERATOR, (&job, false), json!({})),
             Verdict::UnknownTransition { .. }
         ));
-        // 3. only via others; a state it is not taken from
+        // `DESIGN.md` §6 step 4: only via others; a state it is not taken from
         assert_eq!(
             req(&mut s, "archive", OPERATOR, (&job, false), json!({})),
             Verdict::NotRequestable {
@@ -11270,8 +11270,8 @@ types:
                 state: "OPEN".into()
             }
         );
-        // 4. inputs: a name it does not take, a value not of its type, an
-        // object of another type, a required input left out
+        // `DESIGN.md` §6 step 4: inputs: a name it does not take, a value not
+        // of its type, an object of another type, a required input left out
         assert_eq!(
             req(
                 &mut s,
@@ -11315,7 +11315,7 @@ types:
                 remedy: Some(Remedy::SelfServiceable)
             }
         );
-        // 5. a guard that denies, with its declared remedy
+        // `DESIGN.md` §6 step 4: a guard that denies, with its declared remedy
         assert_eq!(
             req(
                 &mut s,
@@ -11329,8 +11329,8 @@ types:
                 remedy: Some(Remedy::SelfServiceable)
             }
         );
-        // 7. an invariant, the remedy self-serviceable since the input writes
-        // what it reads
+        // `DESIGN.md` §6 step 7: an invariant, the remedy self-serviceable
+        // since the input writes what it reads
         match req(
             &mut s,
             "estimate",
