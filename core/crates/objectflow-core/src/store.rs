@@ -278,9 +278,8 @@ pub fn release_fingerprint() -> String {
         h.update(format!("metric {m}\n").as_bytes());
     }
     // a declared type's table, for an attribute of every type a store
-    // holds, and a value of each as its column holds it, where only the
-    // built-ins' were, so a release that changes either changes the
-    // fingerprint (the audit's durability U6)
+    // holds, and a value of each as its column holds it, so a release that
+    // changes either changes the fingerprint (the audit's durability U6)
     if let Ok(lib) = Library::load(&[("fingerprint.yaml".into(), FINGERPRINT_FLOW.into())]) {
         for (name, t) in lib.types.iter().filter(|(_, t)| t.module == "fingerprint") {
             h.update(format!("\ndeclared {name}\n").as_bytes());
@@ -422,9 +421,9 @@ type Stored<T> = Result<T, StoreError>;
 /// Whether the SQLite linked in keeps one page cache for every connection
 /// of the process, behind one mutex, as it does built with
 /// `SQLITE_ENABLE_MEMORY_MANAGEMENT`, which the bundled build sets and the
-/// repository's `.cargo/config.toml` unsets: shared, four heavy reads at
-/// once each took what all four did, 11.2 s for a filter taking 2.2 s alone
-/// (fourteenth production review M2, ADR-0201).
+/// repository's `.cargo/config.toml` unsets: shared, each of several heavy
+/// reads at once takes what all of them do (fourteenth production review
+/// M2, ADR-0201).
 pub fn page_caches_shared() -> Stored<bool> {
     let conn = crate::db::Connection::open_in_memory()?;
     let used: i64 = conn.query_row(
@@ -1063,8 +1062,7 @@ fn table_parts(lib: &Library, t: &Type, relaxed: bool) -> TableParts {
 fn attribute_indexes(lib: &Library, t: &Type) -> Vec<String> {
     let name = table(&t.name);
     // an observation kind's and the labels' last event, which their export
-    // pages by, where each page read the whole log and every record (the
-    // audit's cost B12)
+    // pages by, never the whole log and every record (the audit's cost B12)
     let paged = (t.observation_on.is_some() || t.name == crate::model::LABEL).then(|| {
         format!(
             "CREATE INDEX IF NOT EXISTS {} ON {name} (last_event);",
@@ -1091,9 +1089,9 @@ fn attribute_indexes(lib: &Library, t: &Type) -> Vec<String> {
         })
         .chain(
             // an actor's identity folded, which every check of an identity
-            // and every request naming one by another case reads by, where
-            // each scanned every actor (seventh production review
-            // PUBLISH-SLOW, ADR-0194 decision 1)
+            // and every request naming one by another case reads by, never a
+            // scan of every actor (seventh production review PUBLISH-SLOW,
+            // ADR-0194 decision 1)
             t.actor_identity()
                 .and_then(|(n, _)| t.attribute(n).map(|a| (n, a)))
                 .filter(|(_, a)| !a.many && !a.derived_end())
@@ -1109,9 +1107,9 @@ fn attribute_indexes(lib: &Library, t: &Type) -> Vec<String> {
         .chain(paged)
         .chain(
             // a proposal's target and state, which an erasure reads the
-            // pending proposals on the erased object by, where it scanned
-            // every proposal under the writer though `storage-schema.md` §6
-            // gave the index (found building ADR-0191 decision 5)
+            // pending proposals on the erased object by, as
+            // `storage-schema.md` §6 gives the index, never a scan of every
+            // proposal under the writer (found building ADR-0191 decision 5)
             (t.name == crate::model::PROPOSAL).then(|| {
                 format!(
                     "CREATE INDEX IF NOT EXISTS {} ON {name} (target, state);",
@@ -1121,9 +1119,8 @@ fn attribute_indexes(lib: &Library, t: &Type) -> Vec<String> {
         )
         .chain(
             // the successor's column, which a group erasure reads each
-            // member's predecessors by, where it read every superseding
-            // type whole for each member (fifth production review,
-            // ADR-0191 decision 5)
+            // member's predecessors by, never every superseding type whole
+            // for each member (fifth production review, ADR-0191 decision 5)
             t.states.iter().any(|(_, s)| s.superseding).then(|| {
                 format!(
                     "CREATE INDEX IF NOT EXISTS {} ON {name} (superseded_by);",
@@ -1479,8 +1476,8 @@ pub(crate) fn read_last_version(conn: &Connection, id: &str) -> crate::db::Resul
 
 /// The attempts on objects of the types given after a place in the order
 /// written, `(txn, id)`, and in a transaction at most `upto`: at most `limit`,
-/// each with its id, read by the transaction's index, where a page of a
-/// type's attempts read the whole attempt log (eleventh production review).
+/// each with its id, read by the transaction's index, never the whole
+/// attempt log (eleventh production review).
 pub(crate) fn read_attempts_after(
     conn: &Connection,
     types: &[String],
@@ -1594,8 +1591,7 @@ type RowFields = (String, i64, String, Option<String>, Vec<Sql>);
 
 /// The events after a position, in position order, at most `limit`, of the
 /// objects of the types given where some are: a page of the log read from a
-/// cursor by its key, where every pull and export read the log whole
-/// (fourth production review FEED).
+/// cursor by its key, never the log whole (fourth production review FEED).
 pub(crate) fn read_log_after(
     conn: &Connection,
     after: i64,
@@ -1817,10 +1813,9 @@ pub(crate) fn read_last_position(conn: &Connection) -> crate::db::Result<i64> {
 
 /// A connection that only looks at a store's file, carrying no write-ahead
 /// log into the file as it closes, so a start that refuses a store leaves
-/// the file and its log as they were: the release a start reads first, on a
-/// plain connection, wrote another state's log into a restored copy as it
-/// closed, which the check after it did not (fourth production review A-16,
-/// fifth production review).
+/// the file and its log as they were, since a plain connection's close
+/// would write another state's log into a restored copy (fourth production
+/// review A-16, fifth production review).
 pub(crate) fn looking(path: &std::path::Path) -> Stored<Connection> {
     let conn = Connection::open_with_flags(path, crate::db::OpenFlags::READ_WRITE.one_thread())?;
     conn.keep_log_on_close()?;
@@ -1858,11 +1853,11 @@ pub(crate) fn read_log(conn: &Connection) -> crate::db::Result<Vec<Event>> {
 }
 
 /// The spans of the interval index a write touched, inserted or brought up
-/// to date, in a few statements of many rows, where each was a statement of
-/// its own and, on PostgreSQL, a round trip through the one writer (Gate P
-/// on PostgreSQL, ADR-0213). A span touched twice keeps the last, as one
-/// statement each left it; PostgreSQL refuses a statement that brings one
-/// row up to date twice.
+/// to date, in a few statements of many rows, not a statement each, which on
+/// PostgreSQL would be a round trip each through the one writer (Gate P on
+/// PostgreSQL, ADR-0213). A span touched twice keeps the last, as one
+/// statement each would leave it; PostgreSQL refuses a statement that
+/// brings one row up to date twice.
 fn upsert_spans(tx: &Connection, spans: &[(&str, &str, &Span)]) -> Stored<()> {
     let mut last: BTreeMap<(&str, &str, i64, i64), &Span> = BTreeMap::new();
     for (id, dimension, sp) in spans {
@@ -1918,9 +1913,9 @@ fn upsert_spans(tx: &Connection, spans: &[(&str, &str, &Span)]) -> Stored<()> {
 
 /// The write index, each object's attribute and the position of the event
 /// that last wrote it, in statements of many rows, each pair's last
-/// position kept, as one statement each left it, where each was a statement
-/// of its own and, on PostgreSQL, a round trip through the one writer (Gate
-/// P on PostgreSQL, ADR-0213).
+/// position kept, as one statement each would leave it, not a statement
+/// each, which on PostgreSQL would be a round trip each through the one
+/// writer (Gate P on PostgreSQL, ADR-0213).
 fn write_index(tx: &Connection, written: &[(String, String, i64)]) -> Stored<()> {
     let mut index: BTreeMap<(&str, &str), i64> = BTreeMap::new();
     for (id, attribute, position) in written {
@@ -2082,9 +2077,8 @@ fn change_tables<'n>(
                     ))?;
                     // its intervals carried under its new name (§3),
                     // retracted under the old and moved to the publish,
-                    // so an export's consumer reads them under the new,
-                    // where it kept them under the old (the audit's
-                    // durability V7c, ADR-0205 decision 9)
+                    // so an export's consumer reads them under the new
+                    // (the audit's durability V7c, ADR-0205 decision 9)
                     tx.execute(
                         &format!(
                             "INSERT OR IGNORE INTO of_interval_retraction \
@@ -2120,9 +2114,8 @@ fn change_tables<'n>(
             }
             // its intervals set aside under the name its column takes,
             // the open one closed at the publish event, and retracted
-            // there, since no export reads a set-aside row, where an
-            // export's consumer kept them open (the audit's durability
-            // V7b, ADR-0205 decision 9)
+            // there, since no export reads a set-aside row (the audit's
+            // durability V7b, ADR-0205 decision 9)
             tx.execute(
                 &format!(
                     "INSERT OR IGNORE INTO of_interval_retraction \
@@ -2210,10 +2203,9 @@ pub(crate) type CopyFinding = (bool, String, String);
 
 /// The approval's table changes, before its mappings ([`change_tables`])
 /// and after them ([`rebuild`] exact), run on an empty copy of the store's
-/// tables they touch and rolled back, so
-/// a statement the approval would send and the database refuse is a dry
-/// run's fatal finding, `table_change:<Type>`, where it faulted the approval
-/// (issue #59, ADR-0248). The types they touch, each new one and each whose
+/// tables they touch and rolled back, so a statement the approval would send
+/// and the database refuse is a dry run's fatal finding,
+/// `table_change:<Type>`, not a fault of the approval (issue #59, ADR-0248). The types they touch, each new one and each whose
 /// table a rename reaches or the version changes, are taken
 /// [`COPY_BATCH`] at a time, each type's table and set tables copied with
 /// the built-in tables beside them. On SQLite each batch is a database of
@@ -3282,9 +3274,7 @@ pub fn is_the_operator(world: &World<'_>, actor: &str) -> Result<bool, NotRun> {
         return Ok(true);
     }
     // its identity in any case of its ASCII letters, as a request names an
-    // actor, where a request and `maintain` took `OPERATOR` and an approval's
-    // exception and `upgrade` refused it (ninth production review N-7,
-    // ADR-0196 decision 8)
+    // actor (ninth production review N-7, ADR-0196 decision 8)
     Ok(world
         .of_type(crate::model::OPERATOR_TYPE)?
         .iter()
@@ -3522,9 +3512,7 @@ impl Store {
     /// beside it, before anything opens it to write: the first fault it
     /// finds, none where it holds. Its connection carries no log into the
     /// file as it closes, so a check that fails leaves the file and its log
-    /// as they were, where a refused start wrote another state's log into a
-    /// restored copy and deleted it, so the copy failed again once the log
-    /// was removed (fourth production review A-16).
+    /// as they were (fourth production review A-16).
     pub fn checked_file(path: &std::path::Path) -> Stored<Option<String>> {
         let conn = looking(path)?;
         let first: String = conn.query_row("PRAGMA quick_check(1)", [], |r| r.get(0))?;
@@ -3532,9 +3520,9 @@ impl Store {
     }
 
     /// SQLite's quick check of the store's file read with its write-ahead
-    /// log: the first fault it finds, none where it holds. A copy restored
-    /// beside another state's `-wal` opened and answered health while its
-    /// reads failed (third production review N5).
+    /// log: the first fault it finds, none where it holds. It finds the fault
+    /// of a copy restored beside another state's `-wal` (third production
+    /// review N5).
     #[cfg(test)]
     pub fn quick_check(&self) -> Stored<Option<String>> {
         let first: String = self
@@ -3567,7 +3555,7 @@ impl Store {
         // (D584)
         conn.execute_batch("PRAGMA secure_delete = ON;")?;
         // the write-ahead log cut back to 64 MiB whenever a checkpoint
-        // empties it, where it grew to six times the store's file and stayed
+        // empties it, so it never stays at many times the store's file
         // (third production review N6)
         conn.execute_batch(&format!("PRAGMA journal_size_limit = {WAL_LIMIT};"))?;
         // another connection's write lock is waited for, not met at once
@@ -3584,9 +3572,8 @@ impl Store {
     /// it on SQLite, and a crashed one's lock goes with its connection.
     pub fn open_postgres(config: &crate::db::PgConfig, now: i64, create: bool) -> Stored<Store> {
         let conn = Connection::postgres_with(config)?;
-        // a database that takes no write refused at the start, which the
-        // catalog's making refused before it was made once for every
-        // connection (durability on PostgreSQL, S6)
+        // a database that takes no write refused at the start (durability
+        // on PostgreSQL, S6)
         let read_only: bool = conn.query_row(
             "SELECT pg_is_in_recovery() OR current_setting('default_transaction_read_only') = 'on'",
             [],
@@ -3626,8 +3613,8 @@ impl Store {
         // the database the store was last opened in, kept in its counters:
         // one that is not it, a restore or a standby a failover promoted,
         // which may lack the last writes the store answered, is refused
-        // unless marked a copy, where no backup on PostgreSQL carries the
-        // mark and a copy unmarked handed out ids, positions and numbers
+        // unless marked a copy, since no backup on PostgreSQL carries the
+        // mark and a copy unmarked would hand out ids, positions and numbers
         // again (durability on PostgreSQL 2, ADR-0207)
         let here: Vec<i64> = conn
             .origin()?
@@ -3773,12 +3760,10 @@ impl Store {
             .library_at(latest)?
             .ok_or_else(|| StoreError(format!("version {latest} recorded no source")))?;
         // the types an earlier version declared and a later one dropped,
-        // retired as the publish that dropped them retired them, where a
-        // restart left their objects naming a type the library lacked and
-        // every read of one answered 500; and each earlier version's library
-        // kept, which a read judges a value written under it by and finds an
-        // object's moves through, where only a request loaded them and a read
-        // before the first found none (ADR-0244 decision 4)
+        // retired as the publish that dropped them retired them; and each
+        // earlier version's library kept, which a read judges a value written
+        // under it by and finds an object's moves through (ADR-0244 decision
+        // 4)
         let mut earlier = BTreeMap::new();
         for v in (1..latest).rev() {
             if let Some(was) = store.library_at(v)? {
@@ -3912,9 +3897,9 @@ impl Store {
         }
         // tried once, waiting for no reader: a reader holding the log keeps
         // it until it ends, and the truncation stays due after the next
-        // write; waiting here, under the writer's lock, made every write
-        // take the busy timeout while any read older than the erasure was
-        // open (ERASE-CHECKPOINT)
+        // write; waiting here, under the writer's lock, would make every
+        // write take the busy timeout while any read older than the erasure
+        // is open (ERASE-CHECKPOINT)
         self.conn.busy_timeout(std::time::Duration::ZERO)?;
         let tried: crate::db::Result<i64> =
             self.conn
@@ -3955,9 +3940,7 @@ impl Store {
         // every holder of a snapshot older than the erasure's commit: a
         // session of this database, a standby's feedback through its
         // walsender, which names no database, a replication slot's, and a
-        // prepared transaction, where the sessions alone were counted and the
-        // others left whole erased rows, unsaid (personal data on PostgreSQL
-        // 5)
+        // prepared transaction (personal data on PostgreSQL 5)
         let held: i64 = self.conn.query_row(
             "SELECT (SELECT count(*) FROM pg_stat_activity WHERE pid <> pg_backend_pid() \
                AND backend_xmin IS NOT NULL AND (datname = current_database() OR backend_type = 'walsender') \
@@ -3970,9 +3953,9 @@ impl Store {
             params![horizon],
             |r| r.get(0),
         )?;
-        // none removed while one holds them: tried again later, where the
-        // vacuum ran on every table each time and a slot holding for hours
-        // would have run it every few seconds
+        // none removed while one holds them: tried again later, since a
+        // vacuum of every table each time would, beside a slot holding for
+        // hours, run every few seconds
         if held > 0 {
             self.checkpoint_due = true;
             return Ok(false);
@@ -3983,9 +3966,10 @@ impl Store {
             .query_map([], |r| r.get(0))?
             .collect::<Result<_, _>>()?;
         // index cleanup forced, which VACUUM skips where under 2% of a
-        // table's pages hold dead rows and left an erased value a live index
-        // entry; and each table analysed afresh, whose samples kept erased
-        // values readable in `pg_stats` (personal data on PostgreSQL 2, 3)
+        // table's pages hold dead rows, leaving an erased value a live index
+        // entry; and each table analysed afresh, since its samples keep
+        // erased values readable in `pg_stats` (personal data on PostgreSQL
+        // 2, 3)
         let vacuumed = self.conn.execute_batch(&format!(
             "VACUUM (INDEX_CLEANUP ON, ANALYZE) {}",
             tables
@@ -4302,7 +4286,7 @@ impl Store {
         // on PostgreSQL every table, written anew with its indexes, those
         // backing keys among them, and the planner's samples last, which the
         // tables' rewrite leaves old rows of: a vacuum frees what an erasure
-        // rewrote without zeroing it, and `REINDEX "name"` was a statement
+        // rewrote without zeroing it, and `REINDEX "name"` is a statement
         // PostgreSQL refuses (ADR-0213 decision 8, personal data on
         // PostgreSQL 1 and 4)
         if self.conn.backend() == crate::db::Backend::Postgres {
@@ -4538,8 +4522,8 @@ impl Store {
             b.attempt = Some(a.clone());
             return Ok(());
         }
-        // in a group, on a savepoint of its transaction, where it had a
-        // transaction of its own after the rollback (ADR-0208 decision 2)
+        // in a group, on a savepoint of its transaction (ADR-0208 decision
+        // 2)
         if self.group.is_some() {
             let a = held_named(&self.conn, a)?;
             self.conn.execute_batch("SAVEPOINT attempt")?;
@@ -4624,11 +4608,9 @@ impl Store {
                     Some("revoked".to_string())
                 }
                 // a cursor of the log's, from 0, which replays it from the
-                // start, to its last position, where any integer was taken
-                // and one past the log skipped every later event (fourth
-                // production review A-12)
-                // and none in a gap a restore skipped, which the copy never
-                // saw (ADR-0207 decision 5)
+                // start, to its last position (fourth production review
+                // A-12), and none in a gap a restore skipped, which the copy
+                // never saw (ADR-0207 decision 5)
                 Some(s) if s.type_ == crate::model::SUBSCRIPTION => (cursor < 0
                     || cursor > world.last_position()?
                     || world.skipped_position(cursor)?)
@@ -4640,9 +4622,7 @@ impl Store {
             return Ok(refusal);
         }
         // written as a request is, its retries waiting out another process's
-        // lock, and refused `stale` past them, where it was written outside
-        // and answered 500 after one busy timeout (the audit's durability
-        // W8b)
+        // lock, and refused `stale` past them (the audit's durability W8b)
         let now = timestamp_text(self.now);
         let written = (|| -> Stored<()> {
             let (tx, _) = begin_write!(self);
@@ -5025,8 +5005,8 @@ impl Store {
     ) -> Stored<Result<(Verdict, Option<PublishReport>), NotRun>> {
         let decided = self.publish_decided(actor, change, expected_version)?;
         // a refused approval is a row of the attempt log, as every refused
-        // request is, its transition `publish` on the change, where none
-        // was written (the audit's write path A-02)
+        // request is, its transition `publish` on the change (the audit's
+        // write path A-02)
         if let Ok((v, _)) = &decided
             && !matches!(v, Verdict::Satisfied { .. })
         {
@@ -5147,7 +5127,7 @@ impl Store {
                 continue;
             }
             // a set, each of the impact's ids looked up rather than sought
-            // in the list, which a backfill naming every object made
+            // in the list, which a backfill naming every object would make
             // quadratic in them
             let was: BTreeSet<&str> = shown[&category]
                 .as_array()
@@ -5169,9 +5149,8 @@ impl Store {
         let change_obj = c.clone();
         // every object whole, the identifiers each held before the version
         // read from its record, the actor's among them: the objects the
-        // simulation read, taken out of it, which reading the store whole a
-        // second time and copying it made an approval's largest step in
-        // memory (MEMORY)
+        // simulation read, taken out of it, never the store read whole a
+        // second time and copied (MEMORY)
         drop(world);
         {
             let all = at.in_order()?;
@@ -5285,9 +5264,9 @@ impl Store {
         let mut positions = vec![publish_position];
         change_set.writes.push((change_obj, false, publish_event));
         let affected = report.affected();
-        // each object's findings, in the report's order, gathered once: a
-        // search of every finding's list for each object of the store was
-        // quadratic in them where a backfill named every object of a type;
+        // each object's findings, in the report's order, gathered once,
+        // since a search of every finding's list for each object of the store
+        // is quadratic in them where a backfill names every object of a type;
         // a finding names an object once (`Found::add`)
         let mut findings_of: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
         for (code, ids) in &affected {
@@ -5557,8 +5536,7 @@ impl Store {
                 })
                 .collect();
             // redacted once every object has migrated, as publish-and-import.md
-            // §1 step 5 orders them, where each object's redaction followed its
-            // own migration and the two backends numbered them apart
+            // §1 step 5 orders them
             if !newly.is_empty() {
                 redactions.push((x, newly));
             }
@@ -5583,8 +5561,8 @@ impl Store {
                     sp.value = Value::Absent;
                 }
             }
-            // every object held as the install holds it, shared, where each
-            // was copied for each erased object (ADR-0222)
+            // every object held as the install holds it, shared, never copied
+            // for each erased object (ADR-0222)
             let mut after = World::new(new, now);
             for o in objects.values() {
                 after.insert_shared(o.clone())?;
@@ -5833,17 +5811,16 @@ impl Store {
     /// and [`EVENT_BYTES`] of them, one at least; and the position the next
     /// page goes on from, where the limit or the bytes ended this one
     /// (ADR-0194 decision 6, ADR-0243 decision 1). Never the objects'
-    /// history whole, which a `history` of 10,000 events of 16 KB each
-    /// answered at 164.6 MB (sixth production review HISTORY, ADR-0192
-    /// decision 5).
+    /// history whole (sixth production review HISTORY, ADR-0192 decision
+    /// 5).
     ///
     /// Each object's positions are read by `of_event_by_object`, its object
     /// and their position, a page's limit of them at most, and merged; then
     /// the page's events are read whole a few at a time, ending at its
     /// bytes, as the log's export reads them. So a page reads about the
-    /// events it holds, where one read of every object sorted all their
-    /// events past `from`, and holds whole no more than its own and one
-    /// chunk, a group's too (ADR-0243 decision 2).
+    /// events it holds, never sorting all their events past `from`, and holds
+    /// whole no more than its own and one chunk, a group's too (ADR-0243
+    /// decision 2).
     pub fn history_page(
         &self,
         ids: &[String],
@@ -5934,9 +5911,9 @@ impl Store {
 }
 
 /// How many bytes of events a page of `history` and an answer of `events`
-/// hold at most, beside their count: a page of 1,000 events of large inputs
-/// answered 123 MB, and six at once took the service to 2 GB (seventh
-/// production review HISTORY, ADR-0194 decision 6).
+/// hold at most, beside their count, so pages of large inputs bound the
+/// service's memory (seventh production review HISTORY, ADR-0194 decision
+/// 6).
 pub const EVENT_BYTES: usize = 8 * 1024 * 1024;
 
 /// About how many bytes an event answers: what its request sent, what its
@@ -5971,9 +5948,9 @@ pub struct Allocator {
 
 impl Allocator {
     fn read(tx: &Connection, ids: Ids) -> Stored<Allocator> {
-        // the three counters and the restore's floor in one statement, where
-        // each was a statement of its own and, on PostgreSQL, a round trip
-        // through the one writer (Gate P on PostgreSQL, ADR-0213)
+        // the three counters and the restore's floor in one statement, not
+        // one each, which on PostgreSQL would be a round trip each through
+        // the one writer (Gate P on PostgreSQL, ADR-0213)
         let (position, txn, object, floor): (i64, i64, i64, Option<i64>) = tx.query_row(
             "SELECT (SELECT value FROM of_counter WHERE name = 'position'), \
                     (SELECT value FROM of_counter WHERE name = 'txn'), \
@@ -5985,7 +5962,7 @@ impl Allocator {
         let mut sequences = BTreeMap::new();
         // each sequence's last number drawn, the one before its next
         // read whole and counted here, never in SQL, where a next value an
-        // earlier release wrapped overflowed to a REAL and failed every
+        // earlier release wrapped would overflow to a REAL and fail every
         // write; such a sequence reads as exhausted, so only a request
         // minting from it is refused (fourth production review A-15)
         let mut stmt = tx.prepare("SELECT name, scope_key, next_value FROM of_sequence")?;
@@ -6173,9 +6150,8 @@ fn snapshot<'l>(
 ) -> Stored<World<'l>> {
     release_held(conn)?;
     // the objects, the log, the subscriptions' cursors and the admissions
-    // are read where an operation reads them (ADR-0162 steps 1 and 2), the
-    // last two where every operation read both (`research/write-throughput.md`
-    // §6)
+    // are read where an operation reads them (ADR-0162 steps 1 and 2; the
+    // last two, `research/write-throughput.md` §6)
     let mut world = World::new(lib, now).reading_from(conn);
     world.earlier = earlier;
     Ok(world)
@@ -6321,8 +6297,8 @@ pub(crate) fn read_type(conn: &Connection, lib: &Library, type_: &str) -> Stored
 /// columns (ADR-0162 step 3); none where a value has no column to compare
 /// in, a set's or an absent one; and of them, where `since` names a time or
 /// a date attribute, those whose value is at or after the one given, a
-/// window's rows read by the column, never the type whole, which a report
-/// over a window read every object of the type for (ADR-0210 decision 2).
+/// window's rows read by the column, never the type whole (ADR-0210
+/// decision 2).
 pub(crate) fn read_type_where_since(
     conn: &Connection,
     lib: &Library,
@@ -6434,8 +6410,8 @@ fn narrowing(
 
 /// The columns of a table that hold no null, as the table declares them:
 /// a required attribute's, unless the table was built relaxed; held by the
-/// connection for the library's version on PostgreSQL, where each read of
-/// them was a round trip to its catalog (ADR-0213).
+/// connection for the library's version on PostgreSQL, so each read of them
+/// is no round trip to its catalog (ADR-0213).
 fn not_null(conn: &Connection, lib: &Library, name: &str) -> Stored<BTreeSet<String>> {
     Ok(conn.not_null_held(&format!("{name} {}", lib.version), || {
         let mut info = conn.prepare(&format!("PRAGMA table_info({})", quote(name)))?;
@@ -6725,7 +6701,7 @@ pub(crate) fn keyed(lib: &Library, type_: &str, key: &[(&str, &Value)]) -> Store
 }
 
 /// The ids the reads given find, in one statement however many reads
-/// there are: on PostgreSQL each read was a round trip of its own, one an
+/// there are, never a round trip each on PostgreSQL, which would be one an
 /// actor type for each request's actor (`research/write-throughput.md` §6).
 pub(crate) fn read_ids_keyed(conn: &Connection, reads: &[Keyed]) -> Stored<Vec<String>> {
     if reads.is_empty() {
@@ -6843,11 +6819,9 @@ fn marks(n: usize) -> String {
 }
 
 /// The parts of the records of the objects of a concrete type given, by
-/// id, a few hundred to each read of each part's table (ADR-0165), where
-/// it read the records of every object of the type: a worklist of 50
-/// ordered by when each entered its state read 110k records, 0.8 s a page,
-/// and a cascade over a claim's lines held the writer seconds (thirteenth
-/// production review N3).
+/// id, a few hundred to each read of each part's table (ADR-0165), never
+/// the records of every object of the type (thirteenth production review
+/// N3).
 pub(crate) fn read_parts_of_ids(
     conn: &Connection,
     lib: &Library,
@@ -6866,10 +6840,9 @@ pub(crate) fn read_parts_of_ids(
 }
 
 /// The place in creation order of each object named that the directory
-/// holds, a few hundred ids to each read, where a metric's groups were
-/// ranked by objects each loaded whole by queries of its own, two round
-/// trips an object on PostgreSQL: 1,200 for a metric naming 600 claimants
-/// (Gate P on PostgreSQL, ADR-0213).
+/// holds, a few hundred ids to each read, never each object loaded whole by
+/// queries of its own, two round trips an object on PostgreSQL (Gate P on
+/// PostgreSQL, ADR-0213).
 pub(crate) fn read_orders(conn: &Connection, ids: &[String]) -> Stored<BTreeMap<String, i64>> {
     let mut out = BTreeMap::new();
     for chunk in ids.chunks(PARTS_CHUNK) {
@@ -7145,8 +7118,7 @@ fn read_parts(
 /// The spans of the dimensions named, of every object of a concrete type,
 /// from the interval index by the type's table, in each dimension's order
 /// as [`spans`] reads them: what a metric over intervals that never reads
-/// `held` reads, where it read each object's record whole, its attribute
-/// writes, erasure and admissions among them (the audit's cost B3,
+/// `held` reads, never each object's record whole (the audit's cost B3,
 /// ADR-0205 decision 13).
 pub(crate) fn read_type_spans(
     conn: &Connection,
@@ -7390,10 +7362,8 @@ pub(crate) fn read_interval_retractions(
 /// most `upto`, each with its object's type and the transition that opened
 /// it: a span an event wrote by the cursor's index, and a legacy span, which
 /// no event opened, by its object's first imported event, read by the index
-/// on imported events. Neither reads the log or a type whole, where a page
-/// of a type's intervals read every event into memory and walked it once
-/// for each of the type's objects, 15 s and a gigabyte a page at six years
-/// (eleventh production review N1).
+/// on imported events. Neither reads the log or a type whole (eleventh
+/// production review N1).
 pub(crate) fn read_interval_page(
     conn: &Connection,
     lib: &Library,
@@ -7539,10 +7509,10 @@ const REWRITE_BYTES: usize = EVENT_BYTES;
 /// columns, edited by `edit` and written back where that changed it, in as
 /// few statements as [`SPAN_ROWS`] and [`REWRITE_BYTES`] allow: a value an
 /// erasure rewrites, its keys kept in the order the engine wrote them on
-/// either backend, where PostgreSQL's `jsonb` gave them in its own, and
-/// each row written once a pass, where it was written once for each value
-/// erased in it, every version holding the rest until the housekeeping
-/// (records F6; personal data on PostgreSQL 1).
+/// either backend, which PostgreSQL's `jsonb` would not keep, and each row
+/// written once a pass, not once for each value erased in it, since each
+/// write leaves a version holding the rest until the housekeeping (records
+/// F6; personal data on PostgreSQL 1).
 fn rewrite_json(
     tx: &Connection,
     table: &str,
@@ -7861,8 +7831,7 @@ fn write(
              AND entered_position = ?3 AND entered_at = ?4",
             params![id, dimension, position, timestamp_text(*at)],
         )?;
-        // retracted at the correction, so an export's consumer drops it,
-        // where it kept it open beside the span it was merged into (the
+        // retracted at the correction, so an export's consumer drops it (the
         // audit's durability V7a, ADR-0205 decision 9)
         tx.execute(
             "INSERT OR IGNORE INTO of_interval_retraction (position, object_id, dimension, entered_position, entered_at) \
@@ -7909,8 +7878,7 @@ fn write(
         .unwrap_or(i64::MAX);
     // on PostgreSQL the vacuum this redaction needs, marked in its own
     // transaction, so a service killed before the vacuum runs it at its
-    // next start, where it was held in memory alone and forgotten
-    // (durability on PostgreSQL 5)
+    // next start (durability on PostgreSQL 5)
     if !change.redacted.is_empty() && tx.backend() == crate::db::Backend::Postgres {
         tx.execute(
             "INSERT INTO of_counter (name, value) VALUES ('vacuum_due', 1) \
@@ -7940,8 +7908,8 @@ fn write(
         // what each event before the change wrote of each attribute, a
         // correction's record of the value it replaced and wrote, and the
         // inputs that sent it, nulled in one pass over the object's events,
-        // each event written once, where it was written once for each
-        // attribute and part, every version holding the rest (ADR-0209
+        // each event written once, not once for each attribute and part,
+        // since each write leaves a version holding the rest (ADR-0209
         // decision 2; personal data on PostgreSQL 1, records F6); the query
         // finds every event holding any part, and the edit alone decides
         // what it rewrites, leaving what the change's own events wrote
@@ -7975,7 +7943,7 @@ fn write(
                             });
                         }
                         // both parts, either made where it is missing, as
-                        // json_set made it
+                        // `json_set` makes it
                         if let Some(c) = at_path(payload, &["corrected", k])
                             .and_then(serde_json::Value::as_object_mut)
                         {
@@ -8045,8 +8013,8 @@ fn write(
         lib.identity_held()
     };
     // each copy matched as identities compare, ignoring the case of their
-    // ASCII letters (`wire.md`), where one sent in another case kept it
-    // (the audit's personal data S22, ADR-0205 decision 6)
+    // ASCII letters (`wire.md`; the audit's personal data S22, ADR-0205
+    // decision 6)
     for (identity, id) in &change.renamed_actors {
         // each copy rewritten in Rust, its keys kept in their order (records
         // F6), and matched again there as identities compare
@@ -8509,9 +8477,9 @@ fn write(
     }
     for (source, value, id, attribute) in &change.external {
         // a key another object holds as its legacy key is never moved to
-        // this one: the change fails whole, where it took the key unchecked
-        // (`TODO.md` H4); a key an attribute held may pass on, as one an
-        // import's refresh left behind does
+        // this one: the change fails whole (`TODO.md` H4); a key an
+        // attribute held may pass on, as one an import's refresh left behind
+        // does
         let written = tx.execute(
             "INSERT INTO of_external_id (source, value, object_id, attribute) VALUES (?1, ?2, ?3, ?4) \
              ON CONFLICT (source, value) DO UPDATE SET object_id = excluded.object_id, attribute = excluded.attribute \
@@ -8676,9 +8644,8 @@ mod tests {
 
     /// A write meeting another session's lock on PostgreSQL, met at its
     /// statement and not at its transaction's begin, is answered `stale`,
-    /// `retries_exhausted`, as SQLite's is, where it was the store's fault,
-    /// a 500; the lock gone, the same write applies (records on
-    /// PostgreSQL, F3).
+    /// `retries_exhausted`, as SQLite's is; the lock gone, the same write
+    /// applies (records on PostgreSQL, F3).
     #[test]
     fn a_write_meeting_another_sessions_lock_is_answered_stale() {
         let config = match std::env::var(SANDBOX_POSTGRES) {
@@ -8894,8 +8861,7 @@ mod tests {
     }
 
     /// A store's file checked with the log beside it keeps both as they
-    /// were, where closing a connection carried the log into the file and
-    /// deleted it, as a plain connection still does (fourth production
+    /// were, which a plain connection's close does not (fourth production
     /// review A-16).
     #[test]
     fn a_checked_store_keeps_its_file_and_log_as_they_were() {
@@ -8962,9 +8928,7 @@ mod tests {
 
     /// A store is made in one transaction: a creation that fails part-way,
     /// here at the schema's last table, which the file already holds,
-    /// leaves the file as it was, where every table before it stayed and
-    /// every later start refused the half-made store (the audit's durability
-    /// W11).
+    /// leaves the file as it was (the audit's durability W11).
     #[test]
     fn a_store_is_made_whole_or_not_at_all() {
         let dir = std::env::temp_dir().join(format!("objectflow-whole-{}", std::process::id()));
@@ -9016,8 +8980,7 @@ mod tests {
     }
 
     /// A deployment's store cuts its write-ahead log back to its limit when
-    /// a checkpoint empties it, where the log grew to 792 MB beside a 133 MB
-    /// store and stayed (third production review N6).
+    /// a checkpoint empties it (third production review N6).
     #[test]
     fn a_deployments_write_ahead_log_is_cut_back() {
         let dir = std::env::temp_dir().join(format!("of-wal-limit-{}", std::process::id()));
@@ -9082,10 +9045,8 @@ mod tests {
 
     /// Actors an earlier release took whose identities are equal but for
     /// case are found, and decided by a publish whose migration admits
-    /// `identity_taken`, after which each leaves and is erased, where every
-    /// publish was refused `decision_unresolved` and neither could leave
-    /// nor be erased (eighth production review CASE-PAIR, ADR-0195 decision
-    /// 2).
+    /// `identity_taken`, after which each leaves and is erased (eighth
+    /// production review CASE-PAIR, ADR-0195 decision 2).
     #[test]
     fn identities_equal_but_for_case_are_found_and_decided_by_an_admission() {
         use crate::request::{Request, request};
@@ -9357,8 +9318,7 @@ types:
     }
 
     /// The proposals on an object are read by their target's index, which an
-    /// erasure reads them by, where it scanned every proposal under the
-    /// writer (found building ADR-0191 decision 5).
+    /// erasure reads them by (found building ADR-0191 decision 5).
     #[test]
     fn the_proposals_on_an_object_are_read_through_their_index() {
         let store = Store::sandbox(Library::load(&[]).unwrap(), 1_767_225_600).unwrap();
@@ -9468,8 +9428,7 @@ types:
 
     /// An object's page of history finds its positions by the object's
     /// index on position alone, in either order, with no sort and no event
-    /// read: where the index ran by `object_seq`, SQLite sorted every event
-    /// of the object past the cursor for each page (ADR-0243 decision 2).
+    /// read (ADR-0243 decision 2).
     #[test]
     fn a_page_of_an_objects_history_is_read_by_its_index_unsorted() {
         let lib = Library::load(&[]).unwrap();
