@@ -865,7 +865,7 @@ def published(tee, text: str, ref: str = "git:shop@2") -> None:
 
 def test_a_dropped_types_object_is_erased_alike(tee):
     """A type a version drops keeps its erasure, so the personal values its objects hold can still be erased, alike
-    through both backends, where a dropped type kept no transition at all (the audit's personal data S14)."""
+    through both backends (the audit's personal data S14)."""
     redeem = "      redeem: { kind: external, from: [ISSUED], to: USED }\n"
     v1 = SHOP_V1.replace(
         "      code: { type: string }\n",
@@ -1363,7 +1363,7 @@ types:
 
 def test_a_loop_writes_no_erased_value_again_alike(tee):
     """A loop's step writing a personal attribute of an erased object is refused `not_erased`, as a plain step is,
-    alike through both backends, where a step inside a loop was not read (the audit's write path R-02)."""
+    alike through both backends (the audit's write path R-02)."""
     load(tee, "phones", PHONES)
     ana = made(tee, "Person", "join")
     took(tee, ana, "add_phones", numbers=["555-0100"])
@@ -1376,8 +1376,8 @@ def test_a_loop_writes_no_erased_value_again_alike(tee):
 
 
 def test_an_erasure_records_its_redaction_on_a_label_alike(tee):
-    """An erasure removing a label's note records a `redact` event on the label, alike through both backends, where
-    the note went with no event (the audit's write path A-01)."""
+    """An erasure removing a label's note records a `redact` event on the label, alike through both backends (the
+    audit's write path A-01)."""
     load(tee, "shop", SHOP_V1)
     c = made(tee, "Customer", "join", name="N")
     tag = tee.post("/v1/request", {"transition": "record", "actor": OP, "type": "label",
@@ -1437,8 +1437,7 @@ def test_a_metric_names_an_actor_by_its_object_alike(tee):
 
 def test_a_change_missing_an_input_is_told_it_is_missing_alike(tee):
     """A change drafted without its `source_ref` or its `source` is refused naming each `missing`, and one given a
-    malformed one `malformed`, alike through both backends, where a missing one was told it was malformed (the
-    guides' audit G-44)."""
+    malformed one `malformed`, alike through both backends (the guides' audit G-44)."""
     load(tee, "shop", SHOP_V1)
     tee.found.clear()
     v = change(tee, "draft", source={"shop": SHOP_V1})
@@ -1452,7 +1451,7 @@ def test_a_change_missing_an_input_is_told_it_is_missing_alike(tee):
 
 def test_a_sandbox_refuses_a_clock_moved_twice_and_an_unknown_answer_alike(tee):
     """A sandbox's clock moved by `advance` and `set` at once, and an evaluator stubbed with an answer other than
-    the three, are refused `400` alike through both backends, where each was taken (the guides' audit G-46)."""
+    the three, are refused `400` alike through both backends (the guides' audit G-46)."""
     load(tee, "shop", SHOP_V1)
     tee.found.clear()
     for path, body in [("/sandbox/clock", {"advance": "1 h", "set": "2030-01-01T00:00:00Z"}),
@@ -1463,8 +1462,7 @@ def test_a_sandbox_refuses_a_clock_moved_twice_and_an_unknown_answer_alike(tee):
 
 
 def test_a_declaration_without_its_type_is_refused_alike(tee):
-    """A declaration read naming no type is refused `400` alike through both backends, where the core read it as a
-    type of no name and answered `404` (the guides' audit G-93)."""
+    """A declaration read naming no type is refused `400` alike through both backends (the guides' audit G-93)."""
     load(tee, "shop", SHOP_V1)
     tee.found.clear()
     with pytest.raises(Failed, match="400"):
@@ -1512,9 +1510,8 @@ types:
 
 
 def test_a_taken_by_a_cascade_breaks_names_delegable_alike(tee):
-    """A part's `taken_by` its whole's cascade breaks names `delegable`, as a call's does, alike through both
-    backends, where the cascade was not looked at and the refusal said `unreachable_from_here` (the audit's write path
-    A-04)."""
+    """A part's `taken_by` its whole's cascade breaks names `delegable`, as a call's does, alike through both backends
+    (the audit's write path A-04)."""
     load(tee, "shop", CASCADE_SHOP)
     tee.found.clear()
     ask = lambda actor, body: tee.post("/v1/request", {"actor": {"id": actor}, **body})
@@ -1565,8 +1562,7 @@ types:
 
 def test_an_identity_an_observation_holds_is_marked_alike(tee):
     """An identity copied into an observation is marked in `declaration`'s `person_dimensions` when a metric over the
-    observations groups by it, alike through both backends, where it was left unmarked for the gateway (the audit's
-    personal data R8)."""
+    observations groups by it, alike through both backends (the audit's personal data R8)."""
     load(tee, "memos", MEMOS)
     tee.found.clear()
     d = tee.post("/v1/declaration", {"type": "Memo"})
@@ -1576,8 +1572,8 @@ def test_an_identity_an_observation_holds_is_marked_alike(tee):
 
 def test_a_retyped_attribute_names_each_object_holding_a_value_alike(tee):
     """A version changing an attribute's type names each object holding a value it sets aside, and records the
-    setting aside on each as a migration naming the change, alike through both backends, where its notice named none
-    (the audit's write path A-06)."""
+    setting aside on each as a migration naming the change, alike through both backends (the audit's write path
+    A-06)."""
     load(tee, "shop", SHOP_V1)
     tee.found.clear()
     ana = made(tee, "Customer", "join", nick="a")
@@ -1601,7 +1597,7 @@ def test_a_retyped_attribute_names_each_object_holding_a_value_alike(tee):
 def test_an_only_via_transition_taken_by_a_transition_it_does_not_name_is_refused_alike(tee):
     """A creation into an `only_via` transition from a transition it does not name is refused at publish (check 13's
     converse); a call the checker cannot resolve, through a loop's item, is refused `not_requestable` at run time,
-    alike through both backends, where the runner took it (the audit's write path R-05); one it names is taken."""
+    alike through both backends (the audit's write path R-05); one it names is taken."""
     sneaky = CASCADE_SHOP.replace(
         "      close_all: { kind: external, from: [OPEN], to: DONE }\n",
         "      close_all: { kind: external, from: [OPEN], to: DONE }\n"
@@ -1634,8 +1630,7 @@ def test_an_only_via_transition_taken_by_a_transition_it_does_not_name_is_refuse
 
 def test_every_member_an_object_has_is_read_by_its_bare_name_alike(tee):
     """`recorded_from` and `declaration_version` are read by their bare names as `state` is (`flow-format.md` §5),
-    alike through both backends, where the core read each as a type and did not run it, and the runner answered a
-    type name (the values audit's G9); a guard reading them is evaluated, held both ways."""
+    alike through both backends (the values audit's G9); a guard reading them is evaluated, held both ways."""
     def guarded(expression):
         text = CASCADE_SHOP.replace(
             "      close_all: { kind: external, from: [OPEN], to: DONE }\n",
@@ -1668,8 +1663,7 @@ def test_every_member_an_object_has_is_read_by_its_bare_name_alike(tee):
 def test_a_collection_is_a_set_and_an_unknown_element_is_unknown_alike(tee, expression, kind, unknown):
     """A collection is a set: an element written twice is held once and two sets are equal in any order; `x in {a, b}`
     is `x == a or x == b`, so an unknown element leaves it unknown where no known one equals, and a literal holding an
-    unknown element is unknown elsewhere (§8.2), alike through both backends, where both compared in order and read an
-    unknown element as unequal, so `not (2 in {1, code})` passed with `code` absent (the values audit's A8)."""
+    unknown element is unknown elsewhere (§8.2), alike through both backends (the values audit's A8)."""
     text = CASCADE_SHOP.replace(
         "      close_all: { kind: external, from: [OPEN], to: DONE }\n",
         "      close_all: { kind: external, from: [OPEN], to: DONE, guards: { held: deny } }\n", 1).replace(
@@ -1689,8 +1683,7 @@ def test_a_collection_is_a_set_and_an_unknown_element_is_unknown_alike(tee, expr
 
 def test_a_principal_no_request_names_skips_its_write_alike(tee):
     """An outcome writing `actor.principal` where the request names no principal skips its write, as an unsupplied
-    input's is skipped, alike through both backends, where both refused the request `value_in_range` though no request
-    need name one (D687)."""
+    input's is skipped, alike through both backends (D687)."""
     text = CASCADE_SHOP.replace(
         "    attributes:\n      lines:\n", "    attributes:\n      for_whom: { type: string, optional: true }\n      lines:\n", 1).replace(
         "      close_all: { kind: external, from: [OPEN], to: DONE }\n",
@@ -1708,8 +1701,7 @@ def test_a_principal_no_request_names_skips_its_write_alike(tee):
 
 def test_a_part_a_base_declares_goes_with_its_subtype_alike(tee):
     """`flow-format.md` §4.14's own sample runs: a ticket's notes, a part its abstract base declares, are filed by the
-    cascade the ticket's `inherited_parts` gives, alike through both backends, where the core answered every request
-    of such a subtype `501` (the values audit's K-11)."""
+    cascade the ticket's `inherited_parts` gives, alike through both backends (the values audit's K-11)."""
     import re
     doc = (pathlib.Path(__file__).resolve().parents[4] / "docs" / "design" / "flow-format.md").read_text()
     sample = next(b for b in re.findall(r"```yaml\n(.*?)```", doc, re.S)
@@ -2479,9 +2471,8 @@ def relabelled(personal: bool = False) -> str:
 def test_a_rename_keyed_by_an_abstract_base_reaches_its_family_alike(tee):
     """`tag`, declared on the abstract `Asset`, renamed `label` by a rename
     keyed by the base: each kind's value is carried under the new name, and
-    no kind's attribute is noticed as dropped, alike through both backends,
-    where the core's publish dropped every value (`publish-and-import.md` §1
-    step 5, ADR-0147)."""
+    no kind's attribute is noticed as dropped, alike through both backends
+    (`publish-and-import.md` §1 step 5, ADR-0147)."""
     load(tee, "assets", ASSETS)
     laptop = made(tee, "Laptop", "receive", tag="L-1")
     server = made(tee, "Server", "receive", tag="S-1")
@@ -2504,8 +2495,7 @@ def test_a_possible_rename_is_noticed_on_each_kind_and_not_on_its_abstract_base_
     """`tag`, declared on the abstract `Asset`, dropped where `label` is
     added: a possible rename is noticed on each kind whose value no rename
     carries, never on the base, which holds no objects, as the checker
-    notices it, alike through both backends, where both noticed the base
-    under renames keyed by every kind."""
+    notices it, alike through both backends."""
     load(tee, "assets", ASSETS)
     made(tee, "Laptop", "receive", tag="L-1")
     tee.found.clear()
@@ -2521,9 +2511,8 @@ def test_a_possible_rename_is_noticed_on_each_kind_and_not_on_its_abstract_base_
 def test_a_value_renamed_into_a_newly_personal_attribute_is_redacted_alike(tee, keyed):
     """An object erased while an attribute was not personal, then a version
     renaming it into one it marks personal: the publish redacts the value it
-    carried, as it redacts one never renamed, alike through both backends,
-    where the core kept it, and the runner did for a rename keyed by an
-    abstract base (`publish-and-import.md` §1 step 5, D527)."""
+    carried, as it redacts one never renamed, alike through both backends
+    (`publish-and-import.md` §1 step 5, D527)."""
     if keyed == "by the type":
         load(tee, "shop", SHOP_V1.replace("name: { type: string, optional: true, personal: true }",
                                           "name: { type: string, optional: true }"))
@@ -2735,10 +2724,8 @@ def test_a_report_states_each_invariants_form(tee):
 def test_a_proposal_of_what_is_not_proposable_is_refused_alike(tee):
     """Filing a proposal of a transition not marked proposable is refused
     not_proposable through both backends, its remedy to send it as a
-    request instead (ADR-0173 decision 3, D553): the runner raised a fault
-    and the core answered not_requestable, the verdict of an only-via
-    transition. A proposal of a transition the type does not have is still
-    unknown_transition."""
+    request instead (ADR-0173 decision 3, D553). A proposal of a
+    transition the type does not have is unknown_transition."""
     loaded(tee, "service.yaml")
     tee.found.clear()
     ana = tee.post("/v1/request", {"transition": "add", "actor": OP,
@@ -2764,8 +2751,7 @@ def test_a_proposal_of_what_is_not_proposable_is_refused_alike(tee):
 
 def test_a_request_naming_no_type_is_answered_unknown_type_alike(tee):
     """A request naming no type of the installed version is answered unknown_type, as the reads are, its remedy to
-    correct the request where a version is installed, through both backends alike, where it was answered
-    unknown_transition (E3, ADR-0210 decision 6)."""
+    correct the request where a version is installed, through both backends alike (E3, ADR-0210 decision 6)."""
     loaded(tee, "service.yaml")
     tee.found.clear()
     v = tee.post("/v1/request", {"transition": "open", "actor": OP, "type": "Invoice"})
@@ -2777,9 +2763,8 @@ def test_an_invalid_input_says_why_alike(tee):
     """A refused input says why, each from a closed set, through both
     backends alike (ADR-0173 decision 9): another JSON kind, a value not in
     its notation, an amount in another currency, more places than its
-    scale, more digits than the store holds (D554, a 500 before), a
-    reference naming nothing (D560, a 500 on the runner before), an input
-    not taken, and inputs left out."""
+    scale, more digits than the store holds (D554), a reference naming
+    nothing (D560), an input not taken, and inputs left out."""
     loaded(tee, "reimbursement.yaml")
     tee.found.clear()
     emp = tee.post("/v1/request", {"type": "Employee", "transition": "onboard",
@@ -2828,11 +2813,7 @@ def test_an_invalid_input_says_why_alike(tee):
 def test_a_fault_names_a_key_and_an_absent_object_reads_null_alike(tee):
     """A key an operation does not take is a fault, as is an operation that
     does not exist, and a read of an object that does not exist answers
-    null, through both backends alike (ADR-0173 decision 12, D555): a
-    misspelt key had been read as absent, a filter's widening a query to
-    every object, and history
-    and availability of an absent object answered an empty list and a
-    404."""
+    null, through both backends alike (ADR-0173 decision 12, D555)."""
     loaded(tee, "reimbursement.yaml")
     tee.found.clear()
     for path, body, said in (
@@ -2859,7 +2840,7 @@ def test_a_set_reference_is_read_by_its_members_alike(tee):
     """get answers a set reference by its members' ids, an end the other
     side stores as a reader reads it, and an empty list where there are
     none, never null, through both backends alike (flow-format.md §4.3,
-    D552): a claim's lines read null with a line present."""
+    D552)."""
     loaded(tee, "reimbursement.yaml")
     tee.found.clear()
     emp = tee.post("/v1/request", {"type": "Employee", "transition": "onboard",
@@ -2888,12 +2869,12 @@ def test_an_offer_says_it_depends_on_who_takes_it_alike(tee):
     """An offer of a transition that writes who takes it into what an
     invariant reads says so, since availability runs no effects and so no
     invariants, through both backends alike (ADR-0173 decision 1): a line's
-    confirm_nature writes the actor's kind that confirmed_by_a_person
-    reads, suggest_nature the kind its taken_by: [agent] records (ADR-0189),
-    and amend the kind its type's taken_by: [human, service] records, since
-    the sample closed a claim's and a line's transitions to the agent
-    (2026-10-15); an order's transitions, on a type naming no taken_by and
-    writing nothing of the actor, depend on no one."""
+    confirm_nature writes the actor's kind that confirmed_by_a_person reads,
+    suggest_nature the kind its taken_by: [agent] records (ADR-0189), and
+    amend the kind its type's taken_by: [human, service] records, since the
+    sample closes a claim's and a line's transitions to the agent; an
+    order's transitions, on a type naming no taken_by and writing nothing of
+    the actor, depend on no one."""
     loaded(tee, "reimbursement.yaml")
     tee.found.clear()
     emp = tee.post("/v1/request", {"type": "Employee", "transition": "onboard",
@@ -3204,8 +3185,7 @@ def test_a_refusal_tells_what_it_names_alike(tee):
 def test_an_actor_is_named_by_identity_or_id_alike(tee):
     """A request names its actor by the object's id or by the actor
     identity it holds, the id resolved first, through both backends alike
-    (ADR-0173 decision 13, D560): the runner's wire refused an identity
-    as actor_known, which the core took."""
+    (ADR-0173 decision 13, D560)."""
     loaded(tee, "reimbursement.yaml")
     tee.found.clear()
     emp = tee.post("/v1/request", {"type": "Employee", "transition": "onboard",
@@ -3228,8 +3208,7 @@ def test_an_actor_is_named_by_identity_or_id_alike(tee):
 def test_a_derived_amount_summed_over_nothing_is_its_currencys_zero(tee):
     """A claim with no lines has a total summed over nothing, which is the
     zero of the amount its lines would sum, at the currency's minor unit,
-    alike through both backends (`declaration-syntax.md` §8.3); the core
-    gave the integer 0 until 2026-10-08, where the runner gave the zero."""
+    alike through both backends (`declaration-syntax.md` §8.3)."""
     loaded(tee, "reimbursement.yaml")
     tee.found.clear()
     alice = tee.post("/v1/request", {
@@ -3278,8 +3257,7 @@ types:
 def test_a_derived_decimal_summed_over_nothing_is_zero_at_its_scale(tee):
     """A batch with no lots weighs a sum over nothing, which is the decimal
     zero at the scale its lots' weights have, alike through both backends
-    (`declaration-syntax.md` §8.3); the core gave the integer 0 until
-    2026-10-08, where the runner gave the zero."""
+    (`declaration-syntax.md` §8.3)."""
     load(tee, "tally", TALLY)
     tee.found.clear()
     batch = made(tee, "Batch", "open")
@@ -3349,7 +3327,7 @@ def test_a_metric_by_a_recorded_identity_names_a_person_alike(tee):
     """A metric whose dimension reads the identity an approval recorded
     from `actor.id` names a person, and `declaration` marks it, alike
     through both backends (D565); the guide recommends recording who acted
-    that way, and the marking had followed only references to actors."""
+    that way."""
     from flowstudio.scripts import flows
     assert tee.post("/sandbox/load", {"files": [
         {"name": "approve.yaml", "text": flows.IDENTITY_FLOW}]})["loaded"]
@@ -3362,9 +3340,7 @@ def test_a_metric_by_a_recorded_identity_names_a_person_alike(tee):
 def test_a_metric_filter_reads_its_rows_through_the_item_alike(tee):
     """A metric read's filter reads its rows through the metric's item; one
     starting from a name the rows do not bind is refused malformed_filter,
-    as is one that does not parse, through both backends alike (D569): the
-    core answered no rows for a member's bare name and 501 for an unknown
-    one, and the runner no rows for both."""
+    as is one that does not parse, through both backends alike (D569)."""
     loaded(tee, "reimbursement.yaml")
     tee.found.clear()
     tee.post("/v1/request", {"type": "Employee", "transition": "onboard",
@@ -3472,9 +3448,9 @@ types:
 def test_a_time_moved_past_the_calendar_is_refused_alike(tee):
     """An effect moving a time or a date past year 9999, as one from the
     legacy "no end" 9999-12-31 does, refuses its request value_in_range,
-    naming its object, alike through both backends, where the core wrote
-    year 10000, which no read took back, so its object and its type answered
-    500 for good (fifth production review BRICK, ADR-0190)."""
+    naming its object, alike through both backends, since a year past 9999
+    written would leave its object and its type unreadable (fifth production
+    review BRICK, ADR-0190)."""
     assert tee.post("/sandbox/load", {"files": [
         {"name": "leases.yaml", "text": LEASES}]})["loaded"]
     tee.post("/sandbox/reset", {})
@@ -3507,10 +3483,9 @@ def test_a_time_moved_past_the_calendar_is_refused_alike(tee):
 def test_an_effects_arithmetic_past_its_bound_is_refused_alike(tee):
     """An effect whose integer arithmetic passes 64 bits, or divides by
     zero, refuses its request as the generated clause value_in_range, naming
-    its object, alike through both backends, where the core stopped 501 and
-    the runner, its integers unbounded, stored the value; a guard over the
-    same arithmetic refuses so too, where it was unknown (production review
-    F5, ADR-0185, ADR-0205 decision 2)."""
+    its object, alike through both backends; a guard over the same
+    arithmetic refuses so too (production review F5, ADR-0185, ADR-0205
+    decision 2)."""
     loaded = tee.post("/sandbox/load", {"files": [
         {"name": "tally.yaml", "text": BOUNDED}]})
     assert loaded["loaded"], loaded
@@ -3563,9 +3538,7 @@ types:
 def test_a_date_and_a_timestamp_are_read_exactly_alike(tee):
     """A date and a timestamp an input gives are read as RFC 3339 writes
     them, each field its digits exactly, the year 0001 to 9999, at UTC,
-    alike through both backends: the core took a space, a sign, a one-digit
-    month and a year past 9999, and the runner a one-digit month and any
-    offset (second production review, minor)."""
+    alike through both backends (second production review, minor)."""
     loaded = tee.post("/sandbox/load", {"files": [
         {"name": "dated.yaml", "text": DATED}]})
     assert loaded["loaded"], loaded
@@ -3672,8 +3645,7 @@ def test_with_no_publishing_rule_an_agent_does_not_approve_alike(tee):
     """A version that declares an agent kind of actor and no
     publishing.taken_by refuses the agent's approval of the next version as
     publish_taken_by, delegable, and takes a person's, alike through both
-    backends, where the agent approved its own change (eighth production
-    review, ADR-0195 decision 4)."""
+    backends (eighth production review, ADR-0195 decision 4)."""
     unruled = ROSTER.replace("publishing: { taken_by: [human] }\n", "", 1)
     loaded = tee.post("/sandbox/load", {"files": [{"name": "roster.yaml", "text": unruled}]})
     assert loaded["loaded"], loaded
@@ -3707,9 +3679,8 @@ def test_with_no_publishing_rule_an_agent_does_not_approve_alike(tee):
 def test_an_agent_moves_on_only_its_own_change_alike(tee):
     """Where the version declares no publishing, an agent's reject, withdraw, reopen and refresh of a person's
     change are refused publish_taken_by, delegable, as its approval is, and its own change it moves on; a request
-    of a change's publish is not_requestable, naming publish; alike through both backends, where an agent rejected,
-    reopened and revised a person's change, and the request answered 501 (ninth production review N-1, N-2,
-    ADR-0196 decisions 5 and 7)."""
+    of a change's publish is not_requestable, naming publish; alike through both backends (ninth production review
+    N-1, N-2, ADR-0196 decisions 5 and 7)."""
     unruled = ROSTER.replace("publishing: { taken_by: [human] }\n", "", 1)
     assert tee.post("/sandbox/load", {"files": [{"name": "roster.yaml", "text": unruled}]})["loaded"]
     tee.post("/sandbox/reset", {})
@@ -3801,7 +3772,7 @@ def test_an_approval_naming_what_its_approver_read_is_held_to_it_alike(tee):
 
 def test_a_decimal_written_past_its_digits_is_refused_alike(tee):
     """An effect writing a decimal past its 18 digits refuses its request value_in_range, alike through both
-    backends, where the core answered 501 not run (eleventh production review)."""
+    backends (eleventh production review)."""
     flow = PAY.replace("      amount: { type: int }\n", "      amount: { type: int }\n      ratio: { type: \"decimal(18,2)\", optional: true }\n", 1) \
         .replace("      send: { kind: external, from: [DRAFT], to: SENT, proposable: true }\n",
                  "      send: { kind: external, from: [DRAFT], to: SENT, proposable: true }\n"
@@ -3882,7 +3853,7 @@ types:
 
 def test_an_assignment_of_an_absent_sum_is_refused_alike(tee):
     """An assignment whose arithmetic reads an absent optional attribute refuses the request value_in_range, alike
-    through both backends, where it answered 501 not_run (fourteenth production review N5)."""
+    through both backends (fourteenth production review N5)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "counter.yaml", "text": COUNTER}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -3923,9 +3894,8 @@ types:
 
 
 def test_a_plain_read_of_an_absent_value_clears_alike(tee):
-    """A plain read of an absent value clears an optional attribute, as `clear` does, where it refused the request
-    value_in_range; one present moves, and an absent value copied to a required attribute still refuses, alike through
-    both backends (ADR-0209 decision 5)."""
+    """A plain read of an absent value clears an optional attribute, as `clear` does; one present moves, and an absent
+    value copied to a required attribute still refuses, alike through both backends (ADR-0209 decision 5)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "mover.yaml", "text": MOVER}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -3968,7 +3938,7 @@ types:
 
 def test_a_date_moved_by_part_of_a_day_is_refused_alike(tee):
     """A date moved by part of a day has no value, so its assignment refuses the request value_in_range, alike through
-    both backends, where it answered 501 not_run; whole days move it (fifteenth production review)."""
+    both backends; whole days move it (fifteenth production review)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "due.yaml", "text": DUE}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4022,9 +3992,8 @@ types:
 
 def test_an_erased_actors_identity_leaves_what_an_effect_wrote_alike(tee):
     """An erasure of an actor whose identity is personal rewrites it to the actor's object id in an attribute an
-    effect set to actor.id, alike through both backends, where a note's author kept the erased person's address
-    (fifteenth production review, ADR-0202 decision 1), and in one another actor copied it into (sixteenth,
-    ADR-0203 decision 1)."""
+    effect set to actor.id, alike through both backends (fifteenth production review, ADR-0202 decision 1), and
+    in one another actor copied it into (sixteenth, ADR-0203 decision 1)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "signed.yaml", "text": SIGNED}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4080,8 +4049,8 @@ types:
 
 def test_an_erased_identity_sent_in_another_case_leaves_alike(tee):
     """An erasure replaces an erased identity sent in another case of its letters, in an attribute, a set and the
-    event's input, as identities compare, alike through both backends, where the runner matched it exactly (the
-    audit's personal data S17, ADR-0205 decision 6)."""
+    event's input, as identities compare, alike through both backends (the audit's personal data S17, ADR-0205
+    decision 6)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "handed.yaml", "text": HANDED}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4121,8 +4090,7 @@ types:
 
 def test_an_erasure_redacts_every_proposal_on_its_object_alike(tee):
     """An erasure invalidates a pending proposal on its object and empties its inputs, and redacts the personal inputs
-    of one already decided, alike through both backends, where a decided proposal kept a personal memo in its get, its
-    history and the log (thirteenth production review A)."""
+    of one already decided, alike through both backends (thirteenth production review A)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "memo.yaml", "text": MEMO}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4168,10 +4136,9 @@ types:
 
 def test_a_superseded_object_is_followed_alike(tee):
     """`get` and `history` with `follow`, which wire.md and library-api.md
-    promise and neither backend built, the key taken and ignored: get
-    answers where the supersession chain ends, history the whole group's
-    events in position order, alike through both backends; follow of
-    another type is a 400 (third production review, minor)."""
+    promise: get answers where the supersession chain ends, history the
+    whole group's events in position order, alike through both backends;
+    follow of another type is a 400 (third production review, minor)."""
     loaded = tee.post("/sandbox/load", {"files": [{"name": "chain.yaml", "text": CHAIN}]})
     assert loaded["loaded"], loaded
     tee.post("/sandbox/reset", {})
@@ -4226,8 +4193,8 @@ types:
 def test_a_decimal_holds_its_precisions_digits_alike(tee):
     """A decimal(p,s) holds p digits, as declaration-syntax.md §3.1 says:
     an input past them is refused out_of_range and an effect writing past
-    them refused value_in_range, alike through both backends, where both
-    took 18 whatever p (third production review, minor)."""
+    them refused value_in_range, alike through both backends (third
+    production review, minor)."""
     loaded = tee.post("/sandbox/load", {"files": [{"name": "precise.yaml", "text": PRECISE}]})
     assert loaded["loaded"], loaded
     tee.post("/sandbox/reset", {})
@@ -4265,10 +4232,9 @@ types:
 
 
 def test_a_string_holds_at_most_64_kib_alike(tee):
-    """A string value holds at most 64 KiB in UTF-8, where a 1.9 MB title
-    was stored: past it an input is refused out_of_range, alike through
-    both backends, counted in bytes, not characters (ADR-0188 decision
-    1)."""
+    """A string value holds at most 64 KiB in UTF-8: past it an input is
+    refused out_of_range, alike through both backends, counted in bytes,
+    not characters (ADR-0188 decision 1)."""
     loaded = tee.post("/sandbox/load", {"files": [{"name": "textual.yaml", "text": TEXTUAL}]})
     assert loaded["loaded"], loaded
     tee.post("/sandbox/reset", {})
@@ -4288,9 +4254,8 @@ def test_a_string_holds_at_most_64_kib_alike(tee):
 
 def test_a_key_and_a_position_are_each_taken_once_alike(tee):
     """A body naming a key twice, a second actor among them, is 400 in both
-    backends, where the last one won and changed who was recorded; and events
-    naming a position twice is 400, where one position named a thousand times
-    answered 201 MB (fifth production review, ADR-0190 decisions 6 and 8)."""
+    backends; and events naming a position twice is 400 (fifth production
+    review, ADR-0190 decisions 6 and 8)."""
     loaded(tee, "reimbursement.yaml")
     twice = (b'{"type": "Employee", "transition": "onboard", "actor": {"id": "operator"},'
              b' "actor": {"id": "someone"}, "inputs": {"user_id": "zed"}}')
@@ -4350,9 +4315,8 @@ types:
 
 def test_a_correction_held_to_people_refuses_an_agent_alike(tee):
     """A type's taken_by holds its correction to the kinds it names: an agent
-    is refused, a person takes it, alike through both backends, where a
-    correction could take no taken_by and the agent rewrote a recorded bill
-    (fifth production review NEW-CORRECTION, ADR-0190 decision 5)."""
+    is refused, a person takes it, alike through both backends (fifth
+    production review NEW-CORRECTION, ADR-0190 decision 5)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": HELD}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4371,9 +4335,8 @@ def test_a_correction_held_to_people_refuses_an_agent_alike(tee):
 def test_an_identity_names_one_actor_alike(tee):
     """An identity another actor holds, of any type whose objects are
     actors, is refused identity_taken, and one holding a zero-width or
-    bidirectional character is malformed, alike through both backends,
-    where the first made of two answered for both, an agent passing as a
-    person (fifth production review IDENTITY, ADR-0190 decision 4)."""
+    bidirectional character is malformed, alike through both backends
+    (fifth production review IDENTITY, ADR-0190 decision 4)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": HELD}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4422,10 +4385,8 @@ def test_what_a_read_answers_a_request_can_send_alike(tee):
     """Money an effect writes past what an input holds is refused
     value_in_range, a derived time past the calendar refuses the read
     value_in_range (ADR-0205 decision 2), and a metric's window is positive,
-    alike through both backends,
-    where the core stored an amount no request could send, answered year
-    2,739,933 and read "-5 days" as an empty page (fifth production review,
-    ADR-0191 decision 3)."""
+    alike through both backends (fifth production review, ADR-0191 decision
+    3)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "tills.yaml", "text": TILLS}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4448,7 +4409,7 @@ def test_what_a_read_answers_a_request_can_send_alike(tee):
     assert tee.post("/v1/get", {"id": big})["attributes"]["due_back"] == "2026-11-12T00:00:00Z"
     far = till("USD 1.00", 1_000_000_000)
     # one past it refuses the read, naming the object and no value (ADR-0205
-    # decision 2), where it was answered null
+    # decision 2)
     got = tee.post("/v1/get", {"id": far})
     assert (got.get("refused"), got.get("object_id")) == ("value_in_range", far), got
     # a window back from now is positive
@@ -4479,9 +4440,8 @@ def test_a_proposal_is_decided_by_those_who_may_take_it_alike(tee):
     """A proposal of a transition held to people and services is rejected by
     them alone, and withdrawn by them or its proposer, an agent refused as its
     approval would be, invariant_violated pay_taken_by, delegable, alike
-    through both backends, where an agent could reject what a person
-    proposed; a transition held to no kind is decided by anyone (fifth
-    production review, ADR-0191 decision 1)."""
+    through both backends; a transition held to no kind is decided by anyone
+    (fifth production review, ADR-0191 decision 1)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": DECIDED}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4546,8 +4506,7 @@ types:
 def test_a_history_is_read_page_by_page_alike(tee):
     """An object's history answers at most a page of its events, 100 unless
     asked, with the cursor of the next, null on the last, alike through both
-    backends, where it answered every event at once, 164.6 MB for one
-    object (sixth production review HISTORY, ADR-0192 decision 5)."""
+    backends (sixth production review HISTORY, ADR-0192 decision 5)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "ticks.yaml", "text": TICKS}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4600,9 +4559,8 @@ types:
 def test_an_erased_actor_is_named_by_its_object_alike(tee):
     """An erased person's identity, an email marked personal, leaves every
     event they made and the proposal they filed, which name their object's id
-    instead, alike through both backends, where the email stayed in the log
-    and history answered it (sixth production review ERASED-IDENTITY,
-    ADR-0192 decision 4)."""
+    instead, alike through both backends (sixth production review
+    ERASED-IDENTITY, ADR-0192 decision 4)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "forgotten.yaml", "text": FORGOTTEN}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4633,9 +4591,8 @@ def test_an_identity_shows_what_it_is_alike(tee):
     """An identity is not empty, holds no whitespace at its ends nor any but a
     space within, no character that shows nothing, and is not shaped as an
     object's id, else `malformed`; and one differing from another actor's by
-    case alone is `identity_taken`, alike through both backends, where each
-    made another actor than the one it showed (sixth production review
-    IDENTITY, ADR-0192 decision 6)."""
+    case alone is `identity_taken`, alike through both backends (sixth
+    production review IDENTITY, ADR-0192 decision 6)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": HELD}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4733,9 +4690,8 @@ def test_referrers_through_two_references_alike(tee):
 def test_a_migration_may_admit_identity_taken_alike(tee):
     """A version's migration may admit an actor type's `identity_taken`, as a
     store an earlier release left with identities equal but for case needs,
-    both checkers taking it, where neither counted it among a type's
-    invariants and the store could not be decided (eighth production review
-    CASE-PAIR, ADR-0195 decision 2)."""
+    both checkers taking it (eighth production review CASE-PAIR, ADR-0195
+    decision 2)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": HELD}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4753,9 +4709,8 @@ def test_a_migration_may_admit_identity_taken_alike(tee):
 
 
 def test_a_dimension_kept_twice_is_refused_alike(tee):
-    """A metric read keeping one dimension twice is a 400 from both backends,
-    where one named 5,000 times ran to the read's deadline (seventh
-    production review, ADR-0194 decision 6)."""
+    """A metric read keeping one dimension twice is a 400 from both backends
+    (seventh production review, ADR-0194 decision 6)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": HELD}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4766,8 +4721,8 @@ def test_a_dimension_kept_twice_is_refused_alike(tee):
 
 def test_an_actor_of_another_shape_is_refused_alike(tee):
     """A read's actor that is not an object of an id and a principal is a 400
-    from both backends, on every read that takes one, where a read took an
-    actor of any JSON type (eighth production review, ADR-0195 decision 7)."""
+    from both backends, on every read that takes one (eighth production
+    review, ADR-0195 decision 7)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": HELD}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4777,7 +4732,7 @@ def test_an_actor_of_another_shape_is_refused_alike(tee):
         for actor in ([1], "operator", 7, {"id": 7}, {"id": "operator", "role": "x"}):
             with pytest.raises(Failed, match="400"):
                 tee.post(path, {**body, "actor": actor})
-        # an actor of the shape, or none, is read as before
+        # an actor of the shape, or none, is read
         tee.post(path, {**body, "actor": OP})
         tee.post(path, body)
     alike(tee)
@@ -4787,8 +4742,7 @@ def test_an_actor_named_in_another_case_is_that_actor_alike(tee):
     """An actor named by its identity in another case of its ASCII letters is
     that actor, recorded under the identity it holds, as uniqueness compares
     them, and one differing beyond ASCII case is no actor, alike through both
-    backends, where the core recorded an unknown actor under the text sent
-    (seventh production review, ADR-0194 decision 5)."""
+    backends (seventh production review, ADR-0194 decision 5)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "held.yaml", "text": HELD}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4936,8 +4890,7 @@ def test_a_version_renaming_an_enumeration_keeps_its_values_alike(tee):
 
 def test_a_reference_renamed_as_its_referents_type_moves_alike(tee):
     """A reference renamed in the version that moves its referent's type is
-    carried through either backend alike, where both checkers refused it as a
-    change of type (issue #58, ADR-0247 decision 2)."""
+    carried through either backend alike (issue #58, ADR-0247 decision 2)."""
     assert tee.post("/sandbox/load", {"files": [
         {"name": "catalog.yaml", "text": GENRE_CATALOG},
         {"name": "shelf.yaml", "text": GENRE_SHELF}]})["loaded"]
@@ -5314,7 +5267,7 @@ TEAMS = NOTES + """  Team:
 def test_a_retired_type_takes_no_import_alike(tee):
     """A mirror a version retires takes no import, alike through both
     backends: nothing creates or changes a retired type's objects
-    (`storage-schema.md` §10), where both imported into it."""
+    (`storage-schema.md` §10)."""
     load(tee, "hr", TEAMS)
     tee.found.clear()
 
@@ -5369,11 +5322,9 @@ types:
 
 
 def test_a_move_giving_what_its_target_cannot_hold_is_worded_alike(tee):
-    """A move giving an attribute a member of another enumeration refuses
-    the publish, its message naming the value's kind and the declared type as
-    the flow format writes them, through both backends alike, where the core
-    wrote `a a member of an enumeration where Scalar("Binding") is held` and
-    the reference `a value of another kind where Binding is held`."""
+    """A move giving an attribute a member of another enumeration refuses the
+    publish, its message naming the value's kind and the declared type as the
+    flow format writes them, through both backends alike."""
     assert tee.post("/sandbox/load", {"files": [{"name": "catalog.yaml", "text": BINDINGS}]})["loaded"]
     tee.post("/sandbox/reset", {})
     made(tee, "Genre", "add", name="Fiction", format="Format.PAPERBACK")
@@ -5413,7 +5364,7 @@ def test_a_rename_of_what_the_installed_version_lacks_carries_nothing_alike(tee)
     """A version renaming an attribute an earlier version removed renames
     nothing: the dry run notices the entry, and the approval leaves the new
     attribute absent and the removed value unwritten, through both backends
-    alike, where the reference carried the removed value to it (F2)."""
+    alike (F2)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "memos.yaml", "text": RENAMED_MEMOS}]})["loaded"]
     tee.post("/sandbox/reset", {})
     memo = made(tee, "Memo", "write", name="x")
