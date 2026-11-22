@@ -970,9 +970,9 @@ pub struct Pg {
     reshaped: std::cell::Cell<bool>,
     /// Whether a statement of the open transaction failed, which aborts it
     /// on PostgreSQL until a rollback, to a savepoint or whole: its commit
-    /// is then refused, where PostgreSQL answers it `ROLLBACK` without an
-    /// error and the store took it as committed (records on PostgreSQL,
-    /// F7).
+    /// is then refused, since PostgreSQL answers it `ROLLBACK` without an
+    /// error, which the store would take as committed (records on
+    /// PostgreSQL, F7).
     aborted: std::cell::Cell<bool>,
     /// The database reached, as [`Connection::origin`] reads it, held so it
     /// is known after the connection is lost.
@@ -1061,10 +1061,10 @@ impl Pg {
             self.shapes.borrow_mut().clear();
             self.reshaped.set(true);
         }
-        // a name PostgreSQL would cut to 63 bytes refused before it is sent:
-        // two set attributes of a long type shared one table, made `IF NOT
-        // EXISTS`, a document lost and the log recording a write never made
-        // (records on PostgreSQL, F1)
+        // a name PostgreSQL would cut to 63 bytes refused before it is sent,
+        // since two set attributes of a long type cut alike would share one
+        // table, made `IF NOT EXISTS`, and lose a document the log records
+        // as written (records on PostgreSQL, F1)
         if ddl && let Some(name) = long_identifier(&translated) {
             return self.met(Err(Error(Fault::NameTooLong(name))));
         }
@@ -1153,10 +1153,10 @@ fn blocking<T>(f: impl FnOnce() -> T) -> T {
 }
 
 /// How long the making of a PostgreSQL connection is waited for, its
-/// startup and the store's checks of the database included: the socket's
-/// connect alone was bounded, by `connect_timeout`, so a server that stops
-/// answering with its socket open held a new connection without end
-/// (ADR-0215).
+/// startup and the store's checks of the database included, since
+/// `connect_timeout` bounds the socket's connect alone, and a server that
+/// stops answering with its socket open would hold a new connection without
+/// end (ADR-0215).
 const PG_SETUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How long a closing connection is given to tell the server it goes.
@@ -1167,9 +1167,9 @@ const PG_GOODBYE: Duration = Duration::from_secs(1);
 /// that runtime, run while a call waits; and each call bounded by the
 /// deadline set on it, past which the connection is closed, so a read is
 /// answered at its deadline by a server that stops answering with its
-/// connection open, frozen or stalled on its disk, where it waited with the
-/// server (ADR-0215). A write's connection has none, since a commit cut
-/// short has an outcome no one knows.
+/// connection open, frozen or stalled on its disk (ADR-0215). A write's
+/// connection has none, since a commit cut short has an outcome no one
+/// knows.
 struct PgClient {
     runtime: tokio::runtime::Runtime,
     client: Option<tokio_postgres::Client>,
@@ -1253,10 +1253,9 @@ impl PgClient {
             },
         };
         // a call that met the connection's loss closes it, so the loss is
-        // known at once, where its task, run only while a call waits, had
-        // not yet read the server's goodbye and the connection was taken
-        // for open, the next write sent on it and refused (durability on
-        // PostgreSQL 1)
+        // known at once: its task, run only while a call waits, may not yet
+        // have read the server's goodbye, and the next write would be sent
+        // on a connection taken for open (durability on PostgreSQL 1)
         done.map_err(|e| {
             let e = Error(Fault::Postgres(e));
             if e.is_connection_lost() {
@@ -1666,9 +1665,9 @@ fn arguments(rest: &str) -> usize {
 
 /// The schema a sandbox on PostgreSQL is made in, named for this machine,
 /// the process and the name given, so only this machine takes it for
-/// orphaned once its process is gone, where a sandbox another machine made
-/// on a shared server was dropped as this machine's (the personal-data
-/// review on PostgreSQL, outside its area).
+/// orphaned once its process is gone, never a sandbox another machine made
+/// on a shared server (the personal-data review on PostgreSQL, outside its
+/// area).
 pub fn sandbox_schema(name: &str) -> String {
     format!("sandbox_{}_{}_{name}", machine_mark(), std::process::id())
 }
@@ -1855,13 +1854,12 @@ fn long_identifier(sql: &str) -> Option<String> {
 
 /// A connection's settings beside what its configuration names, its own
 /// options kept and these after them, so they hold: a connect, and a
-/// connection's silence, bounded, where none was and a stalled or vanished
-/// database hung every request (durability on PostgreSQL, finding 3); the
-/// server's keepalives on the session, so the store's advisory lock goes
-/// with a vanished host's connection in about half a minute, where the
-/// server's defaults kept it two hours (finding 4); and every commit
-/// flushed before it is answered, whatever the database's default
-/// (finding 8).
+/// connection's silence, bounded, so a stalled or vanished database hangs no
+/// request (durability on PostgreSQL, finding 3); the server's keepalives on
+/// the session, so the store's advisory lock goes with a vanished host's
+/// connection in about half a minute, not the two hours the server's
+/// defaults keep it (finding 4); and every commit flushed before it is
+/// answered, whatever the database's default (finding 8).
 fn settled(config: &tokio_postgres::Config) -> tokio_postgres::Config {
     let mut c = config.clone();
     let mine = c.get_options().unwrap_or_default().to_string();
@@ -1884,11 +1882,10 @@ const PG_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// The catalog the store's SQL reads PostgreSQL through, in the
 /// connection's schema: made where it is not, or not as this core makes it,
 /// under a lock one connection at a time, its mark a comment on its view;
-/// left as it is otherwise, where every connection rewrote it before the
-/// store's lock was tried, so a start refused changed the database, one
-/// waited behind any transaction that had read the view, and connections
-/// made at once could fail on each other's rewrite (durability on
-/// PostgreSQL, finding 9).
+/// left as it is otherwise, so a refused start changes nothing, no
+/// connection waits behind a transaction that read the view, and
+/// connections made at once do not fail on each other's rewrite (durability
+/// on PostgreSQL, finding 9).
 fn catalogued(client: &PgClient) -> Result<()> {
     let mark = catalog_mark();
     let found: Option<String> = client
@@ -2190,11 +2187,10 @@ impl Connection {
     }
 
     /// The columns of a table that hold no null, as `read` reads them from
-    /// the database: on PostgreSQL read once for each key and held, where
-    /// the catalog's answer was a round trip before every narrowed read of
-    /// an object, a quarter of the database's time under the profile's load
-    /// (Gate P on PostgreSQL, ADR-0213); on SQLite read each time, its
-    /// pragma a call in the process. The key names the table and the
+    /// the database: on PostgreSQL read once for each key and held, never a
+    /// round trip to the catalog before every narrowed read of an object
+    /// (Gate P on PostgreSQL, ADR-0213); on SQLite read each time, its pragma
+    /// a call in the process. The key names the table and the
     /// library version read by, as a type's table changes shape only with
     /// a publish, a new version, and a reader's library follows the
     /// store's. What is held is let go when the connection changes a
@@ -2718,8 +2714,8 @@ mod tests {
     }
 
     /// A begin on a connection whose transaction was never ended is refused
-    /// on both backends, where PostgreSQL only warned and ran what followed
-    /// in the transaction left open, so the next commit committed it with
+    /// on both backends, since PostgreSQL only warns and runs what follows in
+    /// the transaction left open, so the next commit would commit it with
     /// its own writes (probed 2026-10-23): the connection is given up, no
     /// write joins that transaction, no read sees it, and none of it is
     /// kept (PRD F2).
@@ -2856,9 +2852,8 @@ mod tests {
 
     /// A connection to a server that takes the connection and never
     /// answers, as a frozen one does, its kernel completing the handshake,
-    /// is given up at the read's deadline, where only the socket's connect
-    /// was bounded and its startup waited without end (ADR-0215). Needs no
-    /// database: a listener that never answers is the server.
+    /// is given up at the read's deadline (ADR-0215). Needs no database: a
+    /// listener that never answers is the server.
     #[test]
     fn a_connection_never_answered_is_given_up_at_its_deadline() {
         let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -2882,9 +2877,8 @@ mod tests {
 
     /// A read connection's statement is stopped at its deadline and the
     /// connection closed, so a database that does not answer in time holds
-    /// no read past it, where a cancel request, which a frozen server never
-    /// acts on, was all there was (ADR-0215); a connection given no
-    /// deadline, a write's, waits as it did.
+    /// no read past it (ADR-0215); a connection given no deadline, a
+    /// write's, waits for its statement to end.
     #[test]
     fn a_read_connection_stops_at_its_deadline() {
         let base = match std::env::var(crate::store::SANDBOX_POSTGRES) {
@@ -2897,7 +2891,7 @@ mod tests {
         let config = PgConfig::parse(&base, None).unwrap();
         // made under a deadline that leaves its making room, a loaded
         // machine's included, and given half a second for the statement,
-        // where half a second for both failed a gate run beside two others
+        // since half a second for both fails on a machine running other gates
         let read = Connection::postgres_reading(
             &config,
             std::time::Instant::now() + std::time::Duration::from_secs(20),
@@ -2984,7 +2978,7 @@ mod tests {
 
     /// A transaction a failed statement aborted is not committed: PostgreSQL
     /// answers its `COMMIT` with `ROLLBACK` and no error, which the store
-    /// took as committed, so the commit is refused; a rollback to a
+    /// would take as committed, so the commit is refused; a rollback to a
     /// savepoint takes the transaction back, as the server does (records on
     /// PostgreSQL, F7). SQLite rolls back the failed statement alone, and
     /// commits the rest.
