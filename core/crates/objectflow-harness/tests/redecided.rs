@@ -58,9 +58,7 @@ fn a_decision_over_a_scan_is_decided_again_from_its_matches() {
 }
 
 /// A user given an identity an agent holds is refused `identity_taken`, and
-/// its refusal replays over its read set, which records the agent, where it
-/// recorded nothing of the actors it read (D693, found by the harness's
-/// forty seeds of 300, the service's twenty-sixth).
+/// its refusal replays over its read set, which records the agent (D693).
 #[test]
 fn an_identity_another_actor_holds_is_refused_over_what_it_read() {
     let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -92,9 +90,7 @@ const OBSERVED: &str = "\nmodule: o\ncategories: [live]\nenumerations: { Outcome
 
 /// A second correction of an observation is refused `corrects_current`,
 /// and its refusal replays over its read set, which records the correction
-/// already made, where it recorded nothing of the observations it read
-/// (D694, found by the harness's forty seeds of 300, the service desk's
-/// eighteenth).
+/// already made (D694).
 #[test]
 fn a_second_correction_is_refused_over_what_it_read() {
     let fx = Fixture {
@@ -136,10 +132,9 @@ fn slots() -> Fixture {
 
 /// A cancel its followers or its parts refuse replays over its read set,
 /// which records each follower the lookup by the reference found and each
-/// part the cascade read, where it recorded none and a replay without them
-/// satisfied it (#103, the integrity review's finding 3): three holds past
-/// a follow's limit of two, a hold paused where its release is not taken
-/// from, and the same of a cascade's parts.
+/// part the cascade read (#103, the integrity review's finding 3): three
+/// holds past a follow's limit of two, a hold paused where its release is
+/// not taken from, and the same of a cascade's parts.
 #[test]
 fn a_refusal_by_followers_or_parts_is_decided_again_from_them() {
     let take = |slot: &str| {

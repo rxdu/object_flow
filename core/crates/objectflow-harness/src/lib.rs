@@ -296,10 +296,7 @@ impl Run {
             Step::Request(r) => {
                 let logged = self.attempts_held();
                 // the store as the request finds it, to decide it again over
-                // its read set alone
-                // a copy that fails fails the run, where it was dropped and the
-                // conditions deciding over it skipped without a word, as they
-                // were on PostgreSQL before its fork (ADR-0213)
+                // its read set alone; a copy that fails fails the run
                 let before = match self.store.fork(&self.fork.0) {
                     Ok(copy) => copy,
                     Err(e) => {
@@ -882,8 +879,7 @@ impl Run {
                 .unwrap_or_default();
             // every invariant holds, but one an admission lets stand, a
             // scan of a type over every other object, as the engine decides
-            // it, where the harness scanned the object too and found every
-            // booking overlapping itself (ADR-0061 decision 1, D696)
+            // it (ADR-0061 decision 1, D696)
             for (name, e) in &t.invariants {
                 let v = Evaluator::new(&world, Some(t), Some(&o.id))
                     .over_others()
@@ -1216,7 +1212,8 @@ fn civil(days: i64) -> (i64, i64, i64) {
 struct Actor<'r> {
     rng: &'r mut Rng,
     made: usize,
-    /// Whether it sends batches, so a run without them draws as before.
+    /// Whether it sends batches; a run without them draws no number for a
+    /// batch.
     batches: bool,
     /// The evaluator functions the fixture's flows call, each answered first
     /// and changed now and then.
