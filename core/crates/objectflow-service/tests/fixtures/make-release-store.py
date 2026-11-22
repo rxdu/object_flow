@@ -62,7 +62,6 @@ SHA-256, from the modules as 0.31.0 shipped them.
 import json
 import pathlib
 import re
-import shutil
 import sqlite3
 import subprocess
 import sys
@@ -70,7 +69,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[5]
 sys.path[:0] = [str(ROOT / "apps/flow-studio/server"), str(ROOT / "apps/flow-studio/server/tests"),
                 str(ROOT / "scripts")]
-from replay import Failed, NotRun, Player, Waiting, Wire, chain  # noqa: E402
+from replay import Failed, NotRun, Player, Wire, chain  # noqa: E402
 import importlib.util  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("flows", ROOT / "scripts/check-flows.py")

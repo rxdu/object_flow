@@ -3,7 +3,7 @@
 //! requests answered, and the store reopened by a second start, with what the
 //! first recorded. The binary is the one this package builds.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::expect_used, clippy::panic)]
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;

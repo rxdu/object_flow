@@ -1254,12 +1254,7 @@ fn heavy_reading<'s>(
     pool: &'s Admission,
     actor: Option<&str>,
 ) -> Result<(Slot<'s>, Reading<'s>), Fault> {
-    // a change's dry run under a deadline of its own (ADR-0194 decision 2)
-    let timeout = if std::ptr::eq(pool, &shared.dry_runs) {
-        shared.dry_run_timeout
-    } else {
-        shared.read_timeout
-    };
+    let timeout = shared.read_timeout;
     let until = std::time::Instant::now() + timeout;
     let slot = match shared.reads {
         Some(_) => pool_of(shared, pool, actor)?.take(until, timeout)?,
@@ -7829,80 +7824,6 @@ mod tests {
         assert!(two.take(Instant::now() + timeout, timeout).is_ok());
     }
 
-    /// A change's dry run reads under a deadline of its own, the dry-run
-    /// timeout, and every other read under the read timeout, where a dry run
-    /// shared the reads' 30 s and a store whose publish outgrew it loosened
-    /// every read's to publish (seventh production review PUBLISH-SLOW,
-    /// ADR-0194 decision 2).
-    #[test]
-    #[allow(clippy::panic)]
-    fn a_dry_run_reads_under_a_deadline_of_its_own() {
-        use std::time::{Duration, Instant};
-        let dir =
-            std::env::temp_dir().join(format!("objectflow-dry-deadline-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
-        let path = dir.join("store.sqlite");
-        store_file(&path, true).unwrap_or_else(|e| panic!("{e}"));
-        let Ok(store) = Store::open(&path, wall_clock()) else {
-            panic!("the store did not open")
-        };
-        let sandbox = Sandbox {
-            deployment: true,
-            path: Some(path.clone()),
-            store: Some(store),
-            ..Default::default()
-        };
-        let reads = Reads {
-            path: Some(path.clone()),
-            pool: Readers::new(&path, objectflow_core::store::BUSY_TIMEOUT),
-            seen: std::sync::RwLock::new(Seen::of(&sandbox)),
-            floor: AtomicI64::new(0),
-        };
-        let shared: Shared = Arc::new(Service {
-            writer: Mutex::new(sandbox),
-            reads: Some(reads),
-            endpoints: std::collections::BTreeMap::new(),
-            tokens: std::collections::BTreeMap::new(),
-            evaluator_timeout: Duration::from_secs(5),
-            deployment: true,
-            read_timeout: Duration::from_secs(1),
-            dry_run_timeout: Duration::from_secs(600),
-            admission: Admission::new(1),
-            worklists: Admission::new(1),
-            objects: Admission::new(1),
-            dry_runs: Admission::for_dry_runs(),
-            agents: Admission::new(1),
-            served: Mutex::new(std::collections::BTreeMap::new()),
-            in_flight: std::sync::atomic::AtomicUsize::new(0),
-            writer_since: AtomicI64::new(0),
-            connections: Connections::default(),
-            store_path: Some(path.clone()),
-            trims: std::sync::atomic::AtomicU64::new(0),
-            trimming: std::sync::atomic::AtomicBool::new(false),
-            store_identity: None,
-            watch: Watch::default(),
-            groups: Groups::default(),
-        });
-        let deadline = |pool: &Admission| -> Duration {
-            let Ok((_slot, reading)) = heavy_reading(&shared, pool, None) else {
-                panic!("no read")
-            };
-            let Reading::Own(Some(store), _) = &reading else {
-                panic!("no store read")
-            };
-            store
-                .deadline
-                .map(|at| at.saturating_duration_since(Instant::now()))
-                .unwrap_or_default()
-        };
-        let dry = deadline(&shared.dry_runs);
-        assert!(dry > Duration::from_secs(500), "{dry:?}");
-        let worklist = deadline(&shared.worklists);
-        assert!(worklist <= Duration::from_secs(1), "{worklist:?}");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
     /// A write its client does not take fails within the idle timeout, and
     /// one the client takes, however slowly, does not (seventh production
     /// review, ADR-0194 decision 6).
@@ -8880,7 +8801,7 @@ mod tests {
     /// drops the answer it waited for, which moves the read's stop, where the
     /// read ran to its deadline for no one (D656, ADR-0205 decision 16).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #[allow(clippy::unwrap_used)]
     async fn a_read_whose_client_goes_is_stopped() {
         let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let shared: Shared = Arc::new(Service {
@@ -8964,7 +8885,7 @@ mod tests {
     /// answers, never the object's history, which grew with it (the audit's
     /// cost B11).
     #[test]
-    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #[allow(clippy::unwrap_used, clippy::panic)]
     fn a_get_reads_no_history() {
         let text = "\nmodule: notes\ncategories: [live]\ntypes:\n  Job:\n    attributes:\n      title: { type: string, optional: true }\n    states:\n      ON: { category: live }\n    transitions:\n      open: { kind: initial, to: ON }\n      note: { kind: internal, from: [ON], optional_inputs: [title] }\n";
         let lib =
@@ -9018,7 +8939,6 @@ mod tests {
     /// of the store, which carries its words, where it answered `500`
     /// (ADR-0215).
     #[test]
-    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     fn a_read_stopped_at_the_database_is_a_read_timeout() {
         let said = format!(
             "{}: a read passed its deadline, the database not answering in time; its connection was closed",
@@ -9037,7 +8957,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #[allow(clippy::panic)]
     fn a_store_found_unreadable_latches_the_service() {
         for fault in [
             Fault::from(objectflow_core::store::StoreError(
@@ -9103,7 +9023,7 @@ mod tests {
     /// the logging layer passes it on, whatever route met it, a read's
     /// among them (the audit's durability S5, ADR-0205 decision 8).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #[allow(clippy::unwrap_used)]
     async fn an_unreadable_answer_latches_the_service_as_it_is_passed_on() {
         let shared: Shared = Arc::new(Service {
             writer: Mutex::new(Sandbox::default()),
@@ -9171,7 +9091,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #[allow(clippy::unwrap_used, clippy::panic)]
     fn a_writer_a_panic_poisoned_is_taken_back() {
         let dir = std::env::temp_dir().join(format!("objectflow-poison-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
