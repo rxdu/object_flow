@@ -4972,7 +4972,7 @@ fn a_changes_source_and_report_are_answered_as_json() {
 
 /// A filter long or nested past the parser's bounds is refused
 /// `malformed_filter`, and the service answers on: a 3,000-term `or` chain
-/// once aborted the process by overflowing its stack (F1). Within the
+/// would abort the process by overflowing its stack (F1). Within the
 /// bounds, a 120-term chain and 60 parentheses are answered, a list of
 /// alternatives of any length too.
 #[test]
@@ -5000,9 +5000,9 @@ fn a_filter_past_the_parsers_bounds_is_refused_and_the_service_answers_on() {
             .collect::<Vec<_>>()
             .join(" or ")
     };
-    // a set of more than 1,000 members is refused, as the fifth production
-    // review's FILTER-COST had one of 10,000 hold a read's slot for 7.8 s
-    // (ADR-0190 decision 3)
+    // a set of more than 1,000 members is refused, since one of 10,000 holds
+    // a read's slot for seconds (the fifth production review's FILTER-COST,
+    // ADR-0190 decision 3)
     let set = |n: usize| {
         format!(
             "balance in {{{}}}",
@@ -5151,8 +5151,8 @@ fn an_operator_is_told_what_the_service_does() {
 }
 
 /// A store file moved or replaced under the running service refuses every
-/// write `503 store_replaced` and makes `/health` say so, where a write was
-/// acknowledged into a file no one would read (fourth production review).
+/// write `503 store_replaced` and makes `/health` say so (fourth production
+/// review).
 #[test]
 fn a_store_replaced_under_the_service_takes_no_write() {
     let file = fresh_store("replaced");
@@ -5197,15 +5197,15 @@ fn a_store_replaced_under_the_service_takes_no_write() {
         (503, Some("store_replaced")),
         "{fault}"
     );
-    // gone, as moved, answers 503 store_replaced, where it answered 500
-    // (fifth production review, ADR-0191 decision 4)
+    // gone, as moved, answers 503 store_replaced (fifth production review,
+    // ADR-0191 decision 4)
     let (status, health) = call(&s, "GET", "/health", None);
     assert_eq!(
         (status, health["code"].as_str()),
         (503, Some("store_replaced")),
         "{health}"
     );
-    // and so does a read, where it answered 500 (ADR-0192 decision 7)
+    // and so does a read (ADR-0192 decision 7)
     let (status, read) = call(
         &s,
         "POST",
@@ -5220,8 +5220,8 @@ fn a_store_replaced_under_the_service_takes_no_write() {
 }
 
 /// Writes stopped behind another process's lock make `/health` answer
-/// `503 writes_stalled` until one commits again, where it answered 200
-/// while every write failed (fourth production review).
+/// `503 writes_stalled` until one commits again (fourth production
+/// review).
 #[test]
 fn writes_stalled_behind_another_lock_are_said_by_health() {
     let file = fresh_store("stalled");
@@ -5239,9 +5239,8 @@ fn writes_stalled_behind_another_lock_are_said_by_health() {
     let add = json!({"actor": op, "type": "User", "transition": "add", "inputs": {"login": "ana", "name": "Ana"}});
     let other = rusqlite::Connection::open(&file).expect("another process's connection");
     other.execute_batch("BEGIN IMMEDIATE").expect("its lock");
-    // said as the write waits, from its first retry, where it was said only
-    // once a write was refused, 40 s on (eighth production review, ADR-0195
-    // decision 6)
+    // said as the write waits, from its first retry (eighth production
+    // review, ADR-0195 decision 6)
     std::thread::scope(|scope| {
         let first = scope.spawn(|| call(&s, "POST", "/v1/request", Some(&add)));
         std::thread::sleep(std::time::Duration::from_millis(1500));
@@ -5251,8 +5250,7 @@ fn writes_stalled_behind_another_lock_are_said_by_health() {
             (503, Some("writes_stalled")),
             "{health}"
         );
-        // and said in the log while it waits, where it was said only once
-        // the write gave up (ninth production review)
+        // and said in the log while it waits (ninth production review)
         let said = s.said_within("writes are waiting for another process's lock on the store");
         assert!(
             said.contains("writes are waiting for another process's lock on the store"),
@@ -5261,8 +5259,8 @@ fn writes_stalled_behind_another_lock_are_said_by_health() {
         assert!(!first.is_finished(), "the write ended before its retries");
         let (status, v) = first.join().expect("the first write");
         assert_eq!((status, v["kind"].as_str()), (200, Some("stale")), "{v}");
-        // the next write's wait counted from the first one's retry, where
-        // it began again at each write
+        // the next write's wait counted from the first one's retry, never
+        // begun again at each write
         let second = scope.spawn(|| call(&s, "POST", "/v1/request", Some(&add)));
         std::thread::sleep(std::time::Duration::from_millis(500));
         let (_, health) = call(&s, "GET", "/health", None);
@@ -5294,10 +5292,10 @@ fn writes_stalled_behind_another_lock_are_said_by_health() {
 
 /// A write waiting for another process's lock is said in the log as it
 /// waits, a second or so after its first retry, whatever the log's cut is
-/// doing: with a busy timeout as long as the cut's look, a look always fell
-/// within the write's first wait, found no stall yet and then waited for
-/// the writer, so the stall was said only once the write gave up (ninth
-/// production review).
+/// doing: with a busy timeout as long as the cut's look, a look that took
+/// the writer would fall within the write's first wait, find no stall yet
+/// and then wait for the writer, so the stall would be said only once the
+/// write gave up (ninth production review).
 #[test]
 fn a_stall_is_said_in_the_log_as_it_waits() {
     let file = fresh_store("stall-log");
@@ -5345,11 +5343,11 @@ fn a_stall_is_said_in_the_log_as_it_waits() {
 
 /// Writes failing for the service's own fault make `/health` answer `503
 /// writes_failing` once three in a row are answered 500, and 200 again once
-/// one commits, where `/health` answered 200 while every write failed
-/// (eighth production review, ADR-0195 decision 6). The writes fail here
-/// by a trigger another process added, reads untouched; the review's own
-/// path, a backup copied over the live file in place, was not reproduced:
-/// the copies tried either failed `/health` too or served the backup.
+/// one commits (eighth production review, ADR-0195 decision 6). The writes
+/// fail here by a trigger another process added, reads untouched; the
+/// review's own path, a backup copied over the live file in place, is not
+/// reproduced: the copies tried either failed `/health` too or served the
+/// backup.
 #[test]
 fn writes_failing_are_said_by_health() {
     let file = fresh_store("failing");
@@ -5402,8 +5400,7 @@ fn writes_failing_are_said_by_health() {
 }
 
 /// A log no one reads stops no request beyond its bound, and `/health`
-/// answers `503 log_blocked` until it is read, where the service stopped at
-/// its next line while `/health` answered 200 (fourth production review).
+/// answers `503 log_blocked` until it is read (fourth production review).
 #[test]
 fn a_log_no_one_reads_is_said_and_stops_no_request() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
@@ -5425,9 +5422,8 @@ fn a_log_no_one_reads_is_said_and_stops_no_request() {
         said: std::sync::Arc::new(std::sync::Mutex::new(String::new())),
     };
     // answers logged by four clients at once until the pipe, unread, and the
-    // log's queue are full: every request still answered, where two that
-    // each met the full pipe stopped both of the runtime's threads and every
-    // request, /health included (tenth production review LOG-FREEZE)
+    // log's queue are full: every request still answered, /health included
+    // (tenth production review LOG-FREEZE)
     let get = json!({"actor": {"id": "operator"}, "id": "nothing-1"});
     let flood: Vec<_> = (0..4)
         .map(|_| {
@@ -5474,8 +5470,7 @@ fn a_log_no_one_reads_is_said_and_stops_no_request() {
         "{health}"
     );
     // read, the log takes lines again and health is 200, and the log says
-    // how many lines it dropped, where only a counter did (eleventh
-    // production review)
+    // how many lines it dropped (eleventh production review)
     let read = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
     let reading = read.clone();
     std::thread::spawn(move || {
@@ -5545,9 +5540,8 @@ fn systemd_is_told_ready_and_stopping() {
 }
 
 /// A log whose reader has gone drops its lines: every request is still
-/// answered and `/health` is 200, where `eprintln!` panicked on the broken
-/// pipe, losing answers to writes already committed and leaving the log held
-/// blocked until a restart (fifth production review).
+/// answered and `/health` is 200, every answer to a committed write
+/// given, and the log not held blocked (fifth production review).
 #[test]
 fn a_log_whose_reader_has_gone_stops_nothing() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
@@ -5583,9 +5577,9 @@ fn a_log_whose_reader_has_gone_stops_nothing() {
     assert_eq!(status, 200, "{health}");
 }
 
-/// A body naming a key twice is refused 400 by the core itself, where the
-/// last one won, a second `actor` changing who was recorded (fifth
-/// production review, ADR-0190 decision 8).
+/// A body naming a key twice is refused 400 by the core itself, so a
+/// second `actor` never changes who is recorded (fifth production review,
+/// ADR-0190 decision 8).
 #[test]
 fn a_body_naming_a_key_twice_is_refused() {
     let file = fresh_store("twice");
@@ -5611,9 +5605,8 @@ fn a_body_naming_a_key_twice_is_refused() {
 }
 
 /// A window back from now is positive: a metric's `over` and a
-/// diagnostics' `window` of "-5 days" or "0 s" are `400`, where a negative
-/// one answered an empty page (fifth production review, ADR-0191 decision
-/// 3).
+/// diagnostics' `window` of "-5 days" or "0 s" are `400` (fifth production
+/// review, ADR-0191 decision 3).
 #[test]
 fn a_window_back_from_now_is_positive() {
     let file = fresh_store("window");
@@ -5770,9 +5763,9 @@ fn what_the_service_was_given_is_said() {
         "{first}"
     );
     // an option where a value belongs, a path forgotten, refused naming
-    // both, where `--store --create --create` made a store named `--create`
-    // and served it (run 2026-10-16); here ended by a port no parser takes,
-    // so the old one exits too, on that, and the sentence tells them apart
+    // both, never made a store named `--create`; ended by a port no parser
+    // takes, so a service that took the option as a value exits too, on
+    // that, and the sentence tells them apart
     let dir = fresh_store("option-as-value");
     let dir = dir.parent().expect("its directory");
     let out = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
@@ -5791,9 +5784,8 @@ fn what_the_service_was_given_is_said() {
 
 /// The metrics listener answers whatever the main one holds: twenty idle
 /// connections on the main listener leave `/health` on `--metrics-bind`
-/// answering 200, where it was refused 503 busy past sixteen, the count both
-/// listeners share compared with the metrics listener's own cap (sixth
-/// production review F9).
+/// answering 200, the metrics listener's cap counting its own connections
+/// alone (sixth production review F9).
 #[test]
 fn the_metrics_listener_answers_beside_a_busy_main_one() {
     let file = fresh_store("metrics-beside");
@@ -6024,8 +6016,8 @@ fn an_unsatisfied_verdict_names_the_inputs_its_clause_reads() {
 /// guard's consulted key in an event and in an attempt, a refused request's
 /// input, an unknown actor's attempt, a correction's record, and the
 /// approver of a version; no byte of it is in the store's file or its
-/// `-wal` once the log is cut back, where the first audit found each (the
-/// audit's personal data S16 to S23, ADR-0205 decision 6).
+/// `-wal` once the log is cut back (the audit's personal data S16 to S23,
+/// ADR-0205 decision 6).
 #[test]
 fn an_erased_identity_leaves_every_copy() {
     let (url, _, _) = bank();
@@ -6220,8 +6212,7 @@ types:
 
 /// A type a version drops keeps its objects readable, after a restart as
 /// before, and keeps its erasure, so the personal data its objects hold can
-/// still be erased, where no erasure could reach it once its type was
-/// dropped (the audit's personal data S14, ADR-0205).
+/// still be erased (the audit's personal data S14, ADR-0205).
 #[test]
 fn a_dropped_types_objects_stay_readable_and_erasable() {
     let file = fresh_store("dropped");
@@ -6280,8 +6271,8 @@ fn a_dropped_types_objects_stay_readable_and_erasable() {
 /// the store's file nor its `-wal` holds it once the log is cut back (sixth
 /// production review ERASED-IDENTITY, ADR-0192 decision 4); nor in an
 /// attribute an effect set to `actor.id`, nor in the input a creation was
-/// passed it as, where a note's author kept the address (fifteenth
-/// production review, ADR-0202 decision 1); nor where another actor copied
+/// passed it as, a note's author among them (fifteenth production review,
+/// ADR-0202 decision 1); nor where another actor copied
 /// it, a note's `kept_by` and a receipt's `by` taken from its author
 /// (sixteenth production review, ADR-0203 decision 1).
 #[test]
@@ -6430,11 +6421,10 @@ types:
 
 /// The sixth review's minors the service says: an ill-typed filter is
 /// refused `malformed_filter` with its reason, neither the answer nor the
-/// log holding the stored value it met, where it answered 501 and wrote a
-/// person's text into the log; a key sent by an actor named by its object
-/// and then by its identity is one request; a store the service cannot
-/// write is refused at the start; and a second service on a store is said
-/// at its start (ADR-0192 decision 7).
+/// log holding the stored value it met; a key sent by an actor named by its
+/// object and then by its identity is one request; a store the service
+/// cannot write is refused at the start; and a second service on a store is
+/// said at its start (ADR-0192 decision 7).
 #[test]
 fn what_a_filter_a_key_and_a_store_are_told() {
     let file = fresh_store("noted");
@@ -6535,8 +6525,8 @@ fn what_a_filter_a_key_and_a_store_are_told() {
         "a store it cannot write was served: {said}"
     );
     assert!(said.contains("is not writable by the service"), "{said}");
-    // a directory named as the store is said to be one, where it was told
-    // to get write permission (eleventh production review)
+    // a directory named as the store is said to be one (eleventh production
+    // review)
     let dir = locked.parent().expect("its directory");
     let out = Command::new(env!("CARGO_BIN_EXE_objectflow-service"))
         .args(["--store", dir.to_str().expect("a path"), "--port", "0"])
@@ -6572,10 +6562,9 @@ types:
 ";
 
 /// A derived time past the calendar refuses the read `value_in_range`,
-/// naming the object and no value, a query's fields and a `get` alike,
-/// where a query answered year 10239 (sixth production review, ADR-0192
-/// decision 7) and then null (ADR-0205 decision 2); the store's other
-/// objects are read as before.
+/// naming the object and no value, a query's fields and a `get` alike
+/// (sixth production review, ADR-0192 decision 7, ADR-0205 decision 2);
+/// the store's other objects are read.
 #[test]
 fn a_derived_time_past_the_calendar_refuses_the_read() {
     let file = fresh_store("tills");
@@ -6617,8 +6606,8 @@ fn a_derived_time_past_the_calendar_refuses_the_read() {
 }
 
 /// A store readable by others is said at its start with its `-wal` and
-/// `-shm`, which SQLite makes with the store's mode, where the warning
-/// named the store alone (twelfth production review).
+/// `-shm`, which SQLite makes with the store's mode (twelfth production
+/// review).
 #[test]
 fn a_store_readable_by_others_is_said_with_its_log() {
     use std::os::unix::fs::PermissionsExt;
@@ -6639,8 +6628,8 @@ fn a_store_readable_by_others_is_said_with_its_log() {
 
 /// A read selecting by a personal value is refused `personal` unless its
 /// request opts in with `reads_personal`, whoever asks, a person and the
-/// operator as an agent, where an agent's query alone was refused, by its
-/// kind: a query's filter and order, a lookup by a personal identifier,
+/// operator as an agent alike: a query's filter and order, a lookup by a
+/// personal identifier,
 /// `available`, `availability` and `check` decided by a personal member, a
 /// metric's filter and its binding of a person; and a request's refusal by
 /// a personal value names its holder only when opted into (ADR-0206; the
@@ -6743,9 +6732,8 @@ fn a_read_by_a_personal_value_is_opted_into() {
 /// A personal text marked `not_blank` leaves its type's offers, checks and
 /// worklists answered without `reads_personal` where every transition
 /// writes it by an input refused blank, a blank one refused `invalid_input`
-/// as before and nothing written, where `availability` refused every object
-/// of the type (issue #70, ADR-0259); where a transition may write it blank,
-/// by an input not so refused, they are refused `personal` as before. In a
+/// and nothing written (issue #70, ADR-0259); where a transition may write
+/// it blank, by an input not so refused, they are refused `personal`. In a
 /// sandbox, so on PostgreSQL too in that lane.
 #[test]
 fn a_personal_text_marked_not_blank_leaves_its_offers_unopted() {
@@ -6829,14 +6817,13 @@ fn a_personal_text_marked_not_blank_leaves_its_offers_unopted() {
 
 /// A personal attribute's `<attribute> is not null` leaves its type's
 /// offers, checks and worklists answered without `reads_personal` where no
-/// transition may write it absent from a value an object holds, where
-/// `available` refused every object of the type (ADR-0261). A creation
-/// leaving it out is still refused, checked or requested, by its required
-/// input's guard or, taking it as optional, by the invariant, and an erasure removing it is admitted, so the erased object takes its
-/// transitions as before; where a transition may write it absent, by an
-/// `assign` of an input it may leave out, the reads are refused `personal`
-/// as before. In a sandbox, so on PostgreSQL too in that
-/// lane.
+/// transition may write it absent from a value an object holds (ADR-0261).
+/// A creation leaving it out is still refused, checked or requested, by its
+/// required input's guard or, taking it as optional, by the invariant, and
+/// an erasure removing it is admitted, so the erased object takes its
+/// transitions; where a transition may write it absent, by an `assign` of
+/// an input it may leave out, the reads are refused `personal`. In a
+/// sandbox, so on PostgreSQL too in that lane.
 #[test]
 fn a_personal_attributes_presence_leaves_its_offers_unopted() {
     const CLAIMS: &str = "module: claims\ncategories: [live, closed]\ntypes:\n  Claim:\n    description: A claim.\n    tracking: record\n    attributes:\n      title: { type: string, personal: true, optional: true }\n    states:\n      OPEN: { description: Open., category: live }\n      DONE: { description: Done., category: closed, final: true }\n    invariants:\n      has_title: { description: Every claim has a title until erasure removes it., expression: title is not null }\n    transitions:\n      draft: { kind: initial, to: OPEN, required_inputs: [title] }\n      jot: { kind: initial, to: OPEN, optional_inputs: [title] }\n      retitle: { kind: internal, from: [OPEN], optional_inputs: [title] }\n      close: { kind: external, from: [OPEN], to: DONE }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Draft:\n    description: A draft whose title a rename may leave out.\n    tracking: record\n    attributes:\n      title: { type: string, personal: true, optional: true }\n    states:\n      OPEN: { description: Open., category: live }\n      DONE: { description: Done., category: closed, final: true }\n    invariants:\n      has_title: { description: Every draft has a title., expression: title is not null }\n    transitions:\n      draft: { kind: initial, to: OPEN, required_inputs: [title] }\n      rename:\n        kind: internal\n        from: [OPEN]\n        inputs:\n          to: { type: string, personal: true, optional: true }\n        effect:\n          - assign: { location: title, expr: inputs.to }\n      close: { kind: external, from: [OPEN], to: DONE }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
@@ -7058,15 +7045,14 @@ fn a_clearable_input_sent_null_clears_its_attribute() {
 }
 
 /// A check whose answer a value read from a personal member decides is
-/// refused `personal` without the opt-in, where it answered by that value
-/// (ADR-0263): a desk's pin passed to a guard on its owner's input, its
-/// secret passed to an input refused blank, a call on its personal buddy,
-/// a `foreach` over its personal nicks, whose limit refused three and took
-/// two, and an argument computed from its pin, past the integer's bound for
-/// one. With the opt-in each is answered as before; a value passed that is
-/// not personal, and a personal one read plainly into an input taking every
-/// integer, are answered without it. In a sandbox, so on
-/// PostgreSQL too in that lane.
+/// refused `personal` without the opt-in (ADR-0263): a desk's pin passed to
+/// a guard on its owner's input, its secret passed to an input refused
+/// blank, a call on its personal buddy, a `foreach` over its personal
+/// nicks, whose limit refused three and took two, and an argument computed
+/// from its pin, past the integer's bound for one. With the opt-in each is
+/// answered by the value; a value passed that is not personal, and a
+/// personal one read plainly into an input taking every integer, are
+/// answered without it. In a sandbox, so on PostgreSQL too in that lane.
 #[test]
 fn a_check_a_personal_value_passed_on_decides_is_opted_into() {
     const DESKS: &str = "module: probe\ncategories: [live, closed]\ntypes:\n  Staff:\n    description: A member of staff.\n    tracking: record\n    attributes:\n      note: { type: string, personal: true, optional: true }\n      count: { type: int, personal: true, optional: true }\n      busy: { type: bool, default: \"true\" }\n    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n    conditions:\n      small: { description: Under 100., expression: inputs.amount < 100, remedy: unreachable_from_here }\n      free: { description: Not busy., expression: busy == false, remedy: unreachable_from_here }\n    transitions:\n      join: { kind: initial, to: ON }\n      promote: { kind: internal, from: [ON], inputs: { amount: { type: int } }, guards: { small: deny } }\n      jot: { kind: internal, from: [ON], inputs: { text: { type: string, not_blank: true } }, effect: [ { assign: { location: note, expr: inputs.text } } ] }\n      poke: { kind: internal, from: [ON], guards: { free: deny } }\n      tally: { kind: internal, from: [ON], optional_inputs: [count] }\n      leave: { kind: external, from: [ON], to: OFF }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Desk:\n    description: A desk.\n    tracking: record\n    attributes:\n      owner: { reference: Staff }\n      pin: { type: int, personal: true, optional: true }\n      secret: { type: string, personal: true, optional: true }\n      buddy: { reference: Staff, personal: true, optional: true }\n      nicks: { type: \"string[]\", personal: true }\n      plain: { type: int, optional: true }\n    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n    transitions:\n      add: { kind: initial, to: ON, required_inputs: [owner, nicks], optional_inputs: [pin, secret, buddy, plain] }\n      reward: { kind: internal, from: [ON], effect: [ { call: { target: owner, transition: promote, inputs: { amount: pin } } } ] }\n      tell: { kind: internal, from: [ON], effect: [ { call: { target: owner, transition: jot, inputs: { text: secret } } } ] }\n      ping: { kind: internal, from: [ON], effect: [ { call: { target: buddy, transition: poke } } ] }\n      sweep:\n        kind: internal\n        from: [ON]\n        effect:\n          - foreach: { item: n, array: nicks, limit: 2, steps: [ { call: { target: owner, transition: promote, inputs: { amount: plain } } } ] }\n      give: { kind: internal, from: [ON], effect: [ { call: { target: owner, transition: promote, inputs: { amount: plain } } } ] }\n      bloat: { kind: internal, from: [ON], effect: [ { call: { target: owner, transition: tally, inputs: { count: pin * 100000000000000000 } } } ] }\n      tally_plain: { kind: internal, from: [ON], effect: [ { call: { target: owner, transition: tally, inputs: { count: pin } } } ] }\n      leave: { kind: external, from: [ON], to: OFF }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
@@ -7104,7 +7090,7 @@ fn a_check_a_personal_value_passed_on_decides_is_opted_into() {
         post(&s, "/v1/check", &body)
     };
     // each was answered by the personal value: refused without the opt-in,
-    // and answered with it, by the value as before
+    // and answered with it, by the value
     for (xn, low_kind, high_kind) in [
         ("reward", "satisfied", "call_refused"),
         ("tell", "satisfied", "call_refused"),
@@ -7133,13 +7119,13 @@ fn a_check_a_personal_value_passed_on_decides_is_opted_into() {
 
 /// A check is judged by every guard and invariant its request may
 /// evaluate, so one decided by a personal member through a call or another
-/// type's invariant is refused `personal` without the opt-in, where a
-/// desk's call into its owner's salary guard answered `satisfied` or
-/// `call_refused` by the owner's salary, and a member's raise under its
-/// team's budget over the members' salaries recovered the others' sum by
-/// halving (ADR-0260, the audit's R15 and R17). With the opt-in each is
-/// answered as before; a check its request decides by no personal member
-/// is answered without it. In a sandbox, so on PostgreSQL too in that lane.
+/// type's invariant is refused `personal` without the opt-in, since a
+/// desk's call into its owner's salary guard would answer by the owner's
+/// salary, and a member's raise under its team's budget over the members'
+/// salaries would recover the others' sum by halving (ADR-0260, the audit's
+/// R15 and R17). With the opt-in each is answered; a check its request
+/// decides by no personal member is answered without it. In a sandbox, so
+/// on PostgreSQL too in that lane.
 #[test]
 fn a_check_is_judged_by_all_its_request_may_evaluate() {
     const WORKS: &str = "module: probe\ncategories: [live, closed]\ntypes:\n  Staff:\n    description: A member of staff.\n    tracking: record\n    attributes:\n      salary: { type: int, personal: true, optional: true }\n    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n    conditions:\n      underpaid: { description: Paid under 100., expression: salary is not null and salary < 100, remedy: unreachable_from_here }\n    transitions:\n      join: { kind: initial, to: ON, optional_inputs: [salary] }\n      promote: { kind: internal, from: [ON], guards: { underpaid: deny } }\n      leave: { kind: external, from: [ON], to: OFF }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Desk:\n    description: A desk someone owns.\n    tracking: record\n    attributes:\n      owner: { reference: Staff }\n    states:\n      ON: { description: On., category: live }\n      OFF: { description: Off., category: closed, final: true }\n    transitions:\n      add: { kind: initial, to: ON, required_inputs: [owner] }\n      reward:\n        kind: internal\n        from: [ON]\n        effect:\n          - call: { target: owner, transition: promote }\n      remove: { kind: external, from: [ON], to: OFF }\n";
@@ -7179,7 +7165,7 @@ fn a_check_is_judged_by_all_its_request_may_evaluate() {
             .to_string()
     };
     // decided through a call, and through the team's invariant: refused
-    // without the opt-in, and answered as before with it
+    // without the opt-in, and answered with it
     for (body, answer) in [
         (
             json!({"actor": op, "object_id": low_desk, "transition": "reward"}),
@@ -7223,8 +7209,7 @@ fn a_check_is_judged_by_all_its_request_may_evaluate() {
 /// object by name, at the wire: each bound as the member or the row's field
 /// it meets is typed, a parameter params does not give refused
 /// `malformed_filter` naming it, and `params` that is no object refused
-/// `400` (ADR-0218, ADR-0221), where the service's reading of the key was
-/// tested by no request.
+/// `400` (ADR-0218, ADR-0221).
 #[test]
 fn a_reads_parameters_are_taken_at_the_wire() {
     let file = fresh_store("read-params");
@@ -7407,7 +7392,7 @@ fn a_restored_copy_hands_out_nothing_its_copy_never_saw() {
     for (was, numbered) in &lost {
         // an id the lost period handed out is never handed out again: a
         // deployment's ids are UUIDv7s, the restored store's seed its own
-        // (ADR-0226), where a numbered id was carried past the margin
+        // (ADR-0226)
         assert_ne!(&id, was, "the restored store handed out {id} again");
         assert!(tail(&number) > tail(numbered), "{number} after {numbered}");
     }
@@ -7474,8 +7459,7 @@ fn a_restored_copy_hands_out_nothing_its_copy_never_saw() {
 /// A store the service finds lost is served no more until a restart, every
 /// later read and write answered 503 and the stop's checkpoint skipped:
 /// the file replaced and then put back, the write-ahead log removed, and
-/// the file written over in place, where writes went on answering 200 into
-/// a log no start would read (the audit's durability S3 and S4, D688,
+/// the file written over in place (the audit's durability S3 and S4, D688,
 /// ADR-0205 decision 8).
 #[test]
 fn a_store_found_lost_is_served_no_more_until_a_restart() {
@@ -7557,12 +7541,10 @@ fn a_store_found_lost_is_served_no_more_until_a_restart() {
 }
 
 /// A start refused for a busy address changes neither the store's file nor
-/// its log, where it had turned a restored copy to WAL, made its indexes
-/// and folded its log before binding (the audit's durability C3); a store
-/// due an upgrade that fails SQLite's quick check is refused, its files as
-/// they were, where it was upgraded and served unchecked (C4); and a stop
+/// its log (the audit's durability C3); a store due an upgrade that fails
+/// SQLite's quick check is refused, its files as they were (C4); and a stop
 /// whose socket is already gone says so and still stops, carrying the log
-/// into the file, where it ended in an error (C7).
+/// into the file (C7).
 #[test]
 fn a_refused_start_and_a_stop_leave_the_store_whole() {
     // a port another holds
@@ -7678,8 +7660,7 @@ types:
 /// a span into the one before it retracts the merged span, a version
 /// renaming a tracked member retracts its rows under the old name and gives
 /// them again under the new, and one retyping a member retracts the rows it
-/// sets aside, where a consumer kept each (the audit's durability V7a to V8,
-/// ADR-0205 decision 9).
+/// sets aside (the audit's durability V7a to V8, ADR-0205 decision 9).
 #[test]
 fn the_intervals_export_retracts_what_a_later_commit_deleted_or_moved() {
     let file = fresh_store("retracted");
@@ -7786,9 +7767,8 @@ fn the_intervals_export_retracts_what_a_later_commit_deleted_or_moved() {
 
 /// A backup restored beside the store's own later log, the restore's second
 /// step left out: the start takes the log in and says so, and following
-/// its note word for word serves the backup's state, where its advice, to
-/// remove the log the start had already taken in, left the restore undone
-/// (the guides' audit G-83).
+/// its note word for word serves the backup's state (the guides' audit
+/// G-83).
 #[test]
 fn a_restore_undone_by_a_later_log_is_done_again_as_the_start_says() {
     let file = fresh_store("undone");
@@ -7901,10 +7881,9 @@ fn a_marked_copy_due_an_upgrade_is_restored_at_it() {
 }
 
 /// A sandbox's load checks the flow first, as a publish does but for its
-/// examples, and refuses one the checker refuses with its findings, where
-/// it installed it and the first request reaching what the checker names
-/// faulted `500` with a store error (issue #26); `unchecked` installs it as
-/// it was, and a flow the checker passes loads with its notices counted.
+/// examples, and refuses one the checker refuses with its findings (issue
+/// #26); `unchecked` installs it as it is, and a flow the checker passes
+/// loads with its notices counted.
 #[test]
 fn a_sandbox_load_refuses_what_the_checker_refuses() {
     const ROOMS: &str = "module: rooms\ncategories: [live, closed]\ntypes:\n  Booking:\n    description: A room booked, with whom to call about it.\n    tracking: record\n    attributes:\n      title: { type: string }\n      contact: { type: string, personal: true }\n    states:\n      HELD: { description: Held., category: live }\n      RELEASED: { description: Released., category: closed, final: true }\n    transitions:\n      request: { kind: initial, to: HELD, required_inputs: [title], optional_inputs: [contact] }\n      release: { kind: external, from: HELD, to: RELEASED }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
@@ -7928,7 +7907,7 @@ fn a_sandbox_load_refuses_what_the_checker_refuses() {
         ),
     );
     assert_ne!(status, 200);
-    // installed as written where asked, as before
+    // installed as written where asked
     let unchecked = post(
         &s,
         "/sandbox/load",
@@ -7954,8 +7933,8 @@ fn a_sandbox_load_refuses_what_the_checker_refuses() {
 
 /// A sandbox refuses what is a deployment's or what it would take in an
 /// order of its own: `--busy-timeout`, the clock moved by both keys at
-/// once, and an evaluator's answer other than the three, where each was
-/// taken (the guides' audit G-46).
+/// once, and an evaluator's answer other than the three (the guides' audit
+/// G-46).
 #[test]
 fn a_sandbox_refuses_what_it_cannot_honour() {
     let (code, said) = refused(&["--port", "0", "--busy-timeout", "1 s"]);
@@ -7988,9 +7967,7 @@ fn a_sandbox_refuses_what_it_cannot_honour() {
 
 /// Each key `wire-v1.json` records as an operation's required one is
 /// required: a body holding every other required key and not that one is
-/// answered `400`, as `wire.md`'s tables say, where they marked `actor`
-/// optional on operations that refused a request without it (the guides'
-/// audit G-93).
+/// answered `400`, as `wire.md`'s tables say (the guides' audit G-93).
 #[test]
 fn every_required_key_is_required() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/guides/wire-v1.json");
@@ -8041,9 +8018,9 @@ fn every_required_key_is_required() {
 /// `integrate.md` drafts a change: drafted, submitted, which runs every
 /// example in the dry run, and approved, a set's later version over its
 /// first, each file an example starting at the version before reads carried
-/// under its file name (ADR-0232). The service's examples carried two whose
-/// `publish` step reads a file no change has, refused `example_not_run`,
-/// while the checker passed them (the guides' audit G-18).
+/// under its file name (ADR-0232), so a `publish` step reading a file no
+/// change has is refused `example_not_run` here though the checker passes
+/// it (the guides' audit G-18).
 #[test]
 fn every_sample_publishes_with_its_examples() {
     // each file keyed by the name it declares, as a change's source is
@@ -8190,8 +8167,7 @@ fn requests_sent_at_once_commit_together() {
 
 /// An upgrade, its dry run too, is refused while a flow version the store
 /// records does not load with this release's loader, naming the version,
-/// and the store stays at its release, which reads it, where it was carried
-/// on and every request touching that version answered 500 (the audit's
+/// and the store stays at its release, which reads it (the audit's
 /// durability U4).
 #[test]
 fn an_upgrade_is_refused_over_a_version_this_release_cannot_read() {
@@ -8252,8 +8228,7 @@ fn an_import_killed_midway_leaves_all_or_none() {
 }
 
 /// On PostgreSQL alike, and the killed service's session gone with it, so
-/// its restart takes the store's lock (durability on PostgreSQL 12, where
-/// no test killed a service on PostgreSQL).
+/// its restart takes the store's lock (durability on PostgreSQL 12).
 #[test]
 fn an_import_killed_midway_on_postgresql_leaves_all_or_none() {
     killed_imports(" on PostgreSQL", &|trial| {
@@ -8345,8 +8320,8 @@ fn killed_imports(on: &str, store: &Trials) {
                 }
             }
             // its answer, which the service gives once the batch committed,
-            // where it slept 8 s and a slower machine's import on
-            // PostgreSQL, about 6 s here, was killed within its transaction
+            // since a fixed sleep can end before a slower machine's import on
+            // PostgreSQL commits, about 6 s here
             At::After => {
                 let answer = sender
                     .take()
@@ -8621,10 +8596,9 @@ fn indexes_are_rebuilt_after_an_erasure() {
 }
 
 /// A request naming no type of the installed version is answered
-/// `unknown_type`, as the reads are, unreachable from here where no version
-/// is installed, since only the operator's publish helps; it was answered
-/// `unknown_transition`, naming only the transition (E3, ADR-0210 decision
-/// 6).
+/// `unknown_type`, as the reads are, never `unknown_transition`,
+/// unreachable from here where no version is installed, since only the
+/// operator's publish helps (E3, ADR-0210 decision 6).
 #[test]
 fn a_request_naming_no_type_is_answered_unknown_type() {
     let file = fresh_store("unknown-type");
@@ -8768,8 +8742,7 @@ fn served_on_postgresql(
 /// A store on PostgreSQL whose connection is lost, its session ended as a
 /// database's restart or an idle timeout ends it, is opened again: the
 /// write that met the loss is answered 503, which a client retries, and the
-/// next applies, the store's lock held again; where every write answered
-/// 500 until a person restarted the service (durability on PostgreSQL 1).
+/// next applies, the store's lock held again (durability on PostgreSQL 1).
 #[test]
 fn a_store_on_postgresql_whose_connection_is_lost_is_opened_again() {
     let Some((admin, args, schema)) = served_on_postgresql("lost") else {
@@ -8810,8 +8783,7 @@ fn a_store_on_postgresql_whose_connection_is_lost_is_opened_again() {
     let (status, met) = add("bea@example.com");
     assert_eq!(status, 503, "the write that met the loss: {met}");
     // said as a lost connection, never as SQLite's log or a full volume,
-    // nor by /health, where both named them after a loss (durability on
-    // PostgreSQL 10)
+    // nor by /health (durability on PostgreSQL 10)
     let fault = met["fault"].as_str().unwrap_or_default();
     assert!(
         met["code"] == "unavailable" && !fault.contains("wal") && !fault.contains("full"),
@@ -8898,11 +8870,10 @@ fn held_to_its_writer(admin: &objectflow_core::db::Connection, role: &str) {
 }
 
 /// A write that commits while the store's database lets in no new
-/// connection is answered its verdict, and applied once: its answer took a
-/// read connection after the commit, so the server refusing one answered
-/// the applied write 500, which a client sending no key sends again (the
-/// shared server's measurement, 2026-10-27, eight services filling
-/// `max_connections`).
+/// connection is answered its verdict, and applied once: an answer taking
+/// a read connection after the commit would answer the applied write 500,
+/// which a client sending no key sends again (the shared server's
+/// measurement, 2026-10-27, eight services filling `max_connections`).
 #[test]
 fn a_write_committed_while_the_database_lets_in_no_connection_is_answered_its_verdict() {
     let Some((admin, args, role)) = served_as_a_role_on_postgresql("limit_write") else {
@@ -8983,8 +8954,8 @@ fn a_write_committed_while_the_database_lets_in_no_connection_is_answered_its_ve
 
 /// A read that the store's database refuses a connection, at its
 /// `max_connections` or the role's limit, is answered 503, which a client
-/// retries once the server has room, where it was answered 500, the
-/// service's own fault (the shared server's measurement, 2026-10-27).
+/// retries once the server has room (the shared server's measurement,
+/// 2026-10-27).
 #[test]
 fn a_read_the_database_refuses_a_connection_is_answered_unavailable() {
     let Some((admin, args, role)) = served_as_a_role_on_postgresql("limit_read") else {
@@ -9137,8 +9108,7 @@ fn a_store_on_postgresql_replaced_in_place_is_served_no_more() {
 
 /// What no store can hold is malformed at the wire, on either backend, so
 /// the backends answer it alike: U+0000 in a request's text, which
-/// PostgreSQL's text cannot store, where SQLite took it and PostgreSQL
-/// answered 500 with the refusal unrecorded; and a name past 1 KiB, which
+/// PostgreSQL's text cannot store; and a name past 1 KiB, which
 /// PostgreSQL's index of the attempt log cannot hold. U+0000 in an input's
 /// value stays the engine's refusal, `invalid_input` (records on
 /// PostgreSQL, F4 and F5).
@@ -9186,8 +9156,7 @@ fn what_no_store_can_hold_is_malformed_at_the_wire() {
 
 /// A value past the 2,704 bytes PostgreSQL holds in an index's entry, an
 /// identity or a unique or indexed string, is refused there as a conflict
-/// naming the bound, where it answered 500; SQLite has no such bound
-/// (records on PostgreSQL, F4).
+/// naming the bound; SQLite has no such bound (records on PostgreSQL, F4).
 #[test]
 fn a_value_past_postgresqls_index_entry_is_a_conflict() {
     let Some((admin, args, schema)) = served_on_postgresql("longvalue") else {
@@ -9426,10 +9395,9 @@ fn asked_within(
 /// A database that stops answering without closing its connections leaves
 /// `/health` answering, `503 store_stalled` within its wait and at once
 /// when asked again, the read it started left to finish, and `200` once the
-/// database answers again, where `/health` waited on it with every request
-/// and said nothing (durability on PostgreSQL 3); and a read answered `503
-/// read_timeout` at its deadline, on the connection it held and on one it
-/// makes, where it waited with the database (ADR-0215).
+/// database answers again (durability on PostgreSQL 3); and a read
+/// answered `503 read_timeout` at its deadline, on the connection it held
+/// and on one it makes (ADR-0215).
 #[test]
 fn a_stalled_database_is_said_by_health() {
     let Some((admin, args, schema)) = served_on_postgresql("stalled") else {
@@ -9568,10 +9536,9 @@ types:
 /// past its last space are answered `503 disk_full` and none acknowledged
 /// is lost; killed while it is full, the service starts again and serves
 /// every acknowledged write; once space is freed, writes apply again. On a
-/// tmpfs in a user and mount namespace of its own, where the suite held
-/// tests of the predicates alone and the audit probed it by hand; skipped,
-/// said, where the system refuses the namespace, and failed so in CI,
-/// which allows it (`check.yml`).
+/// tmpfs in a user and mount namespace of its own; skipped, said, where the
+/// system refuses the namespace, and failed so in CI, which allows it
+/// (`check.yml`).
 #[test]
 fn a_full_volume_loses_no_acknowledged_write() {
     let dir = fresh_store("full")
@@ -9690,8 +9657,7 @@ fn a_full_volume_loses_no_acknowledged_write() {
 
 /// A store on PostgreSQL at an earlier release is served as due, every
 /// operation refused until its upgrade, which carries it to this release
-/// with what it held, as a file's is, where it was refused at the start and
-/// so stranded (durability on PostgreSQL 6).
+/// with what it held, as a file's is (durability on PostgreSQL 6).
 #[test]
 fn a_store_on_postgresql_at_an_earlier_release_is_upgraded() {
     let Some((admin, args, schema)) = served_on_postgresql("behind") else {
@@ -9780,8 +9746,8 @@ fn a_store_on_postgresql_at_an_earlier_release_is_upgraded() {
 /// A publish that rebuilds a table another session reads, a backup's dump
 /// or a long read on PostgreSQL, waits for it up to the busy timeout and is
 /// then answered 503, which the operator retries, its version not taken;
-/// the read ended, the same publish applies. Where it answered 500 (records
-/// on PostgreSQL F3, durability 7).
+/// the read ended, the same publish applies (records on PostgreSQL F3,
+/// durability 7).
 #[test]
 fn a_publish_beside_a_read_on_postgresql_is_answered_unavailable() {
     let Some((admin, args, schema)) = served_on_postgresql("beside") else {
