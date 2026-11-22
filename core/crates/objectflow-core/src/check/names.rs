@@ -590,8 +590,6 @@ pub fn name_errors(doc: &Value, library: &Obj) -> Found {
     out
 }
 
-/// Names the format keeps for itself: the text language's and generated
-/// ones.
 /// Each `media_types` declared where no file is (ADR-0239): on an
 /// attribute or an input whose type is not `file` or `file[]`, and on an
 /// attribute a machine requires, which its binding type declares. A machine
@@ -706,6 +704,8 @@ fn offered_on_errors(doc: &Value) -> Found {
     out
 }
 
+/// Names the format keeps for itself: the text language's and generated
+/// ones.
 fn reserved_name_errors(doc: &Value) -> Found {
     let mut out = Found::new();
     for (i, c) in list(doc, "categories").iter().enumerate() {
@@ -2958,8 +2958,6 @@ fn event_errors(
         .collect()
 }
 
-/// A create names a type of the module, or an imported one, and an initial
-/// transition of it, and supplies that transition's required inputs.
 /// An input an expression reads that the transition does not take: the
 /// entries an each takes, which no expression reads (ADR-0290), or no input
 /// of it; by a guard where one is named, else by its effect. Its own frame,
@@ -3004,6 +3002,8 @@ fn unbounded_limit(tn: &str, xn: &str, step: &super::steps::Step<'_>, at: &Path)
     )]
 }
 
+/// A create names a type of the module, or an imported one, and an initial
+/// transition of it, and supplies that transition's required inputs.
 fn create_errors(
     doc: &Value,
     library: &Obj,
@@ -3307,7 +3307,6 @@ fn present_path(
     true
 }
 
-/// Every transition into a state sets each attribute the state requires.
 /// Each attribute one of the transition's own `deny` guards requires
 /// present, `a is not null` or `this.a is not null` among its condition's
 /// top-level `and` terms. The guard is decided before the effect, so where
@@ -3353,6 +3352,7 @@ fn guarded_present(tn: &str, x: &Value, library: &Obj) -> BTreeSet<String> {
     out
 }
 
+/// Every transition into a state sets each attribute the state requires.
 fn required_errors(
     tn: &str,
     xn: &str,
@@ -3765,7 +3765,6 @@ fn attribute_type(spec: Option<&Value>, enums: &BTreeSet<String>) -> Option<Ty> 
     })
 }
 
-/// What every object has, by its type (§8.1).
 /// An object's own flow data an expression ranges over, as rows: its spans
 /// and its events (§6.9); its attempts, which the checks refuse as
 /// undeclared, are not among them (`check-flows.py`'s `FLOW_ROWS`).
@@ -3784,6 +3783,7 @@ fn spans_of(on: &str, m: &str) -> Option<Ty> {
 /// What a type nothing declares reads as: no attributes, no members.
 static NO_TYPE: Value = Value::Null;
 
+/// What every object has, by its type (§8.1).
 fn object_member_type(m: &str) -> Option<Ty> {
     Some(match m {
         "open" => Ty::Bool,
@@ -3795,9 +3795,6 @@ fn object_member_type(m: &str) -> Option<Ty> {
     })
 }
 
-/// The types of a module's expressions as far as a publish can tell them,
-/// and each rule of `declaration-syntax.md` §8.3 an expression breaks (the
-/// model's check 24; `check-flows.py`'s `Typing`).
 /// The most derived attributes one typing goes through, as an evaluation
 /// goes through at most `eval::DERIVED_HOPS` (tenth production review).
 const TYPING_DEPTH: usize = 64;
@@ -3832,6 +3829,9 @@ fn tracked_attribute(t: &Value, a: &str, kinds: &Obj) -> bool {
         || far.is_some_and(|f| str_or(&f, "reference", "").ends_with("[]"))
 }
 
+/// The types of a module's expressions as far as a publish can tell them,
+/// and each rule of `declaration-syntax.md` §8.3 an expression breaks (the
+/// model's check 24; `check-flows.py`'s `Typing`).
 struct Typing<'a> {
     kinds: &'a Obj,
     enums: &'a BTreeSet<String>,
@@ -3986,10 +3986,11 @@ impl Typing<'_> {
         attribute_type(obj(t, "attributes").get(n), self.enums)
     }
 
-    /// The type of a call of `length`, `trim`, `date`, `add_months`, `whole`
-    /// or `is_whole`, typed here through one arm of [`Self::of`]: each typed in
-    /// `of`, their temporaries grew the frame its recursion holds past the
-    /// oracle's test thread's stack (`docs/LESSONS.md`).
+    /// The type of a call of `length`, `trim`, `date`, `add_months`, `whole`,
+    /// `is_whole`, `contains`, `starts_with` or `ends_with`, typed here
+    /// through one arm of [`Self::of`]: an arm of its own for each would grow
+    /// the frame its recursion holds past the oracle's test thread's stack
+    /// (`docs/LESSONS.md`).
     #[inline(never)]
     fn typed_function(
         &mut self,
@@ -4487,9 +4488,9 @@ impl Typing<'_> {
                 {
                     return Some(Ty::Verdict);
                 }
-                // a function the language has, given one argument, where any
-                // other call typed as nothing and the core did not run it
-                // (the values audit's K-7, K-8)
+                // a function the language has, given as many arguments as
+                // `arity` says, and a member function the language has (the
+                // values audit's K-7, K-8)
                 match &**f {
                     Expr::Name(name)
                         if !FUNCTIONS.contains(&name.as_str())
@@ -5150,11 +5151,6 @@ impl Typing<'_> {
     }
 }
 
-/// Each expression of a module that does not type by
-/// `declaration-syntax.md` §8.3, where the types it combines can be told,
-/// and a condition that is no bool or verdict and an invariant or a
-/// uniqueness condition that is no bool (the model's check 24;
-/// `check-flows.py`'s `expression_type_errors`).
 /// A type the typing infers as check 17's kinds spell it, none where they
 /// spell none: a number literal is a number where it is whole and a decimal
 /// where it has places.
@@ -5181,7 +5177,6 @@ fn typed_kind(ty: &Ty) -> Option<Vec<String>> {
     }
 }
 
-/// Whether an expression is a literal zero, `0` or `0.00`.
 /// A number literal with a fraction, `1.5` or `-0.25`, which no whole
 /// decimal is (ADR-0278).
 fn literal_fraction(e: &Expr) -> bool {
@@ -5194,6 +5189,7 @@ fn literal_fraction(e: &Expr) -> bool {
     }
 }
 
+/// Whether an expression is a literal zero, `0` or `0.00`.
 fn literal_zero(e: &Expr) -> bool {
     match e {
         Expr::Num(Number::Int(n)) => *n == 0,
@@ -5674,6 +5670,11 @@ fn typed_write_error(
     None
 }
 
+/// Each expression of a module that does not type by
+/// `declaration-syntax.md` §8.3, where the types it combines can be told,
+/// and a condition that is no bool or verdict and an invariant or a
+/// uniqueness condition that is no bool (the model's check 24;
+/// `check-flows.py`'s `expression_type_errors`).
 fn expression_type_errors(doc: &Value, library: &Obj) -> Found {
     let mut kinds = library.clone();
     for (tn, t) in types(doc) {
@@ -6209,7 +6210,6 @@ fn write_type_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
     out
 }
 
-/// Every value an expression names is a state or an enumeration's member.
 /// What a module's expressions may name qualified: its enumerations' members
 /// and its types' states, and the names it imports, read once for every
 /// type's expressions.
@@ -6252,6 +6252,7 @@ impl Values {
     }
 }
 
+/// Every value an expression names is a state or an enumeration's member.
 fn value_errors(values: &Values, tn: &str, t: &Value) -> Found {
     let states: BTreeSet<String> = keys(t, "states").into_iter().collect();
     let Values {
@@ -7892,13 +7893,10 @@ fn override_errors(doc: &Value, tn: &str, t: &Value, library: &Obj) -> Found {
     out
 }
 
-/// A superseding transition names one successor, at the top level, and only
-/// it does; a group's erasures agree; a type with personal data has an
-/// erasure (`declaration-syntax.md` §6.1, §6.4; checks 26, 49 and 60).
 /// The types a supersede step of any type's transition names as its
 /// successor's, by the input's reference or by what a create binds, read
-/// once for every type, where each type walked every type's transitions:
-/// quadratic in the types (ninth production review N-8).
+/// once for every type, since each type walking every type's transitions
+/// is quadratic in the types (ninth production review N-8).
 fn superseded_types(library: &Obj) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for other in library.values() {
@@ -7932,6 +7930,9 @@ fn superseded_types(library: &Obj) -> BTreeSet<String> {
     out
 }
 
+/// A superseding transition names one successor, at the top level, and only
+/// it does; a group's erasures agree; a type with personal data has an
+/// erasure (`declaration-syntax.md` §6.1, §6.4; checks 26, 49 and 60).
 fn supersession_errors(
     doc: &Value,
     tn: &str,
@@ -8379,7 +8380,8 @@ const TEXT_TESTS: [&str; 3] = ["contains", "starts_with", "ends_with"];
 /// A date's parts, each an int (ADR-0285 decision 2).
 const DATE_PARTS: [&str; 4] = ["year", "month", "day", "weekday"];
 /// The number of arguments a function takes: `add_months` a date and a
-/// count of months (ADR-0276), each other one.
+/// count of months (ADR-0276), and each text test two texts (ADR-0285
+/// decision 1); each other function one.
 fn arity(function: &str) -> usize {
     if function == "add_months" || TEXT_TESTS.contains(&function) {
         2

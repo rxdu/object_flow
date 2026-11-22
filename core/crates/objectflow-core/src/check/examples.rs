@@ -843,7 +843,6 @@ impl Checker {
     }
 }
 
-/// An examples file's findings, and the transitions its examples request.
 /// The aliases' mark of a `publish` step, after which nothing is checked
 /// here; no alias has a space.
 const PUBLISHED: &str = " published";
@@ -851,6 +850,8 @@ const PUBLISHED: &str = " published";
 /// import may refresh it (ADR-0176 decision 4).
 const IMPORTED: &str = " imported ";
 
+/// An examples file's findings, the transitions its examples request, and
+/// those its steps take or its expectations' `cascaded` name.
 pub fn example_errors(
     doc: &Value,
     library: &Obj,

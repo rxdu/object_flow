@@ -265,7 +265,6 @@ pub fn dotted_calls(text: &str) -> Vec<(String, String, usize)> {
     out
 }
 
-/// Each member read as `(?<![\w.])<name>\.([a-z][a-z0-9_]*)` in a text.
 /// The members `name.held(<member>)` reads in `text`, each the argument of a
 /// `.held` on the name (`declaration-syntax.md` §6.9).
 pub fn held_of(text: &str, name: &str) -> Vec<String> {
@@ -296,6 +295,7 @@ pub fn held_of(text: &str, name: &str) -> Vec<String> {
     out
 }
 
+/// Each member read as `(?<![\w.])<name>\.([a-z][a-z0-9_]*)` in a text.
 pub fn members_of(text: &str, name: &str) -> Vec<String> {
     let chars: Vec<char> = text.chars().collect();
     let want: Vec<char> = name.chars().collect();

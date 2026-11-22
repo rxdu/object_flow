@@ -122,8 +122,6 @@ fn printable(c: char) -> bool {
         | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..)
 }
 
-/// The findings, with the figures beside them, over the files `check` takes,
-/// given with no directory, so an example's `publish` step is not run.
 /// A character that shows nothing or reorders what follows: a
 /// bidirectional control, a zero-width or invisible mark, by its code point.
 fn hiding(c: char) -> bool {
@@ -198,6 +196,8 @@ pub(crate) fn late() -> bool {
     LATE.get()
 }
 
+/// The findings, with the figures beside them, over the files `check` takes,
+/// given with no directory, so an example's `publish` step is not run.
 pub fn checked(files: &[(String, String)], previous: &BTreeMap<String, String>) -> Checked {
     checked_reading(files, previous, &run::no_files)
 }
@@ -1220,11 +1220,10 @@ mod tests {
             .collect()
     }
 
-    /// An object's attempts read outside a metric are refused by check 24
-    /// and step 3, each saying the attempt log is a metric's to read, where
-    /// each said the type did not declare them; a metric over objects reads
-    /// them (ADR-0286). The oracle compares findings unworded, so the reason
-    /// is held here.
+    /// An object's attempts read outside a metric are refused twice by step
+    /// 3, by its reads and by its typing (the model's check 24), each saying
+    /// the attempt log is a metric's to read; a metric over objects reads
+    /// them (ADR-0286).
     #[test]
     fn an_objects_attempts_are_a_metrics_to_read() {
         let said = fatal(LEDGER);

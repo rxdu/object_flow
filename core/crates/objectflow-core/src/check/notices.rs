@@ -16,12 +16,6 @@ use super::steps::{kind, step_kind, walk};
 use super::view::{inherited, types};
 use crate::expr::{Expr, parse};
 
-/// An invariant that can only refuse other objects' changes, as
-/// `check-flows.py`'s `vetoes`: one a type declares whose every state is
-/// final, so no transition of its own can break it once it is created,
-/// reading through a reference or its referrers, so it is checked again
-/// whenever what it reads changes, and refuses that change (`flow-format.md`
-/// §4.6, ADR-0176 decision 5).
 /// The kinds of actor a `taken_by` names, its texts in the order given.
 pub fn kinds_named(given: Option<&Value>) -> Vec<String> {
     given
@@ -118,17 +112,17 @@ fn reach_bound(t: &Value, a: &str) -> Option<i64> {
     most
 }
 
+/// A step's target, an attribute of its object, compiled once for every
+/// type (ninth production review N-8).
+static WORD: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| super::doc::re(r"^(?:this\.)?(\w+)$"));
+
 /// An erasure's reach a limit may stop: a foreach of an erasure, or a
 /// cascade an erasure sets off, declaring a limit over a set of its type that
 /// no invariant of the type holds at or below it, so past the limit the
 /// erasure is refused `over_limit` and cannot be carried out; a limit, which
 /// every loop declares, on any other transition is the author's rule (fifth
 /// production review ERASE-LIMIT, ADR-0190 decision 7).
-/// A step's target, an attribute of its object, compiled once, where each
-/// type compiled its own (ninth production review N-8).
-static WORD: std::sync::LazyLock<regex::Regex> =
-    std::sync::LazyLock::new(|| super::doc::re(r"^(?:this\.)?(\w+)$"));
-
 pub fn reaches(doc: &Value) -> Found {
     let mut out = Found::new();
     let add = |out: &mut Found, found: (Path, String, String)| {
@@ -245,6 +239,12 @@ pub fn reaches(doc: &Value) -> Found {
     out
 }
 
+/// An invariant that can only refuse other objects' changes, as
+/// `check-flows.py`'s `vetoes`: one a type declares whose every state is
+/// final, so no transition of its own can break it once it is created,
+/// reading through a reference or its referrers, so it is checked again
+/// whenever what it reads changes, and refuses that change (`flow-format.md`
+/// §4.6, ADR-0176 decision 5).
 pub fn vetoes(doc: &Value, library: &Obj) -> Found {
     let mut kinds = library.clone();
     for (tn, t) in types(doc) {

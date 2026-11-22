@@ -614,9 +614,9 @@ const SCALARS: &[&str] = &[
     "actor_kind",
 ];
 
-/// What a type has with its bases': its attributes, references, derived
-/// attributes, invariants and counters (`attrs`, `rels`, `derives` and
-/// `invariants` as the text checker merges them).
+/// What a type has with its bases': its attributes, references and derived
+/// attributes (`attrs`, `rels` and `derives` as the text checker merges
+/// them).
 struct Merged {
     attrs: Vec<(String, Value)>,
     rels: Vec<RelD>,
@@ -689,8 +689,8 @@ fn needed(x: &Value) -> BTreeSet<String> {
         .collect()
 }
 
-/// Checks 2, 8, 11, 17, 18, 19 (a write, a clear, a call), 20, 26, 29, 35
-/// and 38: what each transition's body writes, clears, creates and calls.
+/// Checks 2, 8, 11, 17, 18, 19 (a write, a clear, a call), 20, 26, 29 and
+/// 35: what each transition's body writes, clears, creates and calls.
 fn body_checks(d: &Decl, world: &BTreeMap<&str, &Decl>, all: &[Decl], out: &mut Vec<Found4>) {
     let machine = d.machine.as_deref().and_then(|m| world.get(m)).copied();
     let trans: Vec<&TransD> = if d.kind == DeclKind::Type {

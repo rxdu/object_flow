@@ -980,8 +980,11 @@ impl Rests<'_> {
     }
 }
 
-/// A `rest: inputs` that derives a name its transition takes itself, or one
-/// two creates derive unlike (ADR-0271).
+/// Each clash `with_rests` recorded on a transition under `RESTED`,
+/// reported at its step: a name a `rest: inputs` derives that its transition
+/// takes itself, a name two creates derive unlike, a set the target defaults
+/// to a value of its own (ADR-0271, ADR-0275), and a list of entries the step
+/// or its target cannot take (ADR-0290).
 pub fn rest_errors(doc: &Value) -> Found {
     let mut out = Found::new();
     for (tn, t) in obj(doc, "types") {
