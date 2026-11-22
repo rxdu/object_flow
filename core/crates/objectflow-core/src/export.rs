@@ -71,10 +71,10 @@ pub fn export_page(
             _ => return refuse("invalid_cursor"),
         },
     };
-    // a cursor past what the store has handed out is none of its own, where
-    // a forged one answered an empty page and was kept, so a consumer waited
-    // for ever unsaid (fourth production review A-12)
-    // and one in a gap a restore skipped (ADR-0207 decision 5)
+    // a cursor past what the store has handed out is none of its own, since
+    // an empty page answering a forged one would leave its consumer waiting
+    // for ever unsaid (fourth production review A-12); nor is one in a gap a
+    // restore skipped (ADR-0207 decision 5)
     let (last, skipped) = if source.ends_with(".attempts") {
         (world.last_txn()?, world.skipped_txn(after)?)
     } else {
@@ -85,10 +85,10 @@ pub fn export_page(
     }
     let mut rows: Vec<(i64, Json)> = if source == "log" {
         // a page of the log read from the cursor, each event's object
-        // fetched as its row is written, where every page read the whole log
-        // and every object first (fourth production review FEED); a few
-        // events at a time, to the page's bytes, where a page read its limit
-        // of events whole first (tenth production review)
+        // fetched as its row is written, never the whole log and every
+        // object first (fourth production review FEED); a few events at a
+        // time, to the page's bytes, never its limit of events whole first
+        // (tenth production review)
         log_rows(world, after, None, limit)?
     } else if world
         .lib
@@ -157,8 +157,8 @@ pub fn export_page(
     }
     let mut lines: Vec<(i64, String)> = rows.iter().map(|(c, r)| (*c, r.to_string())).collect();
     // a page ends at its bytes as at its limit, never among the rows of one
-    // cursor, which the next page would pass over: 1,000 rows of large
-    // inputs answered 197 MB (ninth production review N-9)
+    // cursor, which the next page would pass over (ninth production review
+    // N-9)
     let mut bytes = 0;
     if let Some(fit) = lines.iter().position(|(_, l)| {
         bytes += l.len() + 1;
@@ -168,8 +168,8 @@ pub fn export_page(
         if lines.iter().any(|(c, _)| *c > cut) {
             lines.retain(|(c, _)| *c <= cut);
         }
-        // reaching its bytes, the page says more may follow, where its rows
-        // were read only up to them (tenth production review)
+        // reaching its bytes, the page says more may follow, since its rows
+        // are read only up to them (tenth production review)
         more = true;
     }
     let next = lines.last().map_or(after, |(c, _)| *c);
@@ -231,8 +231,8 @@ fn counts_page(
         crate::value::parse_timestamp(&format!("{text}T00:00:00Z")).map(|t| t.div_euclid(86_400))
     };
     let today = world.now.div_euclid(86_400);
-    // a day not over yet, which no page has given, where one ahead of the
-    // store's today answered nothing until then and passed over every day
+    // a day not over yet, which no page has given, since one ahead of the
+    // store's today would answer nothing until then and pass over every day
     // before it (the audit's durability V5); and a day a restore recounts,
     // from the copy's last to the restore's (ADR-0207 decision 5)
     let restores = world.restores()?;
@@ -277,8 +277,7 @@ fn counts_page(
         .collect();
     rows.sort();
     // a page ends at its limit or its bytes, never among one day's rows,
-    // since the day is its cursor, where every settled day came in one page
-    // (the audit's cost B13)
+    // since the day is its cursor (the audit's cost B13)
     let mut bytes = 0;
     let end = rows.iter().enumerate().find_map(|(i, (_, r))| {
         bytes += r.len() + 1;
@@ -433,9 +432,8 @@ fn family_of<'w>(
 /// values omitted (ADR-0094 §3), each judged under the installed version
 /// and under the version that wrote it (ADR-0244 decision 3).
 fn event_row(world: &World<'_>, then: &mut TypesThen<'_, '_>, e: &Event) -> Result<Json, NotRun> {
-    // the object's type alone, where its whole object was held for the page,
-    // a change's source of 1.9 MB with each of its events, 550 MB for a page
-    // of 178 KB (eleventh production review)
+    // the object's type alone, never its whole object, which a change's
+    // source makes large (eleventh production review)
     let mut type_ = world.type_of(&e.object_id)?;
     let mut transition = e.transition.clone();
     let mut proposal = false;
@@ -446,9 +444,9 @@ fn event_row(world: &World<'_>, then: &mut TypesThen<'_, '_>, e: &Event) -> Resu
     let under = crate::request::written_under(e);
     let mut written = (then.of(&e.object_id, under)?, declaration_type.clone());
     // a proposal's event holds the inputs of the transition it proposed,
-    // judged under that transition, where they were judged under the
-    // proposal's, which declares none, and its personal inputs were
-    // exported (the audit's personal data R12)
+    // judged under that transition, never under the proposal's, which
+    // declares none and so would export its personal inputs (the audit's
+    // personal data R12)
     if type_.as_deref() == Some(crate::model::PROPOSAL)
         && let Some(p) = world.get(&e.object_id)?
         && let (crate::value::Value::Text(target), crate::value::Value::Text(proposed)) =
@@ -671,10 +669,9 @@ impl<'l> WrittenUnder<'l> {
 /// that wrote its object (`library-api.md` §6). It reads the store's
 /// intervals a window of positions at a time, by their index, to the page's
 /// limit and bytes, the read's deadline and stop read between windows,
-/// where a page read every event into memory and walked them once for each
-/// of the type's objects, past its deadline and an erasure's cut (eleventh
-/// production review N1). A window that finds nothing doubles, so a type
-/// written seldom crosses the log in few reads.
+/// never every event read into memory and walked once for each of the
+/// type's objects (eleventh production review N1). A window that finds
+/// nothing doubles, so a type written seldom crosses the log in few reads.
 fn interval_rows(
     world: &World<'_>,
     type_: &str,
@@ -696,9 +693,8 @@ fn interval_rows(
         let spans = world.intervals_between(&family, at, upto)?;
         // each row a later commit deleted or moved, retracted at that
         // commit's cursor and before the rows it wrote there, so a consumer
-        // folding the rows by their key holds what the store holds, where it
-        // kept a merged span open and a renamed member's rows under the old
-        // name (the audit's durability V7, ADR-0205 decision 9)
+        // folding the rows by their key holds what the store holds (the
+        // audit's durability V7, ADR-0205 decision 9)
         let retracted = world.retractions_between(&family, at, upto)?;
         window = if spans.is_empty() && retracted.is_empty() {
             window.saturating_mul(2).min(WIDEST)
@@ -911,7 +907,7 @@ fn span_row(s: &CursoredSpan, declaration_type: &str, personal: bool) -> Json {
 /// window of transactions at a time, read by their index a few attempts at a
 /// time, to the page's limit and bytes and then to the end of the last
 /// transaction read, so a page never ends among one transaction's attempts;
-/// the read's deadline and stop read between windows. A page read the whole
+/// the read's deadline and stop read between windows, never the whole
 /// attempt log, which one actor's refusals in a loop grow by millions a day
 /// (eleventh production review). A window that finds nothing doubles.
 fn attempt_rows(
@@ -1156,8 +1152,7 @@ types:
     }
 
     /// A type's attempt counts come in pages of `limit` rows, never ending
-    /// among one day's, their cursor the last day, where every settled day
-    /// came in one page (the audit's cost B13).
+    /// among one day's, their cursor the last day (the audit's cost B13).
     #[test]
     fn attempt_counts_come_a_day_at_a_time() {
         let lib = Library::load(&[("crews.yaml".into(), CREWS.into())]).unwrap();
@@ -1211,9 +1206,8 @@ types:
     }
 
     /// A proposal's events leave out the personal inputs of the transition
-    /// it proposed, as that transition's own events do, where they were
-    /// judged under the proposal's type, which declares none, and exported
-    /// (the audit's personal data R12).
+    /// it proposed, as that transition's own events do (the audit's personal
+    /// data R12).
     #[test]
     fn a_proposals_events_leave_its_transitions_personal_inputs_out() {
         let text = "\nmodule: crm\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      remark: { type: string, optional: true, personal: true }\n    states:\n      ON: { category: live }\n    transitions:\n      join: { kind: initial, to: ON }\n      note: { kind: internal, from: [ON], required_inputs: [remark], proposable: true }\n";
@@ -1362,8 +1356,7 @@ types:
         assert_eq!(at, log.last().unwrap()["position"].to_string());
         assert_eq!(page(&s, "log", Some(&at)).0, Vec::<Json>::new());
         // a page of the log reads each event's object's type, never the
-        // object, which a change's source made 550 MB for a page of 178 KB
-        // (eleventh production review)
+        // object (eleventh production review)
         let w = s.snapshot().unwrap();
         let p = export_page(&w, "log", None, 100).unwrap();
         assert!(!p.lines.is_empty());
@@ -1432,8 +1425,8 @@ types:
         // event read them (eleventh production review N1)
         assert_intervals_as_walked(&s, "Job");
         // a page of intervals stops at its read's deadline and at an
-        // erasure's cut, where a page read on past both, 45 s against a
-        // deadline of 5 and an erased name left in the store's files
+        // erasure's cut, never reading on past either (eleventh production
+        // review N1)
         let mut w = s.snapshot().unwrap();
         w.deadline = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(1));
         assert!(matches!(
@@ -1544,9 +1537,8 @@ types:
                 .as_deref(),
             Some("invalid_cursor")
         );
-        // a day not over, today's or one ahead, is no cursor a page gave,
-        // where one ahead answered nothing until then and passed over every
-        // day before it (the audit's durability V5)
+        // a day not over, today's or one ahead, is no cursor a page gave (the
+        // audit's durability V5)
         let today = crate::value::timestamp_text(w.now)[..10].to_string();
         for ahead in [today.as_str(), "2999-01-01"] {
             assert_eq!(
@@ -2071,9 +2063,9 @@ types:
 
     /// A value personal under the version that wrote it is left out of an
     /// export after a later version drops its attribute or no longer marks
-    /// it personal, as an erasure judges it, where the export judged each
-    /// value by the installed version alone and gave it; a value written
-    /// under the later version is given (issue #61, ADR-0244 decision 3).
+    /// it personal, as an erasure judges it, never by the installed version
+    /// alone; a value written under the later version is given (issue #61,
+    /// ADR-0244 decision 3).
     #[test]
     fn an_export_leaves_out_what_was_personal_when_it_was_written() {
         let lib = Library::load(&[("shelf.yaml".into(), SHELF_V1.into())]).unwrap();
@@ -2173,13 +2165,12 @@ types:
     /// After a version merges a genre into a category the version before
     /// declared, which holds no `alias` or `mood`, an export of the log
     /// leaves out the genre's values personal when they were written, and
-    /// names the type each event's version declared it as, where the export
-    /// judged the event under the category and gave them (issue #61,
-    /// ADR-0244).
+    /// names the type each event's version declared it as, never judging the
+    /// event under the category (issue #61, ADR-0244).
     #[test]
     fn an_export_after_a_merge_judges_each_event_as_the_type_it_was_of() {
-        // a type observations are recorded against does not move yet
-        // (ADR-0229), so this shelf's genre has none
+        // a type observations are recorded against does not move (ADR-0229
+        // decision 6), so this shelf's genre has none
         let start = SHELF_V1.find("    observations:\n").unwrap();
         let end = SHELF_V1[start..].find("    states:\n").unwrap() + start;
         let shelf = format!("{}{}", &SHELF_V1[..start], &SHELF_V1[end..]);

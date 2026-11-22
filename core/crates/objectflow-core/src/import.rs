@@ -492,9 +492,8 @@ fn decide(
     };
     // a raise names a sequence the flow's identifiers number by, in a scope
     // they take, with a last value that leaves a next: one naming no such
-    // sequence, or past what a sequence draws, is refused, where it was
-    // stored, wrapped, and stopped every write (fourth production review
-    // A-15)
+    // sequence, or past what a sequence draws, is refused, since one stored
+    // would wrap and stop every write (fourth production review A-15)
     for r in &batch.sequences {
         let numbering: Vec<&crate::model::Identifier> = lib
             .types
@@ -579,10 +578,9 @@ fn decide(
             return refused(report, refusal(o, "an occurred time after the import"));
         }
         // nor a creation, an entry into a state, an interval or a silent span
-        // after it, where a creation in 9999 was taken; and no time of the
-        // record before 1900, a legacy system's empty date rather than when
-        // anything happened, where one in 0001 skewed a metric for good
-        // (fourth production review A-17)
+        // after it; and no time of the record before 1900, a legacy system's
+        // empty date rather than when anything happened, which would skew a
+        // metric for good (fourth production review A-17)
         let times: Vec<i64> = o
             .created_at
             .into_iter()
@@ -609,8 +607,7 @@ fn decide(
             );
         }
         // a kind of actor a record names is one an actor has, and an actor
-        // it names an identity as a request's is, where `robot` and one of
-        // 70,000 characters were taken (seventh production review,
+        // it names an identity as a request's is (seventh production review,
         // ADR-0194 decision 6)
         let kinds = o
             .created_by_kind
@@ -1136,8 +1133,8 @@ fn decide(
             work.insert(obj)?;
         }
         // the types holding each external identifier's source, which its
-        // uniqueness reads through their columns, never the store whole,
-        // which made every batch read every object (PUBLISH-FREEZE)
+        // uniqueness reads through their columns, never the store whole, so
+        // no batch reads every object (PUBLISH-FREEZE)
         let holding = |a: &str, source: &str| -> Vec<String> {
             lib.types
                 .iter()
@@ -1242,8 +1239,7 @@ fn decide(
     // an invariant of an object the batch does not place, which its writes
     // could break through a reference or a scan, refuses the batch when it
     // held before: no disposition admits it, the object being none of the
-    // batch's, where a mirror's refresh left an owned laptop held by a
-    // person who had left (the audit's write path R-04)
+    // batch's (the audit's write path R-04)
     let placed_ids: BTreeSet<String> = placed.iter().map(|p| p.id.clone()).collect();
     for id in crate::request::affected_by_writes(&work, world)? {
         if placed_ids.contains(&id) {
@@ -1274,8 +1270,8 @@ fn decide(
     // what excluding a class would uncover, a round at a time as the dry
     // runs after it would find it: the objects whose references name what
     // the round before excluded, by the class each joins, each then taken
-    // as excluded too, so a chain is told whole in the first dry run, where
-    // the hiring review's took three (E24, ADR-0212)
+    // as excluded too, so a chain is told whole in the first dry run (E24,
+    // ADR-0212)
     let mut naming: BTreeMap<&(String, String), Vec<&Reference>> = BTreeMap::new();
     for r in &references {
         for key in &r.named {
@@ -1394,9 +1390,8 @@ fn decide(
         }
     }
     // the writes, in the batch's order, which a dry run decides too, every
-    // check of them among its own, where it answered clean a batch whose
-    // legacy interval of an untracked dimension the run refused (thirteenth
-    // production review); it writes nothing
+    // check of them among its own, so it answers clean no batch the run
+    // refuses (thirteenth production review); it writes nothing
     let mut change = Change::default();
     let port = world.now;
     // the legacy entries: each entry's own fields stay with its object, a
@@ -1702,8 +1697,7 @@ fn legacy_spans(
     }
     let tracked = lib.tracked(t);
     // an entry time of a dimension the type does not track is refused, as a
-    // legacy interval of one is, where it was taken and its time dropped
-    // (fourteenth production review, minor)
+    // legacy interval of one is (fourteenth production review, minor)
     if let Some(m) = o.entered.keys().find(|m| !tracked.contains(m)) {
         return Err(format!(
             "an entry time of {m}, which {} does not track",
@@ -1842,8 +1836,7 @@ fn intermediate_spans(
 ) -> Result<BTreeMap<String, Vec<Span>>, String> {
     let tracked = lib.tracked(t);
     // an entry time of a dimension the type does not track is refused, as a
-    // legacy interval of one is, where it was taken and its time dropped
-    // (fourteenth production review, minor)
+    // legacy interval of one is (fourteenth production review, minor)
     if let Some(m) = o.entered.keys().find(|m| !tracked.contains(m)) {
         return Err(format!(
             "an entry time of {m}, which {} does not track",
@@ -2121,9 +2114,8 @@ types:
 
     /// A batch whose writes break an invariant of an object it does not
     /// place, through a reference to what it refreshes, is refused, naming
-    /// the object and the invariant, and writes nothing, where it was
-    /// answered clean and the laptop stayed out with a person who had left
-    /// (the audit's write path R-04).
+    /// the object and the invariant, and writes nothing (the audit's write
+    /// path R-04).
     #[test]
     fn an_import_breaking_an_owned_objects_invariant_is_refused() {
         const LENT: &str = r#"
@@ -2457,8 +2449,7 @@ types:
         };
         let excluded = |rule: &str| format!("{rule}: {NAMES_EXCLUDED}");
         // the first dry run tells what excluding the held one would uncover,
-        // the note behind its interview included, where E24 met each class a
-        // round later
+        // the note behind its interview included (E24)
         let first = run(&mut s, batch.clone(), &[], true);
         assert_eq!(first.findings.len(), 1, "{:?}", first.findings);
         let held = first.findings[0].clone();
@@ -2618,8 +2609,7 @@ types:
     }
 
     /// An identity two actors hold, in any case, is admitted by nothing: a
-    /// disposition admitting `identity_taken` refuses the batch, where it
-    /// wrote a second holder and the first made answered for both (sixth
+    /// disposition admitting `identity_taken` refuses the batch (sixth
     /// production review IDENTITY, ADR-0192 decision 6).
     #[test]
     fn an_identity_two_actors_hold_is_admitted_by_nothing() {
@@ -2831,9 +2821,8 @@ types:
 
     /// A raise names a sequence a module declares, with a last value that
     /// leaves a next: one naming none, or past what a sequence draws, is
-    /// refused and nothing written, where i64::MAX was stored wrapped and
-    /// stopped every write; at its last number a sequence is exhausted
-    /// (fourth production review A-15).
+    /// refused and nothing written; at its last number a sequence is
+    /// exhausted (fourth production review A-15).
     #[test]
     fn a_raise_naming_no_sequence_or_past_its_last_is_refused() {
         let raise = |s: &mut Store, sequence: &str, last: i64| {
@@ -3052,8 +3041,8 @@ types:
     }
 
     /// A dry run refuses what the run refuses, a legacy interval of a
-    /// dimension the type does not track among them, where it answered the
-    /// batch clean (thirteenth production review).
+    /// dimension the type does not track among them (thirteenth production
+    /// review).
     #[test]
     fn a_dry_run_refuses_what_the_run_refuses() {
         let mut s = store();
@@ -3071,9 +3060,8 @@ types:
         assert_eq!(dry.refusal, wet.refusal, "{dry:?}");
         assert_eq!(dry.written, 0);
         // an entry time of a dimension the type does not track, on a new
-        // object and on a refresh, refused as a legacy interval of one is,
-        // where it was taken and its time dropped (fourteenth production
-        // review, minor)
+        // object and on a refresh, refused as a legacy interval of one is
+        // (fourteenth production review, minor)
         let untracked = |r: &ImportReport| {
             r.refusal
                 .as_ref()
