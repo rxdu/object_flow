@@ -2,7 +2,7 @@
 //! check `scripts/check-flows.py`'s run makes, over the design's modules and
 //! every plant of its self-test, exported to `tests/plants` with what it
 //! found, run again through the core and compared by file, line, code and
-//! message, for the codes the core's checker covers so far.
+//! message, for the codes `COVERED` and `COVERED_IN_EXAMPLES` list.
 
 #![allow(clippy::expect_used)]
 
@@ -38,11 +38,11 @@ const COVERED: &[&str] = &[
     // a version's transitions open to agents, and who may act named no
     // longer or widened against the previous version (ADR-0189)
     "agent_open",
+    "taken_by_dropped",
     // an optional attribute of an owned type nothing writes (D557)
     "unwritten",
     // an assignment whose value can be absent (ADR-0201 decision 7)
     "absent",
-    "taken_by_dropped",
     // a version an agent may approve, and a reach no invariant bounds
     // (ADR-0190)
     "publishing_open",
@@ -51,7 +51,7 @@ const COVERED: &[&str] = &[
     "rule_changed",
     // an attribute a version no longer marks personal (ADR-0196)
     "personal_dropped",
-    // step 4 (C2), by group as each is ported
+    // step 4 (C2)
     "check 2",
     "check 7",
     "check 8",
@@ -83,6 +83,8 @@ const COVERED: &[&str] = &[
     "contradiction",
     "neverpasses",
     "undecided",
+    // step 4 (C2): a type's states, creation and tracking (`model.rs`'s
+    // `state_checks`)
     "check 16",
     "check 19",
     "check 31",
@@ -166,10 +168,6 @@ fn the_core_finds_what_the_flow_checker_finds() {
             })
             .unwrap_or_default();
         let read = |name: &str| reads.get(name).cloned();
-        // each finding by its file, line, severity, code and message, so
-        // findings sharing a line are told apart and a message the core words
-        // differently is a difference, and counted, so a finding the core
-        // makes twice where the flow checker makes it once is one too
         // `previous` a store's installed version where the plant says so, as
         // a publish checks a change (ADR-0230)
         let installed = case
@@ -230,6 +228,10 @@ fn the_core_finds_what_the_flow_checker_finds() {
             ));
         }
         let found = checks.findings;
+        // each finding by its file, line, severity, code and message, so
+        // findings sharing a line are told apart and a message the core words
+        // differently is a difference, and counted, so a finding the core
+        // makes twice where the flow checker makes it once is one too
         let mut want: BTreeMap<(String, u64, String, String), usize> = BTreeMap::new();
         for k in case["findings"]
             .as_array()

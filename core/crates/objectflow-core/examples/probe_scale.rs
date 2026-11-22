@@ -4,8 +4,8 @@
 //! reach, a query and a metric read their type.
 //!
 //! A probe, not a test: it asserts nothing. Its limits, stated so it is not
-//! over-read: one type, five events an object, an in-memory SQLite store,
-//! one machine; times are the median of nine runs at each size, in
+//! over-read: one type, four or five events an object, an in-memory SQLite
+//! store, one machine; times are the median of nine runs at each size, in
 //! milliseconds. Run with `cargo run --release --example probe_scale`.
 #![allow(clippy::unwrap_used, clippy::panic)]
 
@@ -75,8 +75,8 @@ fn ask(s: &mut Store, xn: &str, object: Option<&str>, inputs: Json) -> String {
     }
 }
 
-/// One ticket's life: opened, started, parked, started again, and left
-/// working or finished, five events.
+/// One ticket's life: opened, started, parked and started again, four
+/// events, and finished, a fifth, for every other ticket.
 fn life(s: &mut Store, i: usize) -> String {
     let t = ask(s, "open", None, json!({"size": 3}));
     for xn in ["start", "park", "start"] {
@@ -118,7 +118,7 @@ fn main() {
             made += 1;
         }
         let events = s.snapshot().unwrap().log().unwrap().count();
-        // a request on a live ticket, its open and park alternating so each
+        // a request on a live ticket, its start and park alternating so each
         // run applies
         let probe = ask(&mut s, "open", None, json!({}));
         let mut working = false;

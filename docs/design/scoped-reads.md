@@ -12,7 +12,7 @@ This was the first slice's choice, never a decision: it kept the evaluator a fun
 
 ## 2. What it costs, as measured
 
-`core/crates/objectflow-core/examples/probe_scale.rs` grows one store of one type, five events an object, and times each operation at each size, the median of nine runs, on one machine, a release build, SQLite in memory. Indicative only: no disk, no PostgreSQL, one type.
+`core/crates/objectflow-core/examples/probe_scale.rs` grows one store of one type, four or five events an object, and times each operation at each size, the median of nine runs, on one machine, a release build, SQLite in memory. Indicative only: no disk, no PostgreSQL, one type.
 
 | objects | events | request | `get` | `query` | metric read | one load of the store |
 |---|---|---|---|---|---|---|

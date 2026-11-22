@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# The core's gates (the author's rules/rust.md): the format, clippy with every
-# warning an error, and the tests. CI runs the same, through scripts/check-all.
+# The core's gates (the author's Rust preferences): the format, clippy with
+# every warning an error, and the tests. CI runs the same, through
+# scripts/check-all.
 #
 # Usage: core/scripts/check [lint|build|test] [-- <test arguments>]
 #   lint   the format and clippy
