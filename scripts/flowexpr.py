@@ -3,14 +3,15 @@
 
 The grammar is `docs/design/declaration-syntax.md` §8 and §9, which
 `docs/design/flow-format.md` §5 does not change. The tree is shared by the
-checks that read what an expression means rather than which names it uses:
-the contradiction checker (ADR-0137) and the reference runner of examples
-(ADR-0136).
+checks that read what an expression means rather than which names it uses,
+among them the contradiction checker (ADR-0137) and the reference runner of
+examples (ADR-0136).
 
 A node is a tuple whose first element names it:
   ("num", value)           an int, or a decimal kept as its text
   ("str", text)            ("bool", value)      ("dur", n, unit)      ("money", ccy, amount)
   ("name", name)           a bare name, resolved by §9.2 where it is used
+  ("param", name)          a read's filter parameter, `:name`, which parse_filter alone accepts
   ("path", base, member)   base.member
   ("call", fn, args)       fn(args…), fn a name or a path: entered_at(S), this.intervals(m)
   ("agg", kind, distinct, var, collection, where, body)   count(x in c where f: b)

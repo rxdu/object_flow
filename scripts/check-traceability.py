@@ -20,8 +20,7 @@ that the map is complete and honest in the ways a script can decide:
   - the "Current:" line counts the rows as they are.
 
 Exit status is non-zero if any of that fails, or if any row is partial or a gap.
-`--structure` checks the map without requiring full coverage, which is what the
-corpus checker runs while the design is being iterated.
+`--structure` checks the map without requiring full coverage.
 """
 import re
 import sys

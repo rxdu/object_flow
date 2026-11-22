@@ -20,7 +20,11 @@ show a module means exactly what the checked text language means, each one is:
    used; every value an expression names is a state or an enumeration value;
    and every transition into a state sets each attribute the state requires;
 4. converted to the text language and run through check-syntax-doc.py, so
-   every implemented publish check applies unchanged.
+   every implemented publish check applies unchanged;
+5. analysed, type by type, for conditions that can never hold together
+   (flowlogic.py, ADR-0137);
+6. its examples, where an examples file is given with it, run against its
+   rules by the reference runner (flowrun.py, ADR-0136).
 
 The conversion is mechanical, and nothing in the YAML has a default:
 

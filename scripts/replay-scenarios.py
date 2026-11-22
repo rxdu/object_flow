@@ -16,10 +16,8 @@ it talks to the core's service over HTTP, as a caller would, and
 
 The ids are labels: each object the history names is the core's object its creation or its import made. The replay
 stops at the first step the core cannot take as the history says, whether it does not run it or answers otherwise,
-since every later value stands on it; each read after that is unreached. Two kinds of step change nothing a compared read
-reads, and were stepped past while the core could not take them: a `check`, which is advice with no effect, and a
-subscription, which feeds only `pull`; the core now takes both. A query is not run, since the core has no
-`query`, and the other reads, of history, events and the rest, are not this driver's to compare.
+since every later value stands on it; each read after that is unreached. A read the driver has no comparison for is
+reported as not compared.
 
 It prints how far the replay reached and each read's outcome. It exits 1 where a read it reached disagrees with its
 table, or a step the core takes answers otherwise than the history says, each a finding against the core or the
@@ -161,8 +159,8 @@ def duration(text):
     return datetime.timedelta(seconds=int(m.group(1)) * UNITS[m.group(2)]) if m else None
 
 
-# a type's keys in the order the checker holds a module to (flow-format.md §3 rule 2), the checker's own list, where a
-# copy of it lacked `taken_by` and wrote that key last (#75); a mirror declares its states, never a machine
+# a type's keys in the order the checker holds a module to (flow-format.md §3 rule 2), the checker's own list (#75); a
+# mirror declares its states, never a machine
 TYPE_KEYS = [k for k in flows.TYPE_ORDER if k != "state_machine"]
 
 
@@ -209,7 +207,7 @@ def port_version(doc, machines):
             else:
                 out[k] = v
         out.setdefault("mirror", True)
-        # in the order the format declares a type's keys (flow-format.md §10)
+        # in the order the format declares a type's keys (flow-format.md §3 rule 2)
         doc["types"][tn] = {k: out[k] for k in sorted(out, key=lambda k: TYPE_KEYS.index(k) if k in TYPE_KEYS
                                                        else len(TYPE_KEYS))}
     return doc

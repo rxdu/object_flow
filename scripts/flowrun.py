@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The reference runner: a flow's examples executed against its rules (ADR-0136 decision 5).
 
-It is an executable model of `docs/design/DESIGN.md` §6, a request's execution, and of the expression
+It is an executable model of `docs/DESIGN.md` §6, a request's execution, and of the expression
 language's meaning (`declaration-syntax.md` §8), written to be read against those sections rather than to be
 fast: the store is a dictionary, and a request works on a copy that it keeps only if the request applies. It
 is the Python side of the differential tests of ADR-0132 decision 2, so it shares no code with the engine, only
@@ -2320,7 +2320,7 @@ class Evaluator:
             return self.kind(parsed(t["derived_attributes"][m]["expression"]), {"this": base})
         return ("other",)
 
-# the generated guards' remedy classes, as DESIGN.md §5.5 states them (ADR-0138)
+
 class _NeverAsked(dict):
     """The answers an offer gives its evaluators: none, each call left unanswered, so nothing is asked (ADR-0048)."""
 
@@ -2371,6 +2371,7 @@ def written_locations(steps):
     return out
 
 
+# the generated guards' remedy classes, as DESIGN.md §5.5 states them (ADR-0138)
 GENERATED_REMEDY = {"actor_known": "dependent", "actor_active": "dependent", "occurred_within": "self_serviceable", "whole_open": "self_serviceable",
                     "not_erased": "unreachable_from_here", "subject_open": "unreachable_from_here",
                     "corrects_current": "self_serviceable", "subject_owned": "unreachable_from_here",
@@ -2465,8 +2466,8 @@ def steps_taking(store, steps, transition, tn):
 def clauses_taking(store, kinds, cause_type, cause_transition, transition, tn):
     """Each argument a cascade clause or a follows clause on the cause's transition passes the transition it caused,
     each input with the expressions that fill it and the reference a follows clause reads the cause's object through,
-    None for a cascade's, read over the cause's object (storage-schema.md §9 steps 3 and 12, ADR-0292 decision 6); a
-    cascade's was missed until #103, and a follow's with it."""
+    None for a cascade's, read over the cause's object (storage-schema.md §9 steps 3 and 12, ADR-0292 decision 6,
+    issue #103)."""
     out = []
     ct = kinds.get(cause_type) or {}
     ends = [(spec, (spec or {}).get("cascade") or []) for spec in (ct.get("attributes") or {}).values()
@@ -4798,7 +4799,7 @@ def file_proposal(runner, store, st, aliases):
                     and "default" not in (sp or {})]
         # in the order the request refuses them (DESIGN.md §6): an input not taken or not of its type, every other input
         # at fault named with it; then a list past its limit (ADR-0290 decision 4); then a reference naming nothing, a
-        # blank text or an input left out. A proposal of a transition taking no list is refused as it always was
+        # blank text or an input left out. A transition taking no list has no limit to pass
         if over and not early:
             raise Refused("over_limit", remedy="unreachable_from_here", loop=f"each {over[0]}", bound=over[1],
                           detail=f"the list {over[0]} holds more entries than its limit of {over[1]}")

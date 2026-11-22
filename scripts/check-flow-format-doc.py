@@ -6,7 +6,8 @@ scripts/check-flows.py implement it. This checks that they agree:
 
 1. the reserved keys of §10 are exactly the property names the schema defines;
 2. the reserved values of §10 are exactly the schema's enumerated values, the
-   two booleans, and the dimensions the checker builds in;
+   two booleans, the dimensions the checker builds in, and the categories
+   every vocabulary has;
 3. the finding codes of §7 are exactly those the checker reports;
 4. the declaration order of §3 is the order the checker enforces;
 5. every name the checker reserves (§3, §4.3) is stated in the document;
@@ -113,14 +114,14 @@ def main():
 
     # a finding is (path, code, message): the code is the lower-case literal just before the message
     # a code before its message, or after the severity where the message is a name (`"notice", "coverage", m`)
-    # a code holds underscores too, which `[a-z]+` missed, the card then omitting seven unseen (the guides' audit G-21)
+    # a code holds underscores too (the guides' audit G-21)
     reported = set(re.findall(r'"([a-z_]+)",\s*f"', source)) | {"yaml", "schema"}
     reported |= set(re.findall(r'"(?:fatal|notice)",\s*"([a-z_]+)"', source))
     section7 = doc[doc.index("## 7. Validity"):doc.index("## 8.")]
     stated = {c for c in re.findall(r"^\|[^|]*\| `([a-z_]+)`", section7, re.M) if c != "check"}
-    # the notices' paragraph, to its end, each code written `code`, then what it is for: the paragraph's first full
-    # stop fell inside a file's name, and every word in backticks counted as a code (the guides' audit G-21); its count
-    # may be hyphenated, which `\w+` missed, every notice then read as unstated ("twenty-one", 2026-10-16)
+    # the notices' paragraph, to its end, since a file's name inside it holds a full stop; each code written `code`,
+    # then what it is for, since the paragraph names other words in backticks (the guides' audit G-21); its count
+    # read as a word, hyphenated or not, as "twenty-one" is (docs/LESSONS.md, 2026-10-16)
     notice = re.search(r"reports [\w-]+ notices[^\n]*", section7)
     stated |= set(re.findall(r"`([a-z_]+)`, (?:for|once|against)", notice.group(0))) if notice else set()
     for c in sorted(reported - stated):

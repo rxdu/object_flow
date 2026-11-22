@@ -6,7 +6,8 @@ held to (ADR-0132 decision 2, ADR-0153).
 Each line names the module's file and, for each enumeration its members and
 for each type its attributes, derived attributes, states, conditions,
 invariants and transitions, each transition with its kind, its source and
-target states, its guards and their enforcement, and its inputs.
+target states, its guards and their enforcement, its inputs and its
+`only_via`.
 """
 import importlib.util
 import json

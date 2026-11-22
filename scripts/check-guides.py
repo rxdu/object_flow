@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Hold the user guides (docs/guides/) to the engine they describe.
 
-Three checks:
+Five checks:
 
 1. **The tutorials run.** Every ```sh block of quickstart.md, agents.md and
    write-a-flow.md that is followed by a ```json or ```text block is run, in
@@ -17,6 +17,11 @@ Three checks:
    of wire-v1.json in wire.md, and every flag and metric in operate.md.
 3. **The indexes are whole.** docs/guides/README.md and the repository's
    llms.txt, the index an agent reads first, each link every guide page.
+4. **The required keys are wire-v1.json's.** Each operation's row in wire.md
+   names before its `;` exactly the keys wire-v1.json records as required.
+5. **The backup and restore run.** operate.md's one-off backup, its copy's
+   check, the timer's backup and the restore's steps are run on a store made
+   for them, and the service started on each restored copy says it is one.
 
 Usage: check-guides.py [--service <binary>]
        The service defaults to the newer of the debug and release builds
@@ -74,7 +79,7 @@ def body(path):
     return text[: m.start()] if m else text
 
 
-# ── 1. the quickstart runs ──────────────────────────────────────────────
+# ── 1. the tutorials run ────────────────────────────────────────────────
 
 
 def start(binary):

@@ -9,12 +9,14 @@ Each type named, or every type where none is, is declared as a mirror is
 attributes, observations and metrics kept, every transition but an erasure
 dropped with the conditions only those read, and the external identifier
 `legacy_key` added where it declares none, as `replay-scenarios.py`'s
-`port_version` ports a whole module. A type joined to one named is a mirror
-too, since a mirror may not reference, extend or compose with a type the
-store owns: what a mirror references, its bases and subtypes, and its whole
-and parts. Each type added for that is said on stderr, and so is each
-transition of a type kept owned that creates or calls a mirror, which the
-checker refuses (check 53).
+`port_version` ports a whole module. A metric counting a transition the
+mirror drops is left out, and so is a combined metric reading one left out,
+each said on stderr. A type joined to one named is a mirror too, since a
+mirror may not reference, extend or compose with a type the store owns: what
+a mirror references, its bases and subtypes, and its whole and parts. Each
+type added for that is said on stderr, and so is each transition of a type
+kept owned whose effect creates a mirror at its top level, which the checker
+refuses (check 53).
 
 Usage: scripts/mirror-version.py <module.yaml> [<Type> ...] > <module>-golive.yaml
        the module read from standard input where its file is given as -

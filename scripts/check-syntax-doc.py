@@ -1135,9 +1135,9 @@ MUTATIONS = [
 ]
 
 
-# A module declared in more than one document names its home here. None is since
-# the unit's journey and the flow review moved to YAML, where check-flow-docs.py
-# keeps the same table (ADR-0121).
+# A module declared in more than one document names its home here, as
+# check-flow-docs.py's MODULE_HOMES does for the YAML modules (ADR-0121); none is
+# named.
 MODULE_HOMES = {}
 
 

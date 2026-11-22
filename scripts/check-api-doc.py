@@ -15,8 +15,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs/design/library-api.md"
 ALSO = [ROOT / "docs/design/publish-and-import.md"]  # shapes, no Store protocol
 MODEL = ROOT / "docs/DESIGN.md"
-# not read operations: the write path of section 6, and the two calls section 10
-# names as "operational calls that are not object operations"
+# not read operations: the write path of section 6, and the two operational calls
+# section 10 names that it does not write as **name**(…): acknowledge and publish
 EXTRA = {"request", "batch", "acknowledge", "publish"}
 
 

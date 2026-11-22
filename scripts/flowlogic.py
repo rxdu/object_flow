@@ -972,8 +972,8 @@ def self_test():
         cases.append(f"a path through another object read after {'a follow' if followed else 'neither a follow nor a cascade'}")
         if not right:
             print(f"  {cases[-1]}: expected {'a finding' if want else 'nothing'}, found {[m for *_x, m in found]}")
-    # a lifecycle of thirteen states, each requiring what the one before set, is decided in every state: 2^13 cases
-    # before the other states' invariants were set aside, which is past LIMIT
+    # a lifecycle of thirteen states, each requiring what the one before set, is decided in every state: expanded
+    # whole, the other states' invariants make 2^13 cases, past LIMIT, and `fixed` sets them aside
     chain = {f"S{i}": {"category": "live", "required_attributes": [f"t{j}" for j in range(1, i + 1)]} for i in range(1, 14)}
     chain["S13"]["final"] = True
     moves = {"start": {"kind": "initial", "to": "S1", "required_inputs": ["t1"]}}

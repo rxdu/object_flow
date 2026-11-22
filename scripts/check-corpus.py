@@ -18,7 +18,8 @@ ADR = ROOT / "docs/adr"
 
 # Notation that was renamed.  Each entry is (retired spelling, what to write
 # instead, files allowed to still contain it and why).  The register records
-# history and quotes defects verbatim, so it is exempt throughout.
+# history and quotes defects verbatim, so it is exempt from each entry whose
+# retired spelling it quotes.
 RETIRED = [
     (r"\ba\.event\b", "a.at_event", {"defects.md", "LESSONS.md"}),
     (r"\btime-gated\b", "sweepable (ADR-0048)", {"defects.md"}),

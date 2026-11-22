@@ -103,7 +103,8 @@ still_running() {
 
 # The core's tests on PostgreSQL, the arguments given passed to each test
 # binary: the harness one seed of each sample there, its fork a copy of the
-# store's schema for every request it takes, where SQLite's run holds six.
+# store's schema for every request it takes, where SQLite's run holds six, and
+# three for the batched run.
 # The tests' output goes to the gate's log as they run, so a timeout names
 # the tests still running, which a summary written after the run could not
 # (`v0.16.0`'s tag, 2026-11-04); each failing test's header and panic follow,
