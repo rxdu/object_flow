@@ -1,8 +1,9 @@
 //! ObjectFlow's HTTP service (ADR-0150): one `POST /v1/<operation>` per library
 //! operation, and a sandbox's controls under `/sandbox/`, which a deployment's
 //! service does not route (ADR-0174). The core is synchronous; this is its one
-//! asynchronous layer (ADR-0132), and every operation runs the core under one
-//! lock, one request at a time.
+//! asynchronous layer (ADR-0132). Every write runs under the writer's one lock,
+//! the requests waiting for it committed together (ADR-0208); a deployment's
+//! reads run beside it on read connections of their own (ADR-0178).
 //!
 //! A refusal is a `200` carrying the verdict, its shape named by `kind`; a
 //! fault is a `4xx` or `5xx` carrying `fault`; a construct the core's first
@@ -1244,11 +1245,13 @@ impl Drop for Slot<'_> {
 }
 
 /// A read whose cost grows with the store: a query, a metric, the objects
-/// available, the exceptions, the diagnostics, a page of a subscription or
-/// an export, a change's dry run. It takes a slot first, waited for within
-/// its own deadline, and the read is given what is left of the deadline; a
-/// read of one object, of the events by position or of the declaration
-/// never waits (ADR-0189 decision 2).
+/// available, the exceptions, the diagnostics, the files referenced, a page
+/// of a subscription or an export, an object's history, or the events by
+/// position. It takes a slot first in the pool it is given, waited for
+/// within the read's deadline, and the read is given what is left of the
+/// deadline. A read of one object waits only where [`object_slot`] says, a
+/// change's dry run takes its slot in [`dry_running`], and a read of the
+/// declaration never waits (ADR-0189 decision 2, ADR-0192 decision 5).
 fn heavy_reading<'s>(
     shared: &'s Shared,
     pool: &'s Admission,
@@ -1560,9 +1563,11 @@ impl IntoResponse for Fault {
     }
 }
 
-/// A construct the core does not run is 501; a read of the store that
+/// A construct the core does not run is 501. A read of the store that
 /// failed is unavailable storage, the service's own fault, 500, as the
-/// store's other errors are (`library-api.md` §7, ADR-0164).
+/// store's other errors are, but 503 where it passed its deadline or found
+/// the store unreadable. A value past what its type holds is a read's
+/// refusal (`library-api.md` §7, ADR-0164).
 impl From<NotRun> for Fault {
     fn from(e: NotRun) -> Fault {
         match e {
@@ -2274,8 +2279,8 @@ fn locked(shared: &Shared) -> Result<Writing<'_>, Fault> {
     })
 }
 
-/// A deployment's store opened again from its file, as the service opens
-/// it at its start; what was done, said.
+/// A deployment's store opened again, from its file or its database, as
+/// the service opens it at its start; what was done, said.
 fn reopened(sandbox: &mut Sandbox) -> String {
     if let Some(config) = sandbox.postgres.clone().filter(|_| sandbox.deployment) {
         // the store's connection, holding its lock, let go first, so the
@@ -3248,7 +3253,8 @@ async fn check(State(shared): State<Shared>, Body(body): Body) -> Answer {
             _ => None,
         };
         // a check of an object whose rules grow with the store waits among
-        // the analytics, as a read of it does (thirteenth production review C)
+        // the objects' reads, as a read of it does (thirteenth production
+        // review C)
         let _slot = match prepared {
             Some(_) => Slot(None),
             None => object_slot(
@@ -3586,12 +3592,10 @@ async fn acknowledge(State(shared): State<Shared>, Body(body): Body) -> Answer {
     })
 }
 
-/// A request as the wire carries it (`library-api.md` §3).
 /// The principal the actor acts for, which the store records and checks as
 /// it checks the actor (library-api.md §3, ADR-0182): the request's own
-/// `principal`, as `wire.md` lists it, or the actor's, which must agree; the
-/// request's was taken and dropped, so a principal who had left was never
-/// refused (third production review PRINCIPAL).
+/// `principal`, as `wire.md` lists it, or the actor's, which must agree
+/// (third production review PRINCIPAL).
 fn principal_of(body: &J) -> Result<Option<String>, Fault> {
     let own = text(body, "principal")?;
     let actors = object(body, "actor")?
@@ -3627,6 +3631,7 @@ fn idempotency_key_of(body: &J) -> Result<Option<String>, Fault> {
     }
 }
 
+/// A request as the wire carries it (`library-api.md` §3).
 fn request_of(body: &J) -> Result<Request, Fault> {
     request_parts(body, false)
 }
@@ -3745,9 +3750,9 @@ fn instant(v: Option<&J>, what: &str) -> Result<Option<i64>, Fault> {
     }
 }
 
-/// A key a part of an import does not take, refused: a misspelt one was
-/// read as absent, so an object's `atributes` were dropped without a word
-/// (the second production review's minor, found open 2026-10-15).
+/// A key a part of a body does not take, refused, never read as absent: a
+/// part of an import or a request of a batch (the second production
+/// review's minor).
 fn takes_only(v: &J, what: &str, takes: &[&str]) -> Result<(), Fault> {
     match v
         .as_object()
@@ -4051,7 +4056,6 @@ async fn import_op(State(shared): State<Shared>, Body(body): Body) -> Answer {
     })
 }
 
-/// An object as `get` reads it, or null where the store holds none.
 /// The built-in attributes that hold JSON, kept as text: the wire answers
 /// each as the JSON it holds, as its input was written (ADR-0182 decision
 /// 9).
@@ -4073,6 +4077,7 @@ fn as_held(type_: &str, name: &str, encoded: J) -> J {
     }
 }
 
+/// An object as `get` reads it, or null where the store holds none.
 fn object_json(s: &Store, id: &str) -> Answer {
     let world = s.snapshot()?;
     let Some(view) = reads::get(&world, id)? else {
@@ -4152,8 +4157,8 @@ async fn publish(State(shared): State<Shared>, Body(body): Body) -> Answer {
         let expected = int(&body, "expected_version")?;
         if flag(&body, "dry_run")? {
             // a preview is a read: a deployment's runs beside the writes,
-            // under the read's deadline, where it held every write (third
-            // production review PUBLISH-SCALE); a sandbox's reads take the
+            // under the dry run's own deadline (third production review
+            // PUBLISH-SCALE, ADR-0194 decision 2); a sandbox's takes the
             // writer, as every one of its reads does
             if shared.reads.is_some() {
                 // its checks with no read open, its impact stopped by an
@@ -4255,9 +4260,9 @@ fn dry_running(
     Ok(Some((read, report)))
 }
 
-/// A change's dry run stopped at the read's deadline, said as such: a
-/// submit's and a preview's run on a read beside the writes, and are never
-/// computed again under the lock (PUBLISH-SCALE).
+/// A change's dry run stopped at its own deadline, `--dry-run-timeout`,
+/// said as such: a submit's and a preview's run on a read beside the
+/// writes, and are never computed again under the lock (PUBLISH-SCALE).
 fn dry_run_late(shared: &Shared) -> Fault {
     // the store's size or the change's: either may make a dry run long,
     // where it blamed the store when the module was (ninth production
@@ -4704,11 +4709,9 @@ async fn availability(State(shared): State<Shared>, Body(body): Body) -> Answer 
     .await
 }
 
-/// A reader's read of a metric: one page holding every group, so its
-/// cursor is none (`library-api.md` §5, `MetricPage`).
 /// A page of objects of a type or its family, filtered and ordered
-/// (`library-api.md` §6, ADR-0127): every object the filter holds for, on
-/// one page, so no cursor; a refusal is a value.
+/// (`library-api.md` §6, ADR-0127), at most `limit` of them, with the
+/// cursor of the next page where there is one; a refusal is a value.
 async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
     answered_off(move || {
         let (Some(_actor), Some(type_)) = (actor_id(&body)?, text(&body, "type")?) else {
@@ -4747,16 +4750,13 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
             }
         }
         // a query that reads its type whole waits among the analytics, never
-        // in a person's worklist slot (ADR-0196 decision 4); and an agent's
-        // filtering or ordering by anything personal is refused, where one
-        // ranged over people's names to recover what its answers left out
-        // (fourteenth production review N4)
+        // in a person's worklist slot (ADR-0196 decision 4); and a filter or
+        // an order by anything personal is refused, whoever asks, unless the
+        // request opts in (fourteenth production review N4; ADR-0206,
+        // superseding ADR-0201 decision 4 and ADR-0202 decision 3)
         let (scans, personal) = {
             let mut r = reading(&shared)?;
             let s = r.store()?;
-            // whoever asks, unless the request opts in, where an agent's
-            // alone was refused, by its kind (ADR-0206, superseding ADR-0201
-            // decision 4 and ADR-0202 decision 3)
             (
                 reads::query_scans(
                     &s.lib,
@@ -4813,6 +4813,8 @@ async fn query(State(shared): State<Shared>, Body(body): Body) -> Answer {
     .await
 }
 
+/// A reader's read of a metric: one page holding every group, so its
+/// cursor is none (`library-api.md` §5, `MetricPage`).
 async fn metric(State(shared): State<Shared>, Body(body): Body) -> Answer {
     answered_off(move || {
         let (Some(_actor), Some(name)) = (actor_id(&body)?, text(&body, "name")?) else {
@@ -4926,11 +4928,12 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
                                   "code": fault_code(503, &replaced), "fault": replaced});
                 return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response());
             }
-            // the store read, so a store that cannot be read answers 500
-            // here rather than at the next request (production review
-            // OBSERVE): its file opened afresh, which a read connection,
-            // whose pages stay cached while no write moves the log, never
-            // rereads, and its release found to be the one served
+            // the store read, so a store that cannot be read answers 503
+            // `store_unreadable` here rather than at the next request
+            // (production review OBSERVE): its file opened afresh, which a
+            // read connection, whose pages stay cached while no write moves
+            // the log, never rereads, and its release found to be the one
+            // served
             match reads.path.as_deref().map_or(
                 Ok(Some(BUILTINS.to_string())),
                 objectflow_core::release::store_release_at,
@@ -5073,15 +5076,13 @@ async fn health(State(shared): State<Shared>) -> Result<Response, Fault> {
     })
 }
 
-/// `upgrade` (`storage-schema.md` §12, ADR-0177): a deployment's store
-/// Whether an actor names an operator of the store, by its id or its
-/// identity, as an upgrade reads it (ADR-0177).
 /// Whether an actor is the store's operator, by its object or its identity
 /// in any ASCII case, as the core decides it (ADR-0196 decision 8).
 fn is_operator(world: &objectflow_core::world::World<'_>, actor: &str) -> Result<bool, NotRun> {
     objectflow_core::store::is_the_operator(world, actor)
 }
 
+/// `upgrade` (`storage-schema.md` §12, ADR-0177): a deployment's store
 /// carried from its release to this core's, the operator's act, or with
 /// `dry_run` every step run and rolled back; once upgraded the store is
 /// opened and served. A store at this release already answers that
@@ -6830,12 +6831,8 @@ async fn served(
     while tasks.join_next().await.is_some() {}
 }
 
-/// A Unix socket bound at a path, replacing one a stopped service left
-/// there and never another kind of file, and made 0660: its owner and its
-/// group alone reach the service, the boundary the design leaves to the
-/// deployment (ADR-0114, ADR-0183 decision 4).
-/// What a path a socket cannot have is refused with, its limit said, where
-/// the system's words named SUN_LEN (twelfth production review).
+/// What a path a socket cannot have is refused with, its limit said
+/// (twelfth production review).
 fn socket_too_long(path: &std::path::Path) -> Option<String> {
     let n = path.as_os_str().len();
     (n > SOCKET_PATH).then(|| {
@@ -6846,6 +6843,10 @@ fn socket_too_long(path: &std::path::Path) -> Option<String> {
     })
 }
 
+/// A Unix socket bound at a path, replacing one a stopped service left
+/// there and never another kind of file, and made 0660: its owner and its
+/// group alone reach the service, the boundary the design leaves to the
+/// deployment (ADR-0114, ADR-0183 decision 4).
 fn bind_socket(path: &std::path::Path) -> std::io::Result<tokio::net::UnixListener> {
     use std::os::unix::fs::{FileTypeExt, PermissionsExt};
     match std::fs::symlink_metadata(path) {
@@ -7275,10 +7276,6 @@ async fn serve() -> std::io::Result<()> {
                 s.lock_wait = Some(sandbox.lock_wait.clone());
                 s.set_busy_timeout(busy)
                     .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
-                // actors an earlier release took whose identities are equal
-                // but for case, which this one takes as one, said with the
-                // remedy, by their objects and never their identities
-                // (eighth production review CASE-PAIR, ADR-0195 decision 2)
                 // refused attempts kept for ever, what their requests sent
                 // with them, where no retention prunes them, said (ninth
                 // production review N-12, ADR-0196 decision 9)
@@ -7287,6 +7284,10 @@ async fn serve() -> std::io::Result<()> {
                         "no --attempt-retention is given, so refused attempts are kept for ever with what their requests sent; give one, as operate.md's unit does".to_string(),
                     );
                 }
+                // actors an earlier release took whose identities are equal
+                // but for case, which this one takes as one, said with the
+                // remedy, by their objects and never their identities
+                // (eighth production review CASE-PAIR, ADR-0195 decision 2)
                 let pairs = s
                     .identity_pairs()
                     .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
@@ -7582,11 +7583,8 @@ async fn serve() -> std::io::Result<()> {
 mod tests {
     use super::*;
 
-    /// A volume holding less than a checkpoint needs is low; one holding
-    /// that much is not (ADR-0188 decision 3).
-    /// A key a part of an import does not take is refused, naming it, where
-    /// a misspelt one was read as absent and an object's attributes were
-    /// dropped without a word (the second production review's minor).
+    /// A key a part of an import does not take is refused, naming it (the
+    /// second production review's minor).
     #[test]
     fn an_import_refuses_a_key_it_does_not_take() {
         let object = |extra: J| {
@@ -7632,6 +7630,8 @@ mod tests {
         assert_eq!(said, [false, true, false, false, true, false, true]);
     }
 
+    /// A volume holding less than a checkpoint needs is low; one holding
+    /// that much is not (ADR-0188 decision 3).
     #[test]
     fn a_volume_is_low_below_what_a_checkpoint_needs() {
         assert!(disk_low(DISK_FLOOR - 1));
@@ -8302,11 +8302,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Every read that grows with the store waits for a slot and is
-    /// answered `503 read_timeout` at its deadline while none frees, an
-    /// object's history and the events at positions among them, in the
-    /// objects' pool; a read of one object or of the declaration never waits
-    /// (ADR-0189 decision 2, ADR-0192 decision 5, ADR-0195 decision 5).
+    /// A read of one object that computes rules growing with the store waits
+    /// in the objects' pool, never the analytics', and one that computes none
+    /// answers at once (thirteenth production review C, fourteenth production
+    /// review).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[allow(clippy::panic)]
     async fn a_read_of_an_object_whose_rules_grow_waits_among_the_objects_reads() {
@@ -8479,6 +8478,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Every read that grows with the store waits for a slot and is
+    /// answered `503 read_timeout` at its deadline while none frees, an
+    /// object's history and the events at positions among them, in the
+    /// objects' pool; a read of one object whose rules do not grow with the
+    /// store, or of the declaration, never waits (ADR-0189 decision 2,
+    /// ADR-0192 decision 5, ADR-0195 decision 5).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[allow(clippy::panic)]
     async fn only_the_reads_that_grow_with_the_store_wait_their_turn() {
@@ -8793,13 +8798,9 @@ mod tests {
         assert_eq!(busy.load(Ordering::SeqCst), CLOSING);
     }
 
-    /// A request that panics holding the writer leaves it poisoned; the
-    /// next write takes it back, and a deployment's store is opened again
-    /// from its file, where every write after was refused 500 until a
-    /// restart (POISON).
     /// A read whose client goes is stopped at its next step: the connection
-    /// drops the answer it waited for, which moves the read's stop, where the
-    /// read ran to its deadline for no one (D656, ADR-0205 decision 16).
+    /// drops the answer it waited for, which moves the read's stop (D656,
+    /// ADR-0205 decision 16).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[allow(clippy::unwrap_used)]
     async fn a_read_whose_client_goes_is_stopped() {
@@ -8927,17 +8928,10 @@ mod tests {
         assert_eq!(objectflow_core::world::events_read(), before + 51);
     }
 
-    /// A store a read or a write finds unreadable, by SQLite's words for a
-    /// corrupt file or one that is no database, answers 503
-    /// `store_unreadable` and marks its answer, which the logging layer
-    /// latches the service on; and a service latched answers every write
-    /// with why until a restart (the audit's durability S5, ADR-0205
-    /// decision 8).
     /// A read stopped at its deadline on the database is answered `503
     /// read_timeout`, as one past its deadline between steps is, whether the
     /// store's error reaches the service itself or through a world's read
-    /// of the store, which carries its words, where it answered `500`
-    /// (ADR-0215).
+    /// of the store, which carries its words (ADR-0215).
     #[test]
     fn a_read_stopped_at_the_database_is_a_read_timeout() {
         let said = format!(
@@ -8956,6 +8950,12 @@ mod tests {
         }
     }
 
+    /// A store a read or a write finds unreadable, by SQLite's words for a
+    /// corrupt file or one that is no database, answers 503
+    /// `store_unreadable` and marks its answer, which the logging layer
+    /// latches the service on; and a service latched answers every write
+    /// with why until a restart (the audit's durability S5, ADR-0205
+    /// decision 8).
     #[test]
     #[allow(clippy::panic)]
     fn a_store_found_unreadable_latches_the_service() {
@@ -9090,6 +9090,9 @@ mod tests {
         );
     }
 
+    /// A request that panics holding the writer leaves it poisoned; the
+    /// next write takes it back, and a deployment's store is opened again
+    /// from its file (POISON).
     #[test]
     #[allow(clippy::unwrap_used, clippy::panic)]
     fn a_writer_a_panic_poisoned_is_taken_back() {
