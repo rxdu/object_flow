@@ -59,8 +59,8 @@ pub fn superseded_group(world: &World<'_>, id: &str) -> Result<Vec<String>, NotR
     let mut todo = vec![end];
     while let Some(at) = todo.pop() {
         // each member's predecessors by the index on the successor's column,
-        // as the write path reads them, where every superseding type was read
-        // whole for each member (the audit's cost B9, ADR-0191 decision 5)
+        // as the write path reads them, never every superseding type whole for
+        // each member (the audit's cost B9, ADR-0191 decision 5)
         for tn in &superseding {
             for p in world.superseded_into(tn, &at)? {
                 if members.insert(p.id.clone()) {
@@ -91,8 +91,8 @@ pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
     for (n, e) in &t.derived {
         let v = Evaluator::new(world, Some(t), Some(id)).eval(e)?;
         // a derived time past the calendar refuses the read, as an
-        // arithmetic past its bound does, where it was answered null; a
-        // guard compares it as the number it is (fifth production review,
+        // arithmetic past its bound does, never answered null; a guard
+        // compares it as the number it is (fifth production review,
         // ADR-0191 decision 3, ADR-0205 decision 2)
         let v = match crate::metric::typed_derived(world, t, e, v) {
             Value::Timestamp(s)
@@ -116,8 +116,8 @@ pub fn get(world: &World<'_>, id: &str) -> Result<Option<View>, NotRun> {
     // with, read from that approval's attempt row and never stored, since
     // the refusal records no event on it (DESIGN.md §9, ADR-0157)
     if o.type_ == crate::model::PROPOSAL {
-        // its approvals' attempts by their index, where it read the whole
-        // attempt log (the audit's cost B14)
+        // its approvals' attempts by their index, never the whole attempt
+        // log (the audit's cost B14)
         let proposing = world.attempts_proposing(id)?;
         let refused = proposing.last();
         derived.push((
@@ -163,9 +163,9 @@ pub struct Item {
 pub struct QueryPage {
     pub items: Vec<Item>,
     pub refused: Option<String>,
-    /// What a `malformed_filter` refusal found, a sentence, where the code
-    /// alone left its caller guessing (fifth production review, ADR-0191
-    /// decision 4).
+    /// What a `malformed_filter` refusal found, a sentence, so its caller
+    /// need not guess from the code alone (fifth production review,
+    /// ADR-0191 decision 4).
     pub reason: Option<String>,
     /// Where the next page continues, none where this is the last
     /// (ADR-0179).
@@ -178,9 +178,9 @@ pub const PAGE_LIMIT: usize = 1000;
 pub const PAGE_DEFAULT: usize = 100;
 
 /// The most a page of `query`, `pull` or `export` holds, as a page of
-/// `history` does, one item at least, a cursor going on from its last:
-/// 1,000 objects of three 64 KiB strings answered 197 MB, and eight such
-/// pages at once 4.78 GB (ninth production review N-9).
+/// `history` does, one item at least, a cursor going on from its last, so
+/// a page of large values stays bounded in memory (ninth production review
+/// N-9).
 pub const PAGE_BYTES: usize = crate::store::EVENT_BYTES;
 
 /// A read, digested, which its cursors carry, so a cursor continues only
@@ -231,8 +231,7 @@ pub fn exceptions(world: &World<'_>, type_: &str) -> Result<QueryPage, NotRun> {
 
 /// `exceptions` from a cursor: a page of at most [`PAGE_DEFAULT`] of the
 /// objects, in creation order, and a cursor going on from its last where
-/// more follow, where every one was answered in one page and the cursor
-/// taken and ignored (the audit's cost A13); a cursor of another read is
+/// more follow (the audit's cost A13); a cursor of another read is
 /// refused, as a query's is.
 pub fn exceptions_from(
     world: &World<'_>,
@@ -346,8 +345,8 @@ pub fn available_page(
     let mut more = false;
     // the objects in a state the transition is taken from, by the state's
     // index, where no subtype may declare states of its own; never every
-    // object of the type, which made a worklist with nothing to find read
-    // a year's claims (READ-COST)
+    // object of the type, so a worklist with nothing to find reads nothing
+    // (READ-COST)
     let family = world
         .lib
         .types
@@ -365,8 +364,7 @@ pub fn available_page(
             .collect()
     });
     // read and judged from the cursor a chunk at a time, to the page and one
-    // more, where each page read every object in those states, 0.75 s a page
-    // on six years whatever its limit, in a person's worklist slot (twelfth
+    // more, never every object in those states for each page (twelfth
     // production review)
     let chunk = limit.saturating_add(1).max(CHUNK);
     let mut at = from.unwrap_or(i64::MIN);
@@ -494,17 +492,17 @@ fn unanswerable(lib: &Library, t: &Type, e: &Expr) -> bool {
 }
 
 /// The most aggregates a query filter nests, and the most members a set
-/// it writes holds: past either it is refused, where aggregates nested six
-/// deep over a claim's lines ran past 30 s each and a set of 10,000 values
-/// took 7.8 s, each holding a read's slot while the worklists waited
-/// (fifth production review FILTER-COST, ADR-0190 decision 3).
+/// it writes holds: past either it is refused, since deeper aggregates or a
+/// larger set would hold a read's slot while the worklists wait (fifth
+/// production review FILTER-COST, ADR-0190 decision 3).
 pub const FILTER_AGGREGATES: usize = 2;
 
 pub const FILTER_MEMBERS: usize = 1_000;
 
-/// The most terms a query filter holds, past which it is refused, where an
-/// `or` of 10,000 comparisons, balanced under the depth bound, ran to the
-/// read's deadline (sixth production review, ADR-0192 decision 3).
+/// The most terms a query filter holds, past which it is refused, since an
+/// `or` of thousands of comparisons, balanced under the depth bound, would
+/// run to the read's deadline (sixth production review, ADR-0192 decision
+/// 3).
 pub const FILTER_NODES: usize = 256;
 
 /// The terms of an expression, each node of its tree, a set of literals
@@ -594,9 +592,8 @@ fn zero(n: &crate::expr::Number) -> bool {
 }
 
 /// Whether a literal of a filter is past what its type holds, a money of
-/// 5,000 digits or a duration of 10^15 weeks, which every object's
-/// evaluation answered not run, or a type with no object answered empty
-/// (fourth production review A-10).
+/// 5,000 digits or a duration of 10^15 weeks, which has no value whatever
+/// object reads it (fourth production review A-10).
 pub(crate) fn literal_out_of_range(
     world: &World<'_>,
     t: Option<&Type>,
@@ -604,8 +601,8 @@ pub(crate) fn literal_out_of_range(
 ) -> Result<bool, NotRun> {
     if matches!(e, Expr::Num(_) | Expr::Money(..) | Expr::Dur(..)) {
         // past its type's range, a literal has no value whatever object
-        // reads it (§8.2), where an int or a duration past 64 bits escaped
-        // as an error once its evaluation answered it out of range
+        // reads it (§8.2), an int or a duration past 64 bits among them,
+        // which its evaluation answers out of range
         return match Evaluator::new(world, t, None).eval(e) {
             Err(NotRun::Unsupported(_) | NotRun::OutOfRange(_)) => Ok(true),
             Err(other) => Err(other),
@@ -622,8 +619,8 @@ pub(crate) fn literal_out_of_range(
 
 /// Whether an operand of `and`, `or`, `implies` or `not` in a filter is
 /// plainly no boolean: a literal of another kind, a stored member of
-/// another type, or arithmetic, where `title == "x" and title` answered an
-/// empty page, the operand never read once the first decided (seventh
+/// another type, or arithmetic, as in `title == "x" and title`, whose
+/// second operand would go unread once the first decided (seventh
 /// production review, ADR-0194 decision 6).
 fn mistyped_logic(t: &Type, e: &Expr) -> bool {
     let not_boolean = |x: &Expr| -> bool {
@@ -956,16 +953,13 @@ const CHUNK: usize = 256;
 /// Whether a query reads its type whole: ordered or filtered, with a
 /// filter that neither requires the states it holds nor holds a column equal
 /// to a value, the indexes a page is read through. Such a query waits among
-/// the analytics, never in a person's worklist slot, where ten of them left a
-/// plain worklist query timing out (ninth production review, ADR-0196
-/// decision 4). So does one whose filter aggregates over a collection for
-/// each object, itself or through a derived attribute it reads, however its
-/// page is narrowed: eight such reads of 8 s each on six years made a plain
-/// worklist wait 16 s (twelfth production review). So does one computing a
-/// field, asked for or in its type's summary, that is a derived attribute
-/// growing with the store (`grows_with_store`), where four such queries of
-/// a type-scanning count, 17 ms a row, made a worklist wait 5.6 s
-/// (fourteenth production review N7). A filter that does not parse is no
+/// the analytics, never in a person's worklist slot (ninth production
+/// review, ADR-0196 decision 4). So does one whose filter aggregates over a
+/// collection for each object, itself or through a derived attribute it
+/// reads, however its page is narrowed (twelfth production review). So does
+/// one computing a field, asked for or in its type's summary, that is a
+/// derived attribute growing with the store (`grows_with_store`;
+/// fourteenth production review N7). A filter that does not parse is no
 /// scan: it is refused.
 pub fn query_scans(
     lib: &Library,
@@ -1024,12 +1018,9 @@ pub enum ObjectRead {
 /// store: a rule it computes, a derived attribute, a condition or an
 /// invariant as `what` reads them, reading a metric, a type scan or the
 /// objects referring to it, itself or through a derived attribute it reads
-/// by name. Such a read waits in a pool, where it ran in none: 64
-/// `availability`s of a type guarded by a monthly limit's metric peaked at
-/// 4.49 GB (thirteenth production review C); and a `get` waits only where
-/// its derived attributes grow, where every `get` of a type with a guarded
-/// transition waited, 25.5 s behind per-person metrics (fourteenth
-/// production review).
+/// by name. Such a read waits in a pool (thirteenth production review C);
+/// and a `get` waits only where its derived attributes grow, not wherever
+/// its type has a guarded transition (fourteenth production review).
 pub fn grows_with_store(lib: &Library, type_: &str, what: ObjectRead) -> bool {
     // a proposal's read carries the verdict its approvals' attempts left it
     // with (B14)
@@ -1061,8 +1052,7 @@ pub fn grows_with_store(lib: &Library, type_: &str, what: ObjectRead) -> bool {
 /// Whether an expression reads what grows with the store itself: a metric,
 /// a type scan by a type's name, or the objects referring to one; or what
 /// grows with one object's life, read by an index: its transitions, its
-/// attempts, its declaration version and an observation collection, which
-/// a rule of one object's read the whole log, attempt log or kind for (the
+/// attempts, its declaration version and an observation collection (the
 /// audit's cost B1, ADR-0205 decision 12).
 fn wide(lib: &Library, e: &Expr) -> bool {
     let growing_member = |m: &str| {
@@ -1134,7 +1124,7 @@ pub fn personal_members(lib: &Library) -> BTreeSet<String> {
 /// one of the members its expression reaches, and, where an actor type
 /// marks its identity personal, every member of type `identity`; and the
 /// names personal in any type, for a member whose type an expression does
-/// not tell, judged by its name as every member was.
+/// not tell, judged by its name.
 struct Personal<'l> {
     lib: &'l Library,
     derived: BTreeSet<(String, String)>,
@@ -1323,13 +1313,10 @@ impl<'l> Personal<'l> {
 
 /// Whether a query's filter or order reads a personal member, which its
 /// request then opts into or is refused `personal` (ADR-0206 decision 2),
-/// whoever asks, where an agent's alone was refused, by the actor's kind
-/// (ADR-0201 decision 4, ADR-0202 decision 3, superseded). A member is
-/// judged as the queried type and the types its paths reach declare it, so
-/// a room's own `name` is not personal because a contact's is, which made a
-/// personal name of one module reserved in every other (issue #23,
-/// ADR-0219); one whose type the filter does not tell is judged by its
-/// name, as every member was.
+/// whoever asks. A member is judged as the queried type and the types its
+/// paths reach declare it, so a room's own `name` is not personal because a
+/// contact's is (issue #23, ADR-0219); one whose type the filter does not
+/// tell is judged by its name.
 pub fn query_reads_personal(
     lib: &Library,
     type_: &str,
@@ -1341,8 +1328,8 @@ pub fn query_reads_personal(
     };
     let personal = Personal::of(lib);
     // parsed as a query parses it, its parameters among it, so a filter
-    // naming one is judged by the members it reads, where one that did not
-    // parse read as reading nothing personal (ADR-0218)
+    // naming one is judged by the members it reads, never as reading nothing
+    // personal (ADR-0218)
     let filtered = filter
         .and_then(|f| crate::expr::parse_filter(f).ok())
         .is_some_and(|e| personal.reads(t, &e, &Bound::new()));
@@ -1359,15 +1346,13 @@ pub fn query_reads_personal(
 
 /// Whether a transition's answer is decided by a personal member, which
 /// `check`, `availability` and `available` then opt into or are refused
-/// `personal`, where an agent's `available` listed the people a salary
-/// guard passed (the audit's personal data R5, R15, R17; ADR-0206
-/// decision 2). Its request may evaluate a guard of each transition it
-/// takes, through calls, creations and cascades, and an invariant of each
-/// type those write or that reaches what they write, where its own guards
-/// and its own type's invariants alone were judged, so a call or a team's
-/// sum over its members' salaries answered unopted (ADR-0260). Each member
-/// is judged as a query's is, by the type it belongs to, and an input by
-/// the transition whose guard or request reads it (ADR-0220).
+/// `personal` (the audit's personal data R5, R15, R17; ADR-0206 decision
+/// 2). Its request may evaluate a guard of each transition it takes,
+/// through calls, creations and cascades, and an invariant of each type
+/// those write or that reaches what they write, so each of those is judged,
+/// not its own guards and its own type's invariants alone (ADR-0260).
+/// Each member is judged as a query's is, by the type it belongs to, and
+/// an input by the transition whose guard or request reads it (ADR-0220).
 pub fn transition_reads_personal(lib: &Library, type_: &str, transition: &str) -> bool {
     let Some(t) = lib.type_(type_) else {
         return false;
@@ -2017,8 +2002,8 @@ pub fn query_page(
     // past what one holds, which refuses the filter as malformed rather than
     // the read as not run (D580, fourth production review A-10)
     // a filter an object of the type cannot answer, an ill-typed one among
-    // them, is refused with why, where it answered 501 and wrote the value
-    // it met into the log (sixth production review, ADR-0192 decision 7)
+    // them, is refused with why, never answered 501 with the value it met
+    // written into the log (sixth production review, ADR-0192 decision 7)
     let selects = |o: &Object| -> Result<Result<bool, String>, NotRun> {
         let Some(ot) = world.lib.type_(&o.type_) else {
             return Err(NotRun::Unsupported(format!("the type {}", o.type_)));
@@ -2040,8 +2025,8 @@ pub fn query_page(
         // in creation order, the page is the first `limit` the filter
         // selects after the cursor, and one more says another follows: read
         // and judged from the cursor a chunk at a time, never the type
-        // whole, which each page did, so reading a result page by page was
-        // quadratic (READ-PAGES)
+        // whole, which would make reading a result page by page quadratic
+        // (READ-PAGES)
         let chunk = limit.saturating_add(1).max(CHUNK);
         let mut after = from.map_or(i64::MIN, |f| f.order);
         'reading: loop {
@@ -3257,8 +3242,7 @@ types:
     /// belongs to declares it and an input as its own transition declares
     /// it (ADR-0220): a guard on a room's own `name`, or on the room's own
     /// input `name`, is not personal because a contact's `name` and the
-    /// input that writes it are, where both were refused to every caller
-    /// without the opt-in; a contact's name read through a reference, a
+    /// input that writes it are; a contact's name read through a reference, a
     /// derived attribute or an aggregate's binding is personal still, and
     /// so is an input marked personal or of type `identity` where an
     /// actor's identity is personal, and an invariant reading what is.
@@ -4048,12 +4032,11 @@ types:
     /// a cascade; the invariants of each type those write; and each other
     /// type's invariant that reaches what they write, a type updated by any
     /// end, one only created by an end whose opposite it holds, and one
-    /// holding a reference to the referred type by a referrer's end. Where
-    /// only its own guards and its type's invariants
-    /// were judged, a desk's call into its owner's salary guard and a
-    /// member's raise under its team's budget over the members' salaries
-    /// were answered without the opt-in. An invariant of a type no request
-    /// writes reading its own object alone, which holds or stands admitted,
+    /// holding a reference to the referred type by a referrer's end, so a
+    /// desk's call into its owner's salary guard and a member's raise under
+    /// its team's budget over the members' salaries need the opt-in. An
+    /// invariant of a type no request writes reading its own object alone,
+    /// which holds or stands admitted,
     /// a creation that only a plain reference reaches, and a call into a
     /// transition no guard of which reads a personal member decide nothing.
     #[test]
@@ -4276,8 +4259,7 @@ types:
     /// meets is declared: a day, an instant, an object's id, a text holding
     /// quotes and a state, alone and among a set's elements, so a window of
     /// days answers the same whatever the engine's clock says and no caller
-    /// writes a value into the filter's text, where the only way to state a
-    /// day was an offset from the engine's clock (issue #24, ADR-0218); a
+    /// writes a value into the filter's text (issue #24, ADR-0218); a
     /// parameter missing, unused, compared with nothing that says how to
     /// read it, or not of its member's type is refused, and one on a
     /// personal member is personal still.
@@ -4662,8 +4644,8 @@ types:
     }
 
     /// A page of `available` reads from its cursor a chunk at a time, to the
-    /// page and one more, where each page read every object in the
-    /// transition's states (twelfth production review); paged, it gives
+    /// page and one more, never every object in the transition's states for
+    /// each page (twelfth production review); paged, it gives
     /// what it gives whole, in order.
     #[test]
     fn a_page_of_available_reads_to_its_page() {
@@ -4821,9 +4803,9 @@ types:
 
     /// A query whose filter aggregates over a collection for each object,
     /// itself or through a derived attribute, waits among the analytics
-    /// however an index narrows its page, where eight such left a plain
-    /// worklist waiting 16 s (twelfth production review); one the index
-    /// narrows and that aggregates nothing waits among the worklists.
+    /// however an index narrows its page (twelfth production review); one
+    /// the index narrows and that aggregates nothing waits among the
+    /// worklists.
     #[test]
     fn a_query_aggregating_for_each_object_waits_among_the_analytics() {
         let text = "\nmodule: crews\ncategories: [live, closed]\ntypes:\n  Crew:\n    attributes:\n      jobs: { reference: \"Job[]\", opposite: crew }\n    derived_attributes:\n      busy: { expression: count(j in jobs) > 3 }\n    states:\n      ON: { category: live }\n    transitions:\n      form: { kind: initial, to: ON }\n  Job:\n    attributes:\n      crew: { reference: Crew, optional: true, opposite: jobs }\n      hours: { type: int, optional: true }\n    states:\n      OPEN: { category: live }\n      DONE: { category: closed, final: true }\n    transitions:\n      open: { kind: initial, to: OPEN, optional_inputs: [crew] }\n";
@@ -4862,7 +4844,7 @@ types:
 "#;
 
     /// A filter reading a reference as a string, or computing with one, is
-    /// refused malformed, where it held for nothing or faulted (D556); one
+    /// refused malformed (D556); one
     /// reading the reference's `.id`, a member through it, or comparing it
     /// with a reference is not.
     #[test]
@@ -4916,8 +4898,8 @@ types:
     }
 
     /// A filter refused for a value of the wrong kind says the kind and
-    /// never the value an object holds, where `month(name)` quoted the name
-    /// (the audit's personal data R14, `wire.md`).
+    /// never the value an object holds (the audit's personal data R14,
+    /// `wire.md`).
     #[test]
     fn a_refused_filter_names_no_stored_value() {
         let text = "\nmodule: crm\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      name: { type: string }\n    states:\n      ON: { category: live }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [name] }\n";
@@ -4950,9 +4932,8 @@ types:
 
     /// A filter no stored object can answer, an evaluator's, the request's
     /// `actor`, `inputs` or `this_event`, or a division by a literal zero, is
-    /// refused malformed where it was answered empty, and one with a literal
-    /// past its type's range where it was not run (D580, fourth production
-    /// review A-10).
+    /// refused malformed, and so is one with a literal past its type's range
+    /// (D580, fourth production review A-10).
     #[test]
     fn a_filter_no_object_can_answer_is_malformed() {
         const LEDGER: &str = r#"
@@ -5063,8 +5044,8 @@ types:
         };
         assert_eq!(refused(&chain(64)), None);
         assert_eq!(refused(&chain(65)), malformed);
-        // a division by a money zero, and a set within a set, refused,
-        // where each answered an empty page (ADR-0192 decision 7)
+        // a division by a money zero, and a set within a set, refused
+        // (ADR-0192 decision 7)
         assert_eq!(refused("amount / USD 0.00 > 0"), malformed);
         assert_eq!(refused("count in {{1}}"), malformed);
         assert_eq!(refused("count / 2 > 0"), None);
@@ -5811,8 +5792,7 @@ types:
 
     /// `exceptions` answers a page at a time, at most a hundred, in creation
     /// order, a cursor going on from its last where more follow, every
-    /// excepted object once, where it answered all in one page and took its
-    /// cursor and ignored it (the audit's cost A13); a cursor of another read
+    /// excepted object once (the audit's cost A13); a cursor of another read
     /// is refused, as a query's is.
     #[test]
     fn exceptions_answer_a_page_at_a_time() {
