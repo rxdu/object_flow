@@ -183,9 +183,8 @@ fn post(s: &Service, path: &str, body: &Value) -> Value {
 }
 
 /// Each test's directory is named once in this file, so no test removes
-/// another's under its running service: two PostgreSQL tests made theirs as
-/// the file tests named alike made theirs, and a run of both failed one,
-/// its store replaced (2026-10-18, twice).
+/// another's under its running service, a PostgreSQL test's and a file
+/// test's of one name among them.
 #[test]
 fn every_tests_directory_is_its_own() {
     let source = include_str!("deployment.rs");
@@ -215,10 +214,10 @@ fn fresh_store(name: &str) -> PathBuf {
 }
 
 /// The directories of this name earlier runs left, their process gone,
-/// removed: most tests keep theirs when they pass, and every run of the
-/// suite left one each, twenty thousand in /tmp by 2026-10-21, 23 GB. A
-/// process alive keeps its own, another run's beside this one; where no
-/// `/proc` says which are alive, none is removed.
+/// removed: most tests keep theirs when they pass, so every run of the
+/// suite would otherwise leave one each in /tmp. A process alive keeps its
+/// own, another run's beside this one; where no `/proc` says which are
+/// alive, none is removed.
 fn sweep_stale(name: &str) {
     let proc = Path::new("/proc");
     if !proc.join("self").exists() {
@@ -309,8 +308,8 @@ fn publish(s: &Service, source: &Value) {
         &json!({"actor": op, "object_id": change, "transition": "submit"}),
     );
     assert_eq!(submitted["kind"], "satisfied", "{submitted}");
-    // a preview's expected_version is a version too, where one of any JSON
-    // type was taken (thirteenth production review)
+    // a preview's expected_version is a version too (thirteenth production
+    // review)
     let (status, said) = call(
         s,
         "POST",
@@ -466,9 +465,8 @@ fn a_sandbox_still_answers_its_controls_and_its_health() {
 
 /// A route answers only once the body its request declares is read, so a
 /// client writing the headers and the body apart is not cut off with the
-/// body unwritten: `/sandbox/reset`, which takes no key, answered first,
-/// and a client writing so met a broken pipe (`scripts/check-soundness.py`,
-/// 2026-11-17).
+/// body unwritten, `/sandbox/reset`, which takes no key, among them
+/// (`scripts/check-soundness.py`).
 #[test]
 fn a_route_answers_only_once_its_body_is_read() {
     let s = start(&["--port", "0"]);
@@ -498,9 +496,8 @@ fn a_route_answers_only_once_its_body_is_read() {
 }
 
 /// A flag that is not a JSON boolean, and inputs that are not an object,
-/// are refused, never read as false or as none: `"dry_run": "true"` read as
-/// false installed a version (production review F6). Each body is valid
-/// but for the one key.
+/// are refused, never read as false or as none (production review F6).
+/// Each body is valid but for the one key.
 #[test]
 fn a_flag_or_inputs_of_another_type_is_refused() {
     let path = fresh_store("flags");
@@ -551,8 +548,8 @@ fn a_flag_or_inputs_of_another_type_is_refused() {
 
 /// A request's own `principal`, which `wire.md` lists, is read as the
 /// actor's is: typed, refused `actor_known` where it names no one, refused
-/// where the two disagree, and recorded on the event; it was taken and
-/// dropped, any value satisfied (third production review PRINCIPAL).
+/// where the two disagree, and recorded on the event (third production
+/// review PRINCIPAL).
 #[test]
 fn a_requests_principal_is_read_checked_and_recorded() {
     let path = fresh_store("principal");
@@ -609,9 +606,8 @@ fn a_requests_principal_is_read_checked_and_recorded() {
 
 /// An event names each flag its transition raised, as the verdict told
 /// it, beside the caller's reason, and `history`, `events` and `pull` give
-/// it, no longer listing it not computed; an event that raised none gives
-/// none (issue #100, ADR-0288). The issue's flow, in a sandbox, so on
-/// PostgreSQL too in that lane.
+/// it; an event that raised none gives none (issue #100, ADR-0288). The
+/// issue's flow, in a sandbox, so on PostgreSQL too in that lane.
 #[test]
 fn an_event_gives_the_flags_its_request_raised() {
     const WARNED: &str = "module: warned\ncategories: [live]\ntypes:\n  Parcel:\n    description: \"A parcel.\"\n    tracking: record\n    attributes:\n      checked: { type: bool, default: false, description: \"Whether it was checked.\" }\n    states:\n      PACKED: { description: \"Packed.\", category: live }\n      SENT: { description: \"Sent.\", category: live, final: true }\n    conditions:\n      was_checked:\n        description: \"It was checked before it leaves.\"\n        expression: checked\n        remedy: self_serviceable\n    transitions:\n      pack: { kind: initial, to: PACKED, description: \"Packs it.\" }\n      send: { kind: external, from: PACKED, to: SENT, description: \"Sends it, checked or not.\", guards: { was_checked: warn } }\n";
@@ -1289,8 +1285,7 @@ fn a_batchs_check_through_the_wire_answers_as_the_batch_and_writes_nothing() {
 }
 
 /// An idempotency key holds at most 256 bytes and a request's context 16
-/// KiB, where a megabyte of each was stored as given (third production
-/// review, minor).
+/// KiB (third production review, minor).
 #[test]
 fn a_key_and_a_context_are_bounded() {
     let path = fresh_store("bounded");
@@ -1320,10 +1315,9 @@ fn a_key_and_a_context_are_bounded() {
 }
 
 /// A value of another JSON type is refused on every key, never read as
-/// absent: a numeric `filter` returned every object unfiltered, a numeric
-/// `cursor` the first page again, a non-object `bind` the whole metric, and
-/// a non-string `principal` was dropped (second production review, TYPES).
-/// Each body is valid but for the one key.
+/// absent: a `filter`, a `cursor`, a `bind` and a `principal` among them
+/// (second production review, TYPES). Each body is valid but for the one
+/// key.
 #[test]
 fn a_value_of_another_type_is_refused_on_every_key() {
     let path = fresh_store("typed-keys");
@@ -1391,8 +1385,8 @@ fn a_value_of_another_type_is_refused_on_every_key() {
 }
 
 /// A write or a batch whose `reads_personal` is neither true nor false is
-/// refused before it applies, where it applied and was then answered 400,
-/// so a client that fixed the flag and sent it again wrote it twice.
+/// refused before it applies, so a client that fixes the flag and sends it
+/// again writes it once.
 #[test]
 fn a_write_whose_flag_is_of_another_type_is_refused_before_it_applies() {
     let path = fresh_store("flag-before-write");
@@ -1486,10 +1480,8 @@ fn maintain_names_an_actor_the_store_knows() {
 
 /// What the third production review's operator met at the edges of a
 /// deployment: a start that cannot make its store or socket names the
-/// path; a store whose file is damaged does not start, where a copy
-/// restored beside another state's `-wal` answered health while its reads
-/// failed (N5); an upgrade asked of a store with none due is still the
-/// operator's (`409`), where anyone was answered nothing was due; and
+/// path; a store whose file is damaged does not start (N5); an upgrade
+/// asked of a store with none due is still the operator's (`409`); and
 /// `/metrics` gives the store's file and its write-ahead log (N6).
 #[test]
 fn a_deployments_edges_are_said() {
@@ -1504,8 +1496,8 @@ fn a_deployments_edges_are_said() {
         "0",
     ]);
     assert_eq!(code, Some(1));
-    // the directory said not to exist, where --create was then suggested
-    // (ninth production review, ADR-0196 decision 9)
+    // the directory said not to exist (ninth production review, ADR-0196
+    // decision 9)
     let parent = missing.parent().expect("its directory");
     assert!(
         said.contains(&format!(
@@ -1524,8 +1516,8 @@ fn a_deployments_edges_are_said() {
         said.contains("--max-reads takes a count, 1 or more: 0"),
         "{said}"
     );
-    // past the threads the runtime keeps for requests, where /health waited
-    // behind 700 requests holding them (thirteenth production review N4)
+    // past the threads the runtime keeps for requests (thirteenth
+    // production review N4)
     let (code, said) = refused(&["--max-connections", "5000", "--port", "0"]);
     assert_eq!(code, Some(2));
     assert!(
@@ -1538,8 +1530,7 @@ fn a_deployments_edges_are_said() {
         said.contains("how many reads run at once is a deployment's"),
         "{said}"
     );
-    // refused before anything is made, where --create made the store first
-    // (fourteenth production review)
+    // refused before anything is made (fourteenth production review)
     let long = dir.join("s".repeat(150));
     let unmade = dir.join("unmade.sqlite");
     let (code, said) = refused(&[
@@ -1577,8 +1568,7 @@ fn a_deployments_edges_are_said() {
         let upgraded = post(&s, "/v1/upgrade", &json!({"actor": op}));
         assert_eq!(upgraded["upgraded"], json!(false), "{upgraded}");
         // the operator in another ASCII case is the operator, as a request
-        // names it, where upgrade refused it (ninth production review N-7,
-        // ADR-0196 decision 8)
+        // names it (ninth production review N-7, ADR-0196 decision 8)
         let (status, upgraded) = call(
             &s,
             "POST",
@@ -1664,9 +1654,8 @@ fn a_deployments_edges_are_said() {
     let (code, said) = refused(&["--store", path.to_str().expect("a path"), "--port", "0"]);
     assert_eq!(code, Some(1));
     assert!(said.contains("fails SQLite's quick check"), "{said}");
-    // said on one stamped line, where SQLite's fault text broke it in two,
-    // its second line unstamped, reported as the refusal printed twice
-    // (ADR-0202 decision 8)
+    // said on one stamped line, a line break in SQLite's fault text among
+    // it (ADR-0202 decision 8)
     let stamped = |l: &str| {
         let b = l.as_bytes();
         b.len() > 20 && b[4] == b'-' && b[10] == b'T' && b[19] == b'Z'
@@ -1677,8 +1666,8 @@ fn a_deployments_edges_are_said() {
         1,
         "{said}"
     );
-    // the refused start changed neither, where it wrote the log into the
-    // file and emptied it (fourth and fifth production reviews)
+    // the refused start changed neither (fourth and fifth production
+    // reviews)
     assert!(
         std::fs::read(&path).expect("the file") == file_before,
         "the refused start changed the file"
@@ -1692,8 +1681,8 @@ fn a_deployments_edges_are_said() {
 
 /// A store holding actors whose identities are equal but for case, which
 /// an earlier release took, is said at its start by the actors' object
-/// ids, never their identities, with the remedy, where the start said
-/// nothing (eighth production review CASE-PAIR, ADR-0195 decision 2).
+/// ids, never their identities, with the remedy (eighth production review
+/// CASE-PAIR, ADR-0195 decision 2).
 #[test]
 fn actors_equal_but_for_case_are_said_at_the_start() {
     let file = fresh_store("case-pair");
@@ -1739,11 +1728,10 @@ fn actors_equal_but_for_case_are_said_at_the_start() {
 }
 
 /// The ninth review's start and health edges: a directory the service
-/// cannot write in is said so, where SQLite said "attempt to write a
-/// readonly database"; a token with a control character is refused; no
-/// --attempt-retention is said at the start; and a store file that cannot be
-/// read is /health's `503 store_unreadable`, where it was 500 internal
-/// (ADR-0196 decision 9).
+/// cannot write in is said so; a token with a control character is
+/// refused; no --attempt-retention is said at the start; and a store file
+/// that cannot be read is /health's `503 store_unreadable` (ADR-0196
+/// decision 9).
 #[test]
 fn the_ninth_reviews_start_and_health_edges_are_said() {
     use std::os::unix::fs::PermissionsExt;
@@ -1792,9 +1780,9 @@ fn the_ninth_reviews_start_and_health_edges_are_said() {
     // folded in and emptied, waited for: the service's own cut-back is due
     // at its start, the service before it killed with frames in its log, and
     // a checkpoint meeting another answers busy in its row, not as an error;
-    // one ignored left the service's to write the store's pages back over
-    // the zeroes below, page 1 among them, and /health found the store whole
-    // (a run of CI, 2026-10-20)
+    // one ignored would leave the service's to write the store's pages back
+    // over the zeroes below, page 1 among them, and /health would find the
+    // store whole (a run of CI, 2026-10-20)
     let conn = rusqlite::Connection::open(&file).expect("the store");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
@@ -1836,8 +1824,7 @@ fn the_ninth_reviews_start_and_health_edges_are_said() {
 
 /// A backup restored beside the `-wal` of a later state is refused at the
 /// start with the advice to restore the copy alone, whichever check finds
-/// it, where a store whose schema the log moved was refused with SQLite's
-/// words alone (eighth production review, ADR-0195 decision 7).
+/// it (eighth production review, ADR-0195 decision 7).
 #[test]
 fn a_backup_restored_beside_a_later_log_is_refused_with_the_advice() {
     let file = fresh_store("restored");
@@ -1906,8 +1893,8 @@ fn a_path_holding_no_store_is_refused_unless_made() {
     std::fs::remove_file(&file).expect("the empty file removed");
     // a database holding not a table, as a crash while --create made a store
     // leaves, its header written and nothing committed, is no store: refused
-    // with the advice to create, and made one by --create, where every start
-    // refused it as no ObjectFlow store (the audit's durability W11)
+    // with the advice to create, and made one by --create (the audit's
+    // durability W11)
     {
         let crashed = rusqlite::Connection::open(&file).expect("a database");
         crashed
@@ -2081,7 +2068,7 @@ fn the_service_listens_on_a_unix_socket() {
 
 /// Each answer is logged, its time, route, status and duration, and counted
 /// in `GET /metrics` by route, a path no route takes counted as one; and
-/// `/health` reads the store, so a store that cannot be read answers 500
+/// `/health` reads the store, so a store that cannot be read answers 503
 /// (production review OBSERVE).
 #[test]
 fn each_answer_is_logged_and_counted_and_health_reads_the_store() {
@@ -2168,7 +2155,7 @@ fn a_stopped_service_answers_the_requests_in_flight() {
 
 /// On PostgreSQL alike, and the stopped service's session closed, so a
 /// service started next takes the store's lock at once (durability on
-/// PostgreSQL 12, where no test stopped a service on PostgreSQL).
+/// PostgreSQL 12).
 #[test]
 fn a_stopped_service_on_postgresql_answers_the_requests_in_flight() {
     let Some((admin, args, schema)) = served_on_postgresql("stopping") else {
@@ -2199,8 +2186,8 @@ fn stopped_in_flight(store: &[String]) {
     args.extend(["--evaluator", &named, "--evaluator-timeout", "2 s"]);
     let mut s = start(&args);
     publish(&s, &json!({"payments": PAYMENTS}));
-    // SIGHUP, as a log rotation sends it, is said and ignored, where it
-    // ended the service at once (eleventh production review)
+    // SIGHUP, as a log rotation sends it, is said and ignored (eleventh
+    // production review)
     let pid = s.child.as_ref().expect("its process").id();
     let hup = Command::new("kill")
         .args(["-HUP", &pid.to_string()])
@@ -2285,9 +2272,8 @@ fn an_indexed_attribute_s_index_is_made_where_the_store_lacks_it() {
 }
 
 /// A change's submit runs its dry run on a read beside the writes, so no
-/// write waits for it: a module of 3,000 types held every write 83 s
-/// (DRYRUN-LOCK). The slowest write beside a large submit is a fraction of
-/// the submit, where it was all of it.
+/// write waits for it (DRYRUN-LOCK). The slowest write beside a large
+/// submit is a fraction of the submit.
 #[test]
 fn a_submits_dry_run_holds_no_write() {
     let file = fresh_store("submit-beside");
@@ -2303,8 +2289,8 @@ fn a_submits_dry_run_holds_no_write() {
     let op = json!({"id": "operator"});
     // a module three times larger each time the submit ends within 500 ms,
     // too short to tell a write it held from one beside it, as an optimised
-    // build ends 600 types' on a fast machine, where the test failed rather
-    // than judge (the release of 0.3.0, on its runner)
+    // build ends 600 types' on a fast machine (the release of 0.3.0, on its
+    // runner)
     let mut types = 600;
     let (took, slowest, submitted) = loop {
         let mut big = String::from("module: big\ncategories: [live, closed]\ntypes:\n");
@@ -2346,7 +2332,7 @@ fn a_submits_dry_run_holds_no_write() {
         stop.store(true, std::sync::atomic::Ordering::SeqCst);
         let slowest = writer.join().expect("the writer");
         // at most 5,400 types, a module of about 1.8 MB, within the 2 MB a
-        // request's body is given, where 16,200 types' 5.2 MB were refused
+        // request's body is given, past which 16,200 types' 5.2 MB are refused
         if took > std::time::Duration::from_millis(500) || types >= 600 * 9 {
             break (took, slowest, submitted);
         }
@@ -2364,9 +2350,8 @@ fn a_submits_dry_run_holds_no_write() {
     let _ = std::fs::remove_dir_all(file.parent().expect("its directory"));
 }
 
-/// What a heavy request freed is given back to the system after it: glibc
-/// kept it, so a service held 975 MB after one publish on 37k objects and
-/// 23 MB once given back (third production review MEMORY-2, ADR-0187).
+/// What a heavy request freed is given back to the system after it, which
+/// glibc otherwise keeps (third production review MEMORY-2, ADR-0187).
 #[test]
 fn what_a_heavy_request_freed_is_given_back() {
     let file = fresh_store("given-back");
@@ -2442,8 +2427,7 @@ fn what_a_heavy_request_freed_is_given_back() {
 
 /// An erasure beside a change's long dry run leaves the store's file and
 /// its `-wal` within the log's cut, while the dry run still runs: its checks
-/// hold no read of the store, where the erased value stayed in both for the
-/// whole of a 38.7 s check (eighth production review ERASE-WAL-DRYRUN,
+/// hold no read of the store (eighth production review ERASE-WAL-DRYRUN,
 /// ADR-0195 decision 1).
 #[test]
 fn an_erasure_beside_a_long_dry_run_leaves_the_files() {
@@ -2463,9 +2447,10 @@ fn an_erasure_beside_a_long_dry_run_leaves_the_files() {
     // a change three times larger, and a note erased again, where its
     // check ends before the files are clean, too soon to tell a check that
     // held them from one beside them: a reader at the erasure leaves the
-    // log to the next cut, up to 5 s later, and an optimised build ended
-    // two thousand types' check in 1.04 s (the release of 0.6.0, on its
-    // runner); six thousand, 1.76 MB, is the most a request's 2 MiB holds
+    // log to the next cut, up to 5 s later, and an optimised build ends
+    // two thousand types' check in about a second (the release of 0.6.0, on
+    // its runner); six thousand, 1.76 MB, is the most a request's 2 MiB
+    // holds
     let mut types = 2000;
     loop {
         let marker = format!("ERASE-ME-{types}-{}", "Q".repeat(40));
@@ -2543,9 +2528,9 @@ fn an_erasure_beside_a_long_dry_run_leaves_the_files() {
 }
 
 /// A submit whose dry run passes its deadline, `--dry-run-timeout`, is
-/// answered `503 read_timeout` and records nothing, where it was computed
-/// again under the writer's lock, unbounded and unsaid, every write waiting
-/// for it (third production review PUBLISH-SCALE, N1; ADR-0194 decision 2).
+/// answered `503 read_timeout` and records nothing, never computed again
+/// under the writer's lock (third production review PUBLISH-SCALE, N1;
+/// ADR-0194 decision 2).
 #[test]
 fn a_submits_dry_run_past_the_deadline_is_answered_not_locked() {
     let file = fresh_store("submit-deadline");
@@ -2629,8 +2614,7 @@ fn a_submits_dry_run_past_the_deadline_is_answered_not_locked() {
 }
 
 /// A held writer and the requests in flight are seen in `/health` and
-/// `/metrics` while an approval holds the writer, where a 21-minute stall
-/// answered health 200 in 1 ms and showed nothing (OBSERVE-2); and both
+/// `/metrics` while an approval holds the writer (OBSERVE-2); and both
 /// return to nothing once it is done.
 #[test]
 fn a_held_writer_is_seen_in_health_and_metrics() {
@@ -2661,11 +2645,11 @@ fn a_held_writer_is_seen_in_health_and_metrics() {
             .and_then(|v| v.parse::<f64>().ok())
             .unwrap_or(0.0)
     };
-    // the approval watched while it runs, where one look after a fixed
-    // 600 ms found an optimised build's publish of 600 types already done
-    // on the release's runner, and the test failed rather than judge (the
-    // release of 0.4.0); a module three times larger each time the
-    // approval ends before both reads have seen the writer held
+    // the approval watched while it runs, since an optimised build's
+    // publish of 600 types can end before one look after a fixed 600 ms
+    // (the release of 0.4.0);
+    // a module three times larger each time the approval ends before both
+    // reads have seen the writer held
     let mut types = 600;
     let (health, metrics) = loop {
         let mut big = String::from("module: big\ncategories: [live, closed]\ntypes:\n");
@@ -2733,9 +2717,9 @@ fn a_held_writer_is_seen_in_health_and_metrics() {
 }
 
 /// A read that passes its deadline is stopped there and answered 503
-/// `read_timeout`, the service answering on, where a filter of nested
-/// sums ran past 186 s, holding a reader and an erasure's truncation behind
-/// it (ADR-0184 decision 3); and `events` takes a page of positions at most.
+/// `read_timeout`, the service answering on, so no read holds a reader and
+/// an erasure's truncation behind it without bound (ADR-0184 decision 3);
+/// and `events` takes a page of positions at most.
 #[test]
 fn a_read_past_its_deadline_is_stopped() {
     let file = fresh_store("read-deadline");
@@ -2800,9 +2784,8 @@ fn a_read_past_its_deadline_is_stopped() {
 
 /// A connection whose request's head is not read within the idle timeout,
 /// silent or half-sent, is closed, and a request whose body does not arrive
-/// in it is answered 408, where 700 such connections were open after 70 s;
-/// past the cap a connection is closed at once and said (ADR-0184 decision
-/// 4).
+/// in it is answered 408; past the cap a connection is closed at once and
+/// said (ADR-0184 decision 4).
 #[test]
 fn idle_and_half_sent_connections_are_closed() {
     let s = start(&[
@@ -2889,15 +2872,14 @@ fn idle_and_half_sent_connections_are_closed() {
 
 /// At the cap, connections answering nothing, a leaking pool's or silent
 /// sockets', are closed to make room, so the application and `/health` are
-/// answered, where every newcomer was reset; only when every connection is
-/// answering a request is a newcomer refused, told `503 busy` rather than
-/// reset, and `/metrics` counts both (third production review C-1,
-/// ADR-0186).
+/// answered; only when every connection is answering a request is a
+/// newcomer refused, told `503 busy` rather than reset, and `/metrics`
+/// counts both (third production review C-1, ADR-0186).
 ///
 /// Each step waits on what the service says of its connections, read on
-/// its metrics listener, which has a cap of its own, where sleeps of 200
-/// and 300 ms let a slow runner's request at the cap find a connection not
-/// yet answering, and be answered 200 (run 38999367710).
+/// its metrics listener, which has a cap of its own, since a fixed sleep
+/// can let a slow runner's request at the cap find a connection not yet
+/// answering, and be answered 200 (run 38999367710).
 #[test]
 fn a_connection_at_the_cap_makes_room_or_is_told_busy() {
     let s = start(&[
@@ -3030,8 +3012,9 @@ fn a_retention_without_a_store_is_refused() {
 
 /// A bank whose transfers clear by their reference: `T-1` cleared, `T-2` not,
 /// `T-3` a fault, `T-4` an answer slower than the service waits, `T-5` an
-/// answer with no verdict, and `T-7` a redirect to a path that clears
-/// anything. Each call it is posted is kept, as it arrives.
+/// answer with no verdict, `T-6` a verdict named twice, `T-7` a redirect to a
+/// path that clears anything, and an email a person known. Each call it is
+/// posted is kept, as it arrives.
 #[allow(clippy::type_complexity)]
 fn bank() -> (
     String,
@@ -3333,8 +3316,8 @@ fn a_deployment_asks_its_evaluators_at_their_endpoints() {
     for kept in ["T-3", "T-4", "T-5", "cleared\": true"] {
         assert!(!said.contains(kept), "{kept} in {said}");
     }
-    // a slow answer named by the flag that bounds it, where it said
-    // "timeout: global" (ninth production review)
+    // a slow answer named by the flag that bounds it (ninth production
+    // review)
     let said = s.said_within("did not answer within --evaluator-timeout");
     assert!(
         said.contains("did not answer within --evaluator-timeout"),
@@ -3446,7 +3429,7 @@ fn exported_log(s: &Service) -> Vec<Value> {
 /// between, every object reads as that release read it, its history whole,
 /// the log the same with the operator's `upgrade` for each step after it,
 /// and a restart opens the store at this release (ADR-0177; the audit's
-/// durability U8, every fixture where 0.1.0's alone was read).
+/// durability U8, every fixture).
 #[test]
 fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
     let op = json!({"id": "operator"});
@@ -3620,10 +3603,9 @@ fn a_store_an_earlier_release_made_is_upgraded_and_reads_alike() {
 /// `operate.md`'s steps 4 and 5 have it, on a file store with its
 /// write-ahead log beside it, as a service of the release before leaves it
 /// at its stop: the dry run's connection, the only one open on a store due
-/// an upgrade, removed the log as it closed, and the upgrade was refused
-/// `503 store_replaced`, telling the operator to restore a store nothing
-/// had harmed (issue #27). Each fixture is kept with no log beside it, so
-/// the upgrade's test above, which runs the dry run first too, never met
+/// an upgrade, removes the log as it closes, and the upgrade still runs
+/// (issue #27). Each fixture is kept with no log beside it, so the
+/// upgrade's test above, which runs the dry run first too, never meets
 /// one. Run from each release's fixture, 0.4.0's the step to 0.5.0.
 #[test]
 fn an_upgrade_after_its_dry_run_runs_on_the_same_service() {
@@ -3698,8 +3680,8 @@ fn own_schema(path: &Path) -> Vec<String> {
                 .expect("its columns");
             out.extend(columns);
         }
-        // an index by its columns, where its name alone passed an upgrade
-        // that kept an index's old columns (ADR-0243 decision 2)
+        // an index by its columns, since its name alone passes an upgrade
+        // that keeps an index's old columns (ADR-0243 decision 2)
         if kind == "index" {
             let columns: Vec<Option<String>> = conn
                 .prepare(&format!("PRAGMA index_info({name})"))
@@ -3954,8 +3936,8 @@ fn a_write_meeting_a_lock_past_its_timeout_is_retried_then_refused_stale() {
         )["attributes"]["count"],
         1
     );
-    // an acknowledgement waits and is refused as a request is, where it
-    // answered 500 after one timeout (the audit's durability W8b)
+    // an acknowledgement waits and is refused as a request is (the audit's
+    // durability W8b)
     let op = json!({"id": "operator"});
     let kind = post(&s, "/v1/get", &json!({"actor": op, "id": tally}))["type"].clone();
     let subscription = post(
