@@ -74,6 +74,7 @@ The design's modules, in [`docs/design/flow-format/examples/`](../../docs/design
 |---|---|
 | `service.yaml` | a service job from opening to done: inspections, reassignment between engineers, handoffs measured |
 | `service-v2.yaml` | the same flow's next version, to dry-run and publish over `service.yaml`'s objects |
+| `service-v3.yaml` | the flow's third version, the inspection checklist's type renamed `Checkpoint`, which `service-migration.examples.yaml` publishes over version 2 |
 | `approvals.yaml` | one approval lifecycle shared by purchase requests and expense claims |
 | `delivery.yaml` | handing a reserved item over to its customer, a checklist and proposals on the way |
 | `reimbursement.yaml` | staff expense claims and their lines: filed, reviewed, approved, recorded and paid, or returned, rejected or withdrawn |

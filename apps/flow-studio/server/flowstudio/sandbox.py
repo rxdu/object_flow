@@ -1,10 +1,11 @@
 """A sandbox store over the reference runner, reached by the library's operations.
 
-The wire is the service's (ADR-0150): `request`, `get`, `history` and
-`declaration` as `library-api.md` §6 shapes them, and the sandbox controls,
-which a deployment's service never offers. The runner decides everything; this
-module translates a library request into what the runner takes and the
-runner's outcome into the library's shapes.
+The wire is the service's (ADR-0150): the library's operations as
+`library-api.md` §6 shapes them, `request`, `get`, `history`, `events`,
+`availability`, `metric`, `declaration`, `tools`, `import_batch`, `lookup` and
+`publish`, and the sandbox controls, which a deployment's service never offers.
+The runner decides everything; this module translates a library request into
+what the runner takes and the runner's outcome into the library's shapes.
 
 The runner is a reference, not the engine, and computes less than a verdict or
 an event can carry. Every response names, as `not_computed`, the fields the
@@ -430,8 +431,9 @@ class Sandbox:
 
     def publish(self, body: dict) -> dict:
         """The library's `publish` (`library-api.md` §6): with `dry_run`, the
-        change's report, which writes nothing; the approval, which installs
-        the version, is the runner's next slice (ADR-0166 decision 4)."""
+        change's report, which writes nothing; otherwise the approval at the
+        change's `expected_version`, which installs the version and migrates
+        the objects (ADR-0166 decision 4)."""
         self.loaded()
         change = body.get("change")
         if not (body.get("actor") or {}).get("id") or not change:
@@ -771,7 +773,8 @@ class Sandbox:
             try:
                 if held is not None:
                     # an object the store holds by its legacy key is
-                    # refreshed, and counted only where it changes (§4)
+                    # refreshed, and counted only where it changes
+                    # (`publish-and-import.md` §4)
                     flowrun.refresh_object(self.runner, self.store, held, tn,
                                            o.get("state"), given)
                 else:
@@ -1110,7 +1113,7 @@ class Sandbox:
         except values.Unencodable as e:
             raise Fault(500, f"cannot encode {name}'s page: {e}")
         # every object the runner holds has its whole record, so it reads no
-        # gap, which the core alone computes (TODO, the metric read)
+        # gap, which the core alone computes (`DESIGN.md` §5.12)
         return {"rows": rows, "cursor": None, "flags": flags,
                 "history_complete": page["history_complete"],
                 "refused": None,

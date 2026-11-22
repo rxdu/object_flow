@@ -266,7 +266,6 @@ export type LoadResult =
       findings: { file: string; line: number; code: string; message: string }[];
     };
 
-/** One object of an import batch, as the mapping produced it (ADR-0154). */
 /** One finding of a change's dry run: what it is, how many objects it
  * reaches, and the first of them (publish-and-import.md §2). */
 export interface PublishFinding {
@@ -299,6 +298,7 @@ export interface PublishReport {
   not_computed?: string[];
 }
 
+/** One object of an import batch, as the mapping produced it (ADR-0154). */
 export interface ImportedObject {
   type: string;
   legacy_key: string;

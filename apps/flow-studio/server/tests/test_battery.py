@@ -1,15 +1,16 @@
-"""The differential battery (ADR-0204 §4's gate over expressions): every
-expression a grammar makes over typed attributes, literals and the
-language's functions is judged by both checkers, which must agree, the flow
-checker through the runner's load and the core's checker through a change's
-publish preview, and each one both accept is read on the core and the
-reference runner over four objects, an ordinary one, one of negatives, ties
-and a year below 1000, one of zeros and a leap day, and one with nothing
-set, which must answer alike. The same expressions are judged and run as
-conditions guarding transitions, as writes to each attribute, and as
-metrics' values; a wider run, on request, takes each write on a fresh
-object and fails on one refused on every object, a rule the checkers could
-have applied. What each found is in `TODO.md` and `docs/LESSONS.md`.
+"""The differential battery (the values audit's gate over expressions,
+`docs/design/audit/values.md`, kept as ADR-0204 §6 asks): every expression a
+grammar makes over typed attributes, literals and the language's functions
+is judged by both checkers, which must agree, the flow checker through the
+runner's load and the core's checker through a change's publish preview, and
+each one both accept is read on the core and the reference runner over four
+objects, an ordinary one, one of negatives, ties and a year below 1000, one
+of zeros and a leap day, and one with nothing set, which must answer alike.
+The same expressions are judged and run as conditions guarding transitions,
+as writes to each attribute, and as metrics' values; a wider run, on
+request, takes each write on a fresh object and fails on one refused on
+every object, a rule the checkers could have applied. What each found is in
+`TODO.md` and `docs/LESSONS.md`.
 
 (Its first form, 2026-10-15, judged both sides by the flow checker alone:
 a core-backed Studio checks a load with the flow checker before forwarding

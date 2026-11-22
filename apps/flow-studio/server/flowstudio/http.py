@@ -4,7 +4,7 @@ Routes (ADR-0150):
 
 - `POST /v1/<operation>`: the library's operations the slices use, `request`,
   `get`, `history`, `events`, `availability`, `metric`, `declaration`,
-  `import_batch` and `lookup` (ADR-0154);
+  `tools`, `import_batch`, `lookup` and `publish` (ADR-0154, ADR-0166);
 - `POST /sandbox/<control>`: load, reset, clock, evaluators;
 - `GET /studio/...`: the module catalogue, a module's files, a diagram, and
   which backend answers the wire;

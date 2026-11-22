@@ -36,13 +36,6 @@ interface Chosen {
 const same = (a: Chosen | null, b: Chosen | null) =>
   a?.file === b?.file && a?.source === b?.source;
 
-/** Slices 1 to 3 (docs/design/flow-studio.md §6): open a module, the
- * design's or the workspace's; see each type's lifecycle, rules and metrics;
- * edit it as text with the checker's findings against its lines; step
- * through one of its examples against the sandbox; play freely, any
- * transition the live offer allows, on any object, as any actor, with the
- * clock and the evaluators' answers in hand; and save what was found as an
- * example the checker holds. */
 /** A version a publish installed: its files, the types they declare, and
  * the file declaring each. */
 interface Installed {
@@ -51,6 +44,15 @@ interface Installed {
   homes: Record<string, string>;
 }
 
+/** The studio's page, its slices (docs/design/flow-studio.md §6): open a
+ * module, the design's or the workspace's, and see which backend answers;
+ * see each type's lifecycle, rules and metrics; edit it as text with the
+ * checker's findings against its lines; step through one of its examples
+ * against the sandbox; play freely, any transition the live offer allows, on
+ * any object, as any actor, with the clock and the evaluators' answers in
+ * hand; import a legacy object, file a proposal, or publish another version
+ * over the sandbox's objects; and save what was found as an example the
+ * checker holds. */
 export function App() {
   const wire = useMemo(() => httpWire(), []);
   const [modules, setModules] = useState<ModuleEntry[]>([]);

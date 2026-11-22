@@ -1,8 +1,8 @@
 """An examples file played through the studio's wire, as a caller would.
 
 It talks HTTP only: every step is a library operation or a sandbox control,
-and every expectation is checked against what `request`, `get` and `history`
-report (`docs/design/flow-studio.md` §6, slice 1). Its outcomes are the flow
+and every expectation is checked against what `request`, `get`, `history`,
+`events` and `metric` report (`docs/design/flow-studio.md` §6, slice 1). Its outcomes are the flow
 checker's, `passed`, `failed` and `not run`.
 """
 

@@ -4224,7 +4224,7 @@ types:
 
 
 def test_a_decimal_holds_its_precisions_digits_alike(tee):
-    """A decimal(p,s) holds p digits, as declaration-syntax.md §4 says:
+    """A decimal(p,s) holds p digits, as declaration-syntax.md §3.1 says:
     an input past them is refused out_of_range and an effect writing past
     them refused value_in_range, alike through both backends, where both
     took 18 whatever p (third production review, minor)."""

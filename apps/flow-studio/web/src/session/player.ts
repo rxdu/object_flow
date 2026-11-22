@@ -1,7 +1,7 @@
 // An example played through the wire a step at a time, as a caller would
 // (docs/design/flow-studio.md §5, §6). Every step is a library operation or a
 // sandbox control, and every expectation is checked against what `request`,
-// `get` and `history` report.
+// `get`, `history`, `events` and `metric` report.
 
 import {
   type AttributeSpec,

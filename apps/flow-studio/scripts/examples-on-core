@@ -2,8 +2,9 @@
 # Run a module's examples on the Rust core, as the flow checker's step 6 runs
 # them on the reference runner: the core's service built and started on a
 # free port, every example played through it by the Flow Studio's replay, and
-# each that does not pass printed with why. Check the module first with
-# scripts/check-flows.py, since the core's load does not (ADR-0153).
+# each that does not pass printed with why. The core's load checks the
+# modules first, as a publish does but without their examples, and refuses a
+# module the checker finds wrong (issue #26).
 #
 # Usage: apps/flow-studio/scripts/examples-on-core <module.yaml>... <module.examples.yaml>
 #        the modules in import order, the examples file last
