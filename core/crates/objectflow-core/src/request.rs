@@ -276,16 +276,16 @@ fn not_run<T>(what: impl Into<String>) -> Result<T, NotRun> {
     Err(NotRun::Unsupported(what.into()))
 }
 
-/// Who acts, resolved from a request's actor: an object of a type that marks
-/// an actor identity (`DESIGN.md` §6 step 1), named by its id or by its
-/// identity, the earliest created where several hold it. Only the types that
-/// mark an identity are read.
 /// The kind of actor a name resolves to, none where it names none: what a
 /// deployment admits a read by (ADR-0192 decision 3).
 pub fn actor_kind(world: &World<'_>, actor: &str) -> Result<Option<String>, NotRun> {
     Ok(resolve_actor(world, actor)?.map(|w| w.kind))
 }
 
+/// Who acts, resolved from a request's actor: an object of a type that marks
+/// an actor identity (`DESIGN.md` §6 step 1), named by its id or by its
+/// identity, the earliest created where several hold it. Only the types that
+/// mark an identity are read.
 pub(crate) fn resolve_actor(world: &World<'_>, actor: &str) -> Result<Option<Who>, NotRun> {
     let identity = |o: &Object| -> Option<Who> {
         let t = world.lib.type_(&o.type_)?;
@@ -513,8 +513,9 @@ fn invariant_objects(world: &World<'_>, o: &Object, n: &str) -> Result<BTreeSet<
 /// A value written to an attribute, as its declared type holds it, or why
 /// it cannot be:
 /// - an integer is written to a decimal at its scale, and a decimal to a
-///   decimal or an integer rounded half to even to its scale, as §8.3 says a
-///   product or quotient is (F4);
+///   decimal rounded half to even to its scale, as §8.3 says a product or
+///   quotient is (F4);
+/// - a decimal is written to an integer only where it is whole;
 /// - an amount keeps its currency at its minor unit;
 /// - text stays within what a request can send;
 /// - every other kind is written only to an attribute of its own kind.
@@ -860,7 +861,10 @@ struct Ctx<'w> {
     /// The object an assertion set, and the invariants it admits (§4.13).
     asserted: Option<String>,
     admits: BTreeSet<String>,
-    /// For each object this request erased, the personal attributes it erased.
+    /// The objects this request erased, and the labels and proposals its
+    /// erasure redacted, each with what it cleared: an erased object's
+    /// personal attributes, a label's `note`, and a proposal's `inputs` with
+    /// each input name it redacted there.
     erased: BTreeMap<String, BTreeSet<String>>,
     /// Each erased actor's identity, with its object's id, which replaces
     /// it wherever the store keeps it (ADR-0192 decision 4).
@@ -876,8 +880,7 @@ struct Ctx<'w> {
     /// (ADR-0290 decision 3).
     redacted_entries: Vec<(i64, String, usize, String)>,
     /// What an erasure's walk down clears on another object: the object,
-    /// the attribute, and the event that carried the erased value in; and
-    /// the interval spans so redacted, by object, dimension and entry.
+    /// the attribute, and the event that carried the erased value in.
     cleared: Vec<(String, String, i64)>,
     /// Each past event's write of a copy an erasure clears, by the event's
     /// position and the attribute (ADR-0209 decision 2).
@@ -886,6 +889,8 @@ struct Ctx<'w> {
     /// besides its rules' reads, so a refusal an effect causes replays over
     /// its record (ADR-0210 decision 5).
     effect_read: std::cell::RefCell<Reading>,
+    /// The interval spans an erasure redacts: the object, the dimension, and
+    /// the position the span was entered at.
     redacted_spans: Vec<(String, String, i64)>,
     /// The external identifiers it writes, and those it no longer holds:
     /// source, value and object, with the attribute of a written one.
@@ -3847,8 +3852,6 @@ fn hops_pass(
     passes(lib, &x.effect, name, judge) || cascaded() || followed()
 }
 
-/// Whether an input is personal by its own transition alone: marked so, or
-/// written by its effect into a personal attribute (check 10).
 /// The type an object was of under a version: its own, or the one a later
 /// move took it from, read from its own events, a move's naming the type it
 /// left, the version before the move its `declaration_version` (ADR-0229
@@ -3929,6 +3932,8 @@ pub(crate) fn declared_under(
     })
 }
 
+/// Whether an input is personal by its own transition alone: marked so, or
+/// written by its effect into a personal attribute (check 10).
 pub(crate) fn personal_by_own(t: &Type, x: &Transition, name: &str) -> bool {
     fn writes(steps: &[Step], t: &Type, name: &str) -> bool {
         steps.iter().any(|st| match st {
@@ -4601,9 +4606,6 @@ fn store_event(
     })
 }
 
-/// A change's source from the wire: each file's name to its text, and its
-/// reference, refused where empty, longer than 512 characters, or holding a
-/// control character (ADR-0135).
 /// A change's source, its reference and its digest.
 struct ChangeSource {
     files: Vec<(String, String)>,
@@ -4643,6 +4645,9 @@ fn reference_formed(r: &Json) -> bool {
     }
 }
 
+/// A change's source from the wire: each file's name to its text, and its
+/// reference, refused where empty, longer than 512 characters, or holding a
+/// control character (ADR-0135).
 fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
     // each input wrong, missing where it was not sent, as any input is,
     // where a draft without a `source_ref` was told it was malformed (the
@@ -5601,15 +5606,14 @@ fn dotted(e: &Expr) -> String {
     }
 }
 
-/// How an effect's expression is evaluated: as a value, as a loop's filter,
-/// or as a value written to a decimal of the scale given, whose quotient is
-/// computed exactly and rounded once at that scale, half to even, where it
-/// was rounded at its dividend's scale first (§8.3, the audit's values W4,
-/// ADR-0205 decision 1).
 /// The rule an effect's reads are recorded under in a refusal's read set
 /// (ADR-0210 decision 5).
 const EFFECT: &str = "effect";
 
+/// How an effect's expression is evaluated: as a value, as a loop's filter,
+/// or as a value written to a decimal of the scale given, whose quotient is
+/// computed exactly and rounded once at that scale, half to even (§8.3, the
+/// audit's values W4, ADR-0205 decision 1).
 #[derive(Clone, Copy)]
 enum Evaluated {
     Plain,
@@ -8011,11 +8015,12 @@ fn unmade(v: Verdict, world: &World<'_>) -> Verdict {
 
 /// The faults a test makes happen in a batch (ADR-0228 decision 13): a
 /// store error, a panic, or a hold of up to 60 s for a kill to land in, at
-/// the request of an index or at the batch's commit. Only with the `faults`
-/// feature, which no release build has; set on this thread by a test of the
-/// core, or for the service's process by `OBJECTFLOW_FAULT`, as
-/// `batch_error:<point>`, `batch_panic:<point>` or `batch_hold:<point>`,
-/// the point an index or `commit`.
+/// the request of an index or at the batch's commit; and a store error at a
+/// publish's install (ADR-0229 decision 10). Only with the `faults` feature,
+/// which no release build has; set on this thread by a test of the core, or
+/// for the service's process by `OBJECTFLOW_FAULT`, as `batch_error:<point>`,
+/// `batch_panic:<point>` or `batch_hold:<point>`, the point an index or
+/// `commit`, or as `publish_error:install`.
 #[cfg(feature = "faults")]
 pub mod faults {
     thread_local! {
