@@ -1,5 +1,5 @@
 # Dependabot, as ADR-0211 decision 2 sets it: weekly, a pull request for each dependency a manifest pins, for cargo,
-# pip, npm and the workflows' actions; the author merges or closes each. It takes effect once this file is pushed.
+# pip, npm and the workflows' actions; the author merges or closes each.
 version: 2
 updates:
   - package-ecosystem: cargo

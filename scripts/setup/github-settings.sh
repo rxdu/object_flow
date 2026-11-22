@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The repository setting ADR-0211 decision 2 decides, for the author to apply: a ruleset letting only the repository's
 # administrators create, move or delete a `v*` tag, so no workflow or bot can move a release. Dependabot is
-# `.github/dependabot.yml`, effective once pushed; requiring `check-all` on `main` waits until pushes go through pull
-# requests. Run again, it changes nothing.
+# `.github/dependabot.yml`; requiring `check-all` on `main` waits until pushes go through pull requests. Run again,
+# it changes nothing.
 #
 # Usage: scripts/setup/github-settings.sh [owner/repo]    (default rxdu/object_flow; `gh` logged in as an administrator)
 set -euo pipefail
