@@ -1319,12 +1319,6 @@ impl PgClient {
         let c = self.client()?;
         self.run("a statement", c.batch_execute(sql))
     }
-
-    fn cancel_token(&self) -> Option<tokio_postgres::CancelToken> {
-        self.client
-            .as_ref()
-            .map(tokio_postgres::Client::cancel_token)
-    }
 }
 
 impl Drop for PgClient {
@@ -2484,51 +2478,6 @@ impl Connection {
             Inner::Postgres(_) => None,
         }
     }
-
-    /// A handle that stops the statement running on the connection from
-    /// another thread.
-    pub fn interrupt_handle(&self) -> InterruptHandle {
-        InterruptHandle {
-            inner: match &self.inner {
-                Inner::Sqlite(c) => InterruptInner::Sqlite(c.get_interrupt_handle()),
-                Inner::Postgres(pg) => InterruptInner::Postgres(
-                    pg.client.borrow().as_ref().and_then(PgClient::cancel_token),
-                ),
-            },
-        }
-    }
-}
-
-/// Stops the statement running on a connection, from another thread.
-pub struct InterruptHandle {
-    inner: InterruptInner,
-}
-
-enum InterruptInner {
-    Sqlite(rusqlite::InterruptHandle),
-    Postgres(Option<tokio_postgres::CancelToken>),
-}
-
-impl InterruptHandle {
-    pub fn interrupt(&self) {
-        match &self.inner {
-            InterruptInner::Sqlite(h) => h.interrupt(),
-            // a cancel that fails leaves the statement to its own deadline;
-            // sent over TLS where the server asks it, as it refuses one
-            // without
-            InterruptInner::Postgres(Some(t)) => {
-                if let Ok(tls) = tls() {
-                    let _ = blocking(|| {
-                        tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .map(|r| r.block_on(t.cancel_query(tls)))
-                    });
-                }
-            }
-            InterruptInner::Postgres(None) => {}
-        }
-    }
 }
 
 /// A transaction: it commits when asked, and rolls back otherwise.
@@ -2674,7 +2623,6 @@ named!(
     Row<'r>,
     Rows<'s>,
     Statement<'c>,
-    InterruptHandle,
     Transaction<'c>,
     Savepoint<'c>,
     Pg

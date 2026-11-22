@@ -162,30 +162,6 @@ pub fn change_read(world: &World<'_>, change: &str) -> Result<Option<ChangeRead>
     }))
 }
 
-/// The dry run a `submit` or `refresh` of a change records, its checks run
-/// apart: none where the change has moved since it was read, or is no longer
-/// drafted or submitted, which the request computes for itself.
-pub fn prepare_checked(
-    world: &World<'_>,
-    read: &ChangeRead,
-    actor: &str,
-    checked: Checked,
-) -> Result<Option<Prepared>, NotRun> {
-    let Some(o) = world.get(&read.change)? else {
-        return Ok(None);
-    };
-    if o.version != read.change_version || !(o.state == "DRAFTED" || o.state == "SUBMITTED") {
-        return Ok(None);
-    }
-    let report = dry_run_checked(world, &read.draft(actor), checked)?;
-    Ok(Some(Prepared {
-        change: read.change.clone(),
-        change_version: read.change_version,
-        at: world.lib.version,
-        report,
-    }))
-}
-
 /// A change's source, reference and digest, as its record holds them.
 pub(crate) fn draft_of(o: &Object) -> (Vec<(String, String)>, String, String) {
     let text = |a: &str| match o.attr(a) {

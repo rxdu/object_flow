@@ -268,15 +268,6 @@ impl<T> Slots<T> {
 }
 
 impl<T: Clone> Slots<T> {
-    /// Every value written, taken out, in the order of their slots, one
-    /// another still holds copied.
-    fn into_values(self) -> Vec<T> {
-        self.into_shared()
-            .into_iter()
-            .map(std::rc::Rc::unwrap_or_clone)
-            .collect()
-    }
-
     /// The n-th value, to change: copied first where another holds it, so
     /// a change here is never seen there.
     fn get_mut(&mut self, n: usize) -> Option<&mut T> {
@@ -1743,12 +1734,6 @@ impl<'l> World<'l> {
         self.held.gathered.set(self.held.gathered.get() + out.len());
         out.sort_by_key(|o| o.order);
         Some(out)
-    }
-
-    /// Every object the world holds, taken out of it, copied only where
-    /// another world holds it too.
-    pub fn into_objects(self) -> Vec<Object> {
-        self.held.slots.into_values()
     }
 
     /// Every object the world holds, taken out of it, each still shared
