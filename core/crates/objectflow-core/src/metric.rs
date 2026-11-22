@@ -65,8 +65,8 @@ pub(crate) fn attempt_count_rows(world: &World<'_>, owner: &str) -> Result<Vec<V
             )
             .collect()
     };
-    // each key's count found by the key, where each attempt searched every
-    // count before it, quadratic in the keys; the family's attempts read by
+    // each key's count found by the key, never by searching every count
+    // before it, quadratic in the keys; the family's attempts read by
     // their type's index, never the whole attempt log; and the read's
     // deadline looked at as it goes (the audit's cost B5, ADR-0205 decision
     // 15). The keys' members are text, flags, numbers and a day, whose
@@ -613,11 +613,11 @@ struct Reader<'w> {
     world: &'w World<'w>,
     answers: Option<&'w BTreeMap<String, String>>,
     /// Each derived member's kind, by its type and name, once found, and
-    /// `None` while it is being found: a derived attribute reading itself
-    /// through a set, `count(c in children) + sum(c in children: c.size)`,
-    /// recursed until the stack overflowed and aborted the service on a read
-    /// of a leaf, and a chain of attributes each reading the one before twice
-    /// was typed 2^n times (eleventh production review).
+    /// `None` while it is being found, since a derived attribute reading
+    /// itself through a set, `count(c in children) + sum(c in children:
+    /// c.size)`, would otherwise recurse until the stack overflowed, and a
+    /// chain of attributes each reading the one before twice would be typed
+    /// 2^n times (eleventh production review).
     typing: std::cell::RefCell<BTreeMap<(String, String), Option<Kind>>>,
 }
 
@@ -792,8 +792,8 @@ impl<'w> Reader<'w> {
         };
         // a bound dimension that is the item's own stored attribute narrows
         // the objects read to those holding its value, by its column's index,
-        // where a guard bound to one claimant read every claim of the store
-        // for each request (fourteenth production review)
+        // never every object of the type for each request (fourteenth
+        // production review)
         let mut columns: Vec<(String, Value)> = Vec::new();
         if source == "objects"
             && let Some(dims) = f.get("dimensions").and_then(Json::as_object)
@@ -809,8 +809,7 @@ impl<'w> Reader<'w> {
                     continue;
                 };
                 // a read's binding, the wire's, decoded as the attribute
-                // holds it, where a metric read bound to one claimant read
-                // every claim (fifteenth production review); one that does
+                // holds it (fifteenth production review); one that does
                 // not decode reads the type, the binding then deciding
                 let v = match want {
                     Want::Value(v) => v.clone(),
@@ -839,8 +838,8 @@ impl<'w> Reader<'w> {
             .any(|t| t.contains("held"))
             || theirs.is_some_and(|e| reads_member(e, "held"));
         // a window over the item's own time or date read by its column, the
-        // rows at or after the window's start and no other, where a report
-        // over a window read every object of the type (ADR-0210 decision 2);
+        // rows at or after the window's start and no other, never every
+        // object of the type (ADR-0210 decision 2);
         // the window still decides each row below, so this narrows what is
         // read and not what is kept
         let since = match (window, text("time_dimension"), text("split_by")) {
@@ -1048,9 +1047,8 @@ impl<'w> Reader<'w> {
         if source == "attempts" || source == "attempt_counts" {
             // the rows of the family's types, read by the index on their
             // type, and never the owner's objects, which they do not read,
-            // where each read the type whole and the whole attempt log (the
-            // audit's cost B4, B5); a row of no type, an unknown id's, is
-            // none of them (DESIGN.md §7)
+            // nor the whole attempt log (the audit's cost B4, B5); a row of no
+            // type, an unknown id's, is none of them (DESIGN.md §7)
             if source == "attempt_counts" {
                 return Ok(Rows {
                     rows: attempt_count_rows(world, owner)?,
@@ -1078,9 +1076,8 @@ impl<'w> Reader<'w> {
                 .map_or("state", str::trim);
             let mut rows = Vec::new();
             // a read that never reads `held` reads the state's spans and the
-            // member's by type, where it read each object's record whole,
-            // its attribute writes among them, and each row's `held` (the
-            // audit's cost B3, ADR-0205 decision 13); an object whose record
+            // member's by type, never each object's record whole (the audit's
+            // cost B3, ADR-0205 decision 13); an object whose record
             // the read holds, as an operation may have changed it, from it
             let by_type: BTreeMap<String, crate::eval::Spans> = if reads_held {
                 BTreeMap::new()
@@ -1124,15 +1121,15 @@ impl<'w> Reader<'w> {
                 family.iter().map(|o| (o.id.as_str(), *o)).collect();
             // where the filter holds only of a transition that completes its
             // object, the events entering a finished state alone, since one
-            // entering an open state completes nothing: throughput read every
-            // event of the type to keep the few that close (the audit's cost
-            // B3, ADR-0205 decision 13)
+            // entering an open state completes nothing, so throughput reads
+            // the few events that close, never every event of the type (the
+            // audit's cost B3, ADR-0205 decision 13)
             let entering: Option<Vec<String>> = narrow
                 .filter(|(item, e)| completing(e, item))
                 .map(|_| finished_states(world, owner));
             // the family's events, a page at a time by their types' index and
-            // the read's deadline between pages, where it read the whole log
-            // (the audit's cost B3, ADR-0205 decision 13)
+            // the read's deadline between pages, never the whole log (the
+            // audit's cost B3, ADR-0205 decision 13)
             const PAGE: usize = 4_096;
             let types: Vec<String> = world.family(owner).to_vec();
             let mut rows = Vec::new();
@@ -1141,8 +1138,7 @@ impl<'w> Reader<'w> {
                 world.due()?;
                 let page = world.log_after(after, Some(&types), entering.as_deref(), PAGE)?;
                 // what each transition held, which its row reads from the
-                // flow data, read together for the page's objects alone,
-                // where every object's was read before any event
+                // flow data, read together for the page's objects alone
                 let mut theirs: Vec<&Object> = Vec::new();
                 let mut seen: BTreeSet<&str> = BTreeSet::new();
                 for e in &page {
@@ -1797,8 +1793,8 @@ fn rounded(v: Num, kind: &Kind) -> Result<Value, NotRun> {
         // a duration is held in whole seconds (storage-schema.md §3.1)
         Kind::Duration => Value::Duration(int64(whole(0)?)?),
         Kind::Timestamp if r.is_integer() => Value::Timestamp(int64(r.trunc())?),
-        // a date by its day, where its seconds were answered as an integer
-        // (the differential battery, 2026-10-15)
+        // a date by its day, never its seconds as an integer (the
+        // differential battery, 2026-10-15)
         Kind::Date if r.is_integer() && r.trunc().rem_euclid(86_400) == 0 => {
             Value::Date(int64(r.trunc().div_euclid(86_400))?)
         }
@@ -2562,9 +2558,9 @@ impl<'w> Reader<'w> {
         };
         let env = BTreeMap::from([(item, rowkind)]);
         // a member of the path's type marked personal, or a derived one
-        // reading what is, as a consulted reference is masked, where a filter
-        // on `d.owner_name >= "B"` was answered (sixteenth production review
-        // N6, ADR-0203 decision 2)
+        // reading what is, as a consulted reference is masked, so a filter on
+        // `d.owner_name >= "B"` is refused `personal` without its opt-in
+        // (sixteenth production review N6, ADR-0203 decision 2)
         let personal = crate::eval::personal_names(lib);
         // and a member of type identity, where an actor type marks its
         // identity personal (ADR-0206 decision 1)
@@ -2705,11 +2701,10 @@ pub fn page(
 
 /// A page, its filter's parameters bound by the fields of the metric's rows
 /// as a query's are by its type (ADR-0221), its request opting into
-/// reading by a personal value or not: a
-/// filter reading one, or a binding of a dimension that names a person, is
-/// refused `personal` without the opt-in, whoever asks (ADR-0206 decision
-/// 2), where a binding of an author's address was answered to an agent
-/// (the audit's personal data R7).
+/// reading by a personal value or not: a filter reading one, or a binding
+/// of a dimension that names a person, is refused `personal` without the
+/// opt-in, whoever asks (ADR-0206 decision 2; the audit's personal data
+/// R7).
 #[allow(clippy::too_many_arguments)]
 pub fn page_as(
     world: &World<'_>,
@@ -2816,9 +2811,9 @@ pub fn page_as(
             }
         }
     };
-    // and takes a query filter's bounds, where a set of 5,000 members ran to
-    // the read's deadline, holding a pool's slot (the audit's cost B6,
-    // ADR-0205 decision 15)
+    // and takes a query filter's bounds, since a larger set would run to the
+    // read's deadline, holding a pool's slot (the audit's cost B6, ADR-0205
+    // decision 15)
     if let Some(why) = theirs.as_ref().and_then(crate::reads::filter_cost) {
         return Ok(Page {
             refused: Some("malformed_filter"),
@@ -2827,8 +2822,7 @@ pub fn page_as(
             ..Page::default()
         });
     }
-    // and a literal past what its type holds, as a query's is, where an int
-    // or a duration past 64 bits was refused `value_in_range` once read
+    // and a literal past what its type holds, as a query's is
     if let Some(f) = &theirs
         && crate::reads::literal_out_of_range(world, None, f)?
     {
@@ -3065,8 +3059,7 @@ pub fn person_dimensions(lib: &Library, tn: &str) -> Result<Vec<String>, NotRun>
             {
                 // an actor's identity, as `actor.id` records it (D565), on
                 // an object of the type or an observation of one of its
-                // kinds, where an observation's was left unmarked (the
-                // audit's personal data R8)
+                // kinds (the audit's personal data R8)
                 out.push(format!("{tn}.{n}.{d}"));
             }
         }
@@ -3182,8 +3175,8 @@ types:
 
     /// An identity copied into an observation, as `actor.id` records who
     /// signed off, is marked when a metric over the observations groups by
-    /// it, as one on the type's own objects is, where it was left unmarked
-    /// for the gateway (the audit's personal data R8).
+    /// it, as one on the type's own objects is (the audit's personal data
+    /// R8).
     #[test]
     fn an_identity_an_observation_holds_is_marked() {
         let memos = r#"
@@ -3780,9 +3773,9 @@ metrics:
 
     /// A metric's filter takes a query filter's bounds: a set of more than
     /// 1,000 members, aggregates nested three deep, more than 256 terms and
-    /// a metric called within are each refused `malformed_filter`, where a
-    /// set of 5,000 ran to the read's deadline (the audit's cost B6,
-    /// ADR-0205 decision 15), and so is a literal past its type's range.
+    /// a metric called within are each refused `malformed_filter` (the
+    /// audit's cost B6, ADR-0205 decision 15), and so is a literal past its
+    /// type's range.
     #[test]
     fn a_metric_filter_takes_a_query_filters_bounds() {
         let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();
@@ -3804,9 +3797,8 @@ metrics:
             (terms(20), false),
             (terms(200), true),
             ("metric(Job.jobs_opened) > 0".to_string(), true),
-            // a literal past what its type holds, as a query's, where it was
-            // read once a row met it (the values audit's L3, ADR-0202
-            // decision 8)
+            // a literal past what its type holds, as a query's (the values
+            // audit's L3, ADR-0202 decision 8)
             (
                 "o.created_at < now + 9223372036854775808 s".to_string(),
                 true,
@@ -3875,7 +3867,7 @@ metrics:
 
     /// A reader's filter on a metric reading a personal value through a
     /// derived attribute is refused `personal`, as one through a reference
-    /// is, where `d.owner_name >= "B"` ranged over people's names; one on a
+    /// is, `d.owner_name >= "B"` among them; one on a
     /// derived attribute reading nothing personal is answered (sixteenth
     /// production review N6, ADR-0203 decision 2).
     #[test]
@@ -3904,8 +3896,7 @@ metrics:
 
     /// A metric's rows name an actor by its object where an actor type
     /// marks its identity personal, as a metric reads no personal value,
-    /// and by its identity where none does, where `requests by who made
-    /// them` answered each person's address (the audit's personal data R8).
+    /// and by its identity where none does (the audit's personal data R8).
     #[test]
     fn a_metric_names_an_actor_by_its_object_where_identities_are_personal() {
         for personal in [true, false] {
@@ -3985,9 +3976,8 @@ metrics:
     }
 
     /// A metric read whose filter or value passes its type's bound refuses
-    /// the read as out of range, where the filter dropped the row and the
-    /// value was answered not run (the audit's values U5 and U8, ADR-0205
-    /// decision 2).
+    /// the read as out of range, never dropping the row or answering not run
+    /// (the audit's values U5 and U8, ADR-0205 decision 2).
     #[test]
     fn a_metric_past_its_bound_refuses_the_read() {
         let text = "\nmodule: tally\ncategories: [live]\ntypes:\n  Claim:\n    attributes:\n      total: { type: int }\n    states:\n      OPEN: { category: live }\n    transitions:\n      open: { kind: initial, to: OPEN, required_inputs: [total] }\n    metrics:\n      claimed:\n        source: objects\n        item: c\n        expression: sum(c.total)\n      vast:\n        source: objects\n        item: c\n        expression: sum(c.total) * 100000000000000000000000\n";
@@ -4048,11 +4038,9 @@ metrics:
 
     /// A metric over many rows reads as a scan: a type its rows reach, an
     /// order's lines summed for its total, read whole once, a type they never
-    /// reach never, where every type a row's type refers to was read and made
-    /// a metric reading none three times slower; the scan ends with the
-    /// metric, so a later read of a few objects reads them alone. Throughput
-    /// reads only the events entering a finished state, where it read every
-    /// event of the type (the audit's cost B2 and B3, ADR-0205 decision 13).
+    /// reach never; the scan ends with the metric, so a later read of a few
+    /// objects reads them alone. Throughput reads only the events entering a
+    /// finished state (the audit's cost B2 and B3, ADR-0205 decision 13).
     #[test]
     fn a_metric_over_many_rows_reads_what_they_reach_and_no_more() {
         let text = "\nmodule: shop\ncategories: [live, closed]\ntypes:\n  Note:\n    attributes:\n      text: { type: string }\n    states:\n      ON: { category: live }\n    transitions:\n      write: { kind: initial, to: ON, required_inputs: [text] }\n  Order:\n    attributes:\n      note: { reference: Note, optional: true }\n      lines: { reference: \"Line[]\", opposite: order }\n    derived_attributes:\n      total:\n        expression: \"sum(l in lines: l.amount)\"\n    states:\n      OPEN: { category: live }\n      DONE: { category: closed, final: true }\n    transitions:\n      open: { kind: initial, to: OPEN, optional_inputs: [note] }\n      close: { kind: external, from: OPEN, to: DONE }\n    metrics:\n      totals:\n        source: objects\n        item: o\n        expression: sum(o.total)\n      counted:\n        source: objects\n        item: o\n        expression: count()\n  Line:\n    attributes:\n      order: { reference: Order, opposite: lines }\n      amount: { type: int }\n    states:\n      ON: { category: live }\n    transitions:\n      add: { kind: initial, to: ON, required_inputs: [order, amount] }\n    metrics:\n      noted:\n        source: objects\n        item: l\n        filter: l.order.note is not null\n        expression: count()\n";
@@ -4222,8 +4210,7 @@ metrics:
 
     /// A metric over objects bound to one of the item's own stored
     /// attributes reads only the objects holding the value, by the column's
-    /// index, never the type whole, where a guard bound to one claimant read
-    /// every claim for each request (fourteenth production review); it reads
+    /// index, never the type whole (fourteenth production review); it reads
     /// the same total.
     #[test]
     fn an_objects_metric_bound_to_a_column_reads_by_it() {
@@ -4694,9 +4681,8 @@ metrics:
     }
 
     /// A report over a window reads the objects whose time or date falls in
-    /// it by that column, and no other, where it read every object of the
-    /// type, and answers as a read of every object does (ADR-0210 decision
-    /// 2).
+    /// it by that column, and no other, and answers as a read of every
+    /// object does (ADR-0210 decision 2).
     #[test]
     fn a_window_over_an_objects_time_reads_by_its_column() {
         let text = "\nmodule: v\ncategories: [live]\ntypes:\n  Visit:\n    attributes:\n      at: { type: timestamp, indexed: true }\n      on: { type: date, indexed: true }\n    states:\n      ON: { category: live }\n    transitions:\n      log: { kind: initial, to: ON, required_inputs: [at, on] }\n    metrics:\n      recent:\n        source: objects\n        item: v\n        time_dimension: v.at\n        expression: count()\n      recent_days:\n        source: objects\n        item: v\n        time_dimension: v.on\n        expression: count()\n";
