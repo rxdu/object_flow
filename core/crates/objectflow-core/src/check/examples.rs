@@ -1345,11 +1345,10 @@ fn expect_errors(
     }
     for k in ["state", "values", "cascaded", "warned", "occurred_at"] {
         if want.get(k).is_some() {
-            let what = if k == "state" { "state" } else { k };
             c.out.push(finding(
                 ext(here, segs![k]),
                 "names",
-                format!("a request refused as {verdict} leaves no {what} to state"),
+                format!("a request refused as {verdict} leaves no {k} to state"),
             ));
         }
     }

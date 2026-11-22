@@ -676,8 +676,8 @@ fn lacked<'r>(ot: &crate::model::Type, reads: Option<&'r BTreeSet<String>>) -> V
 /// entry has nothing to act on, and changes nothing, so one source serves a
 /// store without it, a new one or one the mapping already reached (ADR-0230
 /// decision 2, ADR-0252, ADR-0256). The checker leaves these to the publish
-/// (`check::checked_installed`); a type the installed version does not hold
-/// is `moves`'s.
+/// (`check::checked_as` with `installed` set); a type the installed
+/// version does not hold is `moves`'s.
 fn not_applicable(old: &Library, m: &crate::model::Migration, found: &mut Found) {
     let v = old.version;
     let held = |tn: &str| old.type_(tn).filter(|t| !t.retired);

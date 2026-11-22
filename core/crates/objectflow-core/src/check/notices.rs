@@ -560,11 +560,7 @@ pub fn befores(v: &Value) -> Found {
                     .intersection(&supplied)
                     .filter(|a| !inputs.contains(*a))
                 {
-                    let had = if kind(x) == "initial" {
-                        "the object it creates has none yet".to_string()
-                    } else {
-                        format!("it reads the value {a} had before the request")
-                    };
+                    let had = format!("it reads the value {a} had before the request");
                     out.push(finding(
                         segs!["types", &tn, "transitions", xn, "guards", &g],
                         "before",
