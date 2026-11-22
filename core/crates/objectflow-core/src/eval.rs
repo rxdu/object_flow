@@ -89,10 +89,8 @@ fn not_run<T>(what: impl Into<String>) -> Result<T, NotRun> {
 }
 
 /// The members every object has, each read by its bare name as `state` is
-/// (`flow-format.md` §5), where `recorded_from` and `declaration_version`
-/// were read as a type and not run (the values audit's G9); no type may
-/// declare one, which it would shadow (the model's check 33, which reads
-/// this list).
+/// (`flow-format.md` §5, the values audit's G9); no type may declare one,
+/// which it would shadow (the model's check 33, which reads this list).
 pub const OBJECT_MEMBERS: &[&str] = &[
     "id",
     "open",
@@ -105,9 +103,9 @@ pub const OBJECT_MEMBERS: &[&str] = &[
 /// The members an object answers by a path alone, added after format 1:
 /// its type, its kind as recorded, its actor's identity, and its flow data.
 /// A type's own member of one of these names comes first, so a member the
-/// engine adds never changes what a flow's expression reads, where it
-/// shadowed the attribute and a guard on a counter named `attempts` read
-/// the object's attempt log (issue #22, ADR-0216); the checkers note the
+/// engine adds never changes what a flow's expression reads, as a guard on
+/// a counter named `attempts` would otherwise read the object's attempt
+/// log (issue #22, ADR-0216); the checkers note the
 /// member hidden on that type. `member` answers these and
 /// [`OBJECT_MEMBERS`], and `state`, and no other, so the lists cannot drift
 /// from what is answered.
@@ -299,17 +297,15 @@ pub struct Evaluator<'a> {
     /// it ranges over every other object (ADR-0061 decision 1).
     others: bool,
     /// How many derived attributes, each reading the next, this evaluation
-    /// is inside: past [`DERIVED_HOPS`] the read is not run, where a derived
-    /// attribute reading itself through a reference, `parent.depth + 1`,
-    /// overflowed the stack and aborted the service on a `get` (tenth
-    /// production review), and where its value was then answered as none,
-    /// a chain of 9,500 reading null past the 65th (fourteenth production
-    /// review N1).
+    /// is inside: past [`DERIVED_HOPS`] the read is not run, never answered
+    /// as none, since a derived attribute reading itself through a
+    /// reference, `parent.depth + 1`, would otherwise overflow the stack
+    /// (tenth production review, fourteenth production review N1).
     hops: usize,
     /// Each derived value this evaluation has computed, by its object and
-    /// name, shared with the evaluations inside it: a chain of attributes
-    /// each reading the one before twice computed each 2^n times, a read of
-    /// twenty taking a second of a core (eleventh production review). An
+    /// name, shared with the evaluations inside it, since a chain of
+    /// attributes each reading the one before twice would otherwise compute
+    /// each 2^n times (eleventh production review). An
     /// evaluator borrows its world, so none outlives a write that would make
     /// a value stale.
     known: std::cell::OnceCell<Known>,
@@ -572,9 +568,9 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Evaluating an invariant, whose scan of a type ranges over every
-    /// other object, the object written never in it: a booking overlaps
-    /// itself, so `none(b in Booking where … overlap …)` was false for
-    /// every booking (ADR-0061 decision 1, D696).
+    /// other object, the object written never in it, since a booking
+    /// overlaps itself and `none(b in Booking where … overlap …)` would be
+    /// false for every booking (ADR-0061 decision 1, D696).
     pub fn over_others(mut self) -> Evaluator<'a> {
         self.others = true;
         self
@@ -606,8 +602,7 @@ impl<'a> Evaluator<'a> {
         Ok(match e {
             Expr::Num(Number::Int(n)) => Term::Value(Value::Int(*n)),
             // an int literal past 64 bits has no value, as an arithmetic past
-            // them has none (§8.1, §8.2), where it was read as a decimal of
-            // scale 0 the runner did not hold (the values audit's L3)
+            // them has none (§8.1, §8.2, the values audit's L3)
             Expr::Num(Number::Decimal(t)) if !t.contains('.') => return Err(self.out_of_range()),
             Expr::Num(Number::Decimal(t)) => match Decimal::parse(t) {
                 Some(d) => Term::Value(Value::Decimal(d)),
@@ -616,8 +611,9 @@ impl<'a> Evaluator<'a> {
             Expr::Str(s) => Term::Value(Value::Text(s.clone())),
             // a read's filter's parameter, bound before it is evaluated; its
             // refusal made out of this frame, which every level of an
-            // expression's recursion holds (a derived value's hops ran out
-            // of stack on PostgreSQL with it inline)
+            // expression's recursion holds, since inline it would grow the
+            // frame enough for a derived value's hops to overflow the stack
+            // on PostgreSQL
             Expr::Lit(v) => Term::Value((**v).clone()),
             Expr::Param(n) => return Err(unbound(n)),
             Expr::Bool(b) => Term::Value(Value::Bool(*b)),
@@ -627,15 +623,13 @@ impl<'a> Evaluator<'a> {
                 };
                 match n {
                     // past 64 bits of seconds it has no value, as an arithmetic
-                    // past them has none (§8.2), where it was not run (ADR-0202
-                    // decision 8)
+                    // past them has none (§8.2, ADR-0202 decision 8)
                     Number::Int(n) => match n.checked_mul(size) {
                         Some(s) => Term::Value(Value::Duration(s)),
                         None => return Err(self.out_of_range()),
                     },
                     // a duration is whole seconds, and a literal of a fraction
-                    // of one is not run, where `1.5 s` was rounded to 2 s (the
-                    // audit's values L2)
+                    // of one is not run, never rounded (the audit's values L2)
                     Number::Decimal(t) => {
                         let seconds = Decimal::parse(t)
                             .and_then(|d| d.checked_mul(&Decimal::from_int(size)))
@@ -655,8 +649,8 @@ impl<'a> Evaluator<'a> {
                 }
             }
             // an amount with more places than its currency's minor unit is
-            // not run, where `USD 1.005` was rounded to `USD 1.00`, as one on
-            // the wire is malformed (the audit's values L1, D685)
+            // not run, never rounded, as one on the wire is malformed (the
+            // audit's values L1, D685)
             Expr::Money(currency, amount) => {
                 let amount = minor_unit(currency).and_then(|m| {
                     Decimal::parse(amount).and_then(|d| d.rescale(m).filter(|r| *r == d))
@@ -695,7 +689,7 @@ impl<'a> Evaluator<'a> {
             }
             // a set: an element written twice is held once, and one that is
             // unknown makes the set unknown, as an operand does an operator
-            // (§8.2), where it held both and was a set (the values audit's A8)
+            // (§8.2, the values audit's A8)
             Expr::Set(items) => {
                 let mut out: Vec<Value> = Vec::new();
                 let mut unknown = false;
@@ -978,9 +972,9 @@ impl<'a> Evaluator<'a> {
                 None => Value::Absent,
             },
             Some("intervals") => self.intervals(o, t, "state")?,
-            // its own events and attempts, read by their index, where each
-            // read the whole log or attempt log (the audit's cost B1,
-            // ADR-0205 decision 12)
+            // its own events and attempts, read by their index, never the
+            // whole log or attempt log (the audit's cost B1, ADR-0205
+            // decision 12)
             Some("transitions") => {
                 let p = self.world.parts(o)?;
                 Value::Set(
@@ -1015,9 +1009,9 @@ impl<'a> Evaluator<'a> {
                 } else if let Some((_, kind)) = t.observations.iter().find(|(c, _)| c == m) {
                     self.collection(o, kind)?
                 } else if let Some((_, e)) = t.derived.iter().find(|(d, _)| d == m) {
-                    // past its bound of hops a derived value is not run, where
-                    // its recursion overflowed the stack (tenth production
-                    // review) and then answered none (fourteenth production
+                    // past its bound of hops a derived value is not run, never
+                    // answered none, since its recursion would overflow the
+                    // stack (tenth production review, fourteenth production
                     // review N1)
                     if self.hops >= DERIVED_HOPS {
                         return not_run(format!(
@@ -1042,9 +1036,8 @@ impl<'a> Evaluator<'a> {
                     // what it reads, the clause reads (DESIGN.md §5.5)
                     derived.naming = self.naming;
                     let v = crate::metric::typed_derived(self.world, t, e, derived.eval(e)?);
-                    // a division by zero it read reaches its reader, where an
-                    // effect taking it ran no step, passed nothing or cleared
-                    // what was stored (ADR-0277)
+                    // a division by zero it read reaches its reader, whose
+                    // effect refuses it as one written in it (ADR-0277)
                     let failed = v.is_absent() && derived.failed_arithmetic.get();
                     if failed {
                         self.failed_arithmetic.set(true);
@@ -1076,8 +1069,8 @@ impl<'a> Evaluator<'a> {
 
     /// An end the other side stores: the objects of the target type whose
     /// opposite end names this one, read through that end's column and its
-    /// index, never the target type whole, which made every read of a
-    /// claim's lines read every line (PERF-SCAN).
+    /// index, never the target type whole, so a read of a claim's lines
+    /// reads its lines alone (PERF-SCAN).
     fn opposite_end(
         &self,
         o: &Object,
@@ -1114,8 +1107,7 @@ impl<'a> Evaluator<'a> {
         }
         // over a literal, `x in {a, b}` is `x == a or x == b`: true where a
         // known element equals it, unknown where none does and one is
-        // unknown (§8.2), where an unknown element was never equal (the
-        // values audit's A8)
+        // unknown (§8.2, the values audit's A8)
         if let Expr::Set(items) = right {
             let mut unknown = false;
             for i in items {
@@ -1187,9 +1179,9 @@ impl<'a> Evaluator<'a> {
 
     /// An arithmetic's two operands, a decimal literal widened to the scale
     /// of a decimal it is combined with that has more places, as §8.1 says
-    /// it takes it, which loses nothing: `2.5 / w` divides at `w`'s scale
-    /// where it divided at one place, and `w * 2.5` has the places the
-    /// metric evaluator gives it (the audit's values A1 and A2).
+    /// it takes it, which loses nothing: `2.5 / w` divides at `w`'s scale,
+    /// and `w * 2.5` has the places the metric evaluator gives it (the
+    /// audit's values A1 and A2).
     fn operands(
         &self,
         l: &Expr,
@@ -1241,9 +1233,9 @@ impl<'a> Evaluator<'a> {
     }
 
     /// [`combine`], an arithmetic of present values with no value refused
-    /// as out of range, where it was unknown and a filter dropped the
-    /// object, a derivation answered null and an invariant held (the
-    /// audit's values U1 to U5, ADR-0205 decision 2); a division by zero
+    /// as out of range, never unknown, so no filter drops the object, no
+    /// derivation answers null and no invariant holds by it (the audit's
+    /// values U1 to U5, ADR-0205 decision 2); a division by zero
     /// stays unknown (§8.2, ADR-0047), noted for an effect to refuse.
     fn combined(&self, op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
         let v = combine(op, a, b)?;
@@ -1564,9 +1556,9 @@ impl<'a> Evaluator<'a> {
                 .extend(matched);
         }
         // the body of `any`, `none` and a count of elements is a condition
-        // each selected element meets too, as its `where` is, where it was
-        // ignored and `any(f in flags: f)` was true over `[false]` (§8.3,
-        // the audit's values G1); the elements named are those meeting both
+        // each selected element meets too, as its `where` is, so
+        // `any(f in flags: f)` is false over `[false]` (§8.3, the audit's
+        // values G1); the elements named are those meeting both
         if let Some(b) = body
             && (matches!(kind, "any" | "none") || (kind == "count" && !distinct))
         {
@@ -1822,10 +1814,9 @@ impl<'a> Evaluator<'a> {
     /// Every object holding a reference to this one, in the order objects
     /// were made, its parts excepted, since they cascade
     /// (`declaration-syntax.md` §6.5): each stored end that may name it read
-    /// by its column's index, as `storage-schema.md` §5 has it, where the
-    /// store was read whole for each object, a filter over a type running to
-    /// its deadline at 1 GB (seventh production review REFERRERS, ADR-0194
-    /// decision 3).
+    /// by its column's index, as `storage-schema.md` §5 has it, never the
+    /// store whole for each object (seventh production review REFERRERS,
+    /// ADR-0194 decision 3).
     fn referrers(&self) -> Result<Value, NotRun> {
         let Some(this) = self.this else {
             return Ok(Value::Set(Vec::new()));
@@ -1886,8 +1877,8 @@ impl<'a> Evaluator<'a> {
     /// A subject's collection of a kind: its observations nothing has
     /// corrected, in ascending id order (`declaration-syntax.md` §6.8).
     fn collection(&self, o: &Object, kind: &str) -> Result<Value, NotRun> {
-        // its subject's observations alone, by the subject's column, where
-        // each read the whole kind; a correction shares its subject, so the
+        // its subject's observations alone, by the subject's column, never
+        // the whole kind; a correction shares its subject, so the
         // corrected are among them (the audit's cost B1, ADR-0205 decision
         // 12)
         let of_kind = self.world.of_type_where(
@@ -2112,9 +2103,9 @@ pub(crate) fn reads_any(e: &Expr, names: &BTreeSet<String>) -> bool {
 
 /// Whether an evaluator's argument or a metric's binding reads anything the
 /// library marks personal, which a consulted reference then writes as
-/// `(personal)`: a consulted key wrote the value, `crm.known(an address)`,
-/// which an erasure did not reach, and the log's export, which leaves
-/// personal inputs out, carried it (thirteenth production review A).
+/// `(personal)`, since a key holding the value, `crm.known(an address)`,
+/// would be out of an erasure's reach and carried by the log's export,
+/// which leaves personal inputs out (thirteenth production review A).
 fn reads_personal(lib: &crate::model::Library, e: &Expr) -> bool {
     reads_any(e, &personal_names(lib))
         || (identities_personal(lib) && reads_any(e, &identity_names(lib)))
@@ -2122,9 +2113,9 @@ fn reads_personal(lib: &crate::model::Library, e: &Expr) -> bool {
 
 /// Whether a value of type `identity` is personal: an actor type marks its
 /// identity attribute so, and a copy of an identity is the identity
-/// (ADR-0203 decision 1), so a consulted key masks one, where `crm.known`
-/// of an author's address kept it past her erasure (the audit's personal
-/// data S19, ADR-0205 decision 6).
+/// (ADR-0203 decision 1), so a consulted key masks one, which `crm.known`
+/// of an author's address would otherwise keep past her erasure (the
+/// audit's personal data S19, ADR-0205 decision 6).
 pub(crate) fn identities_personal(lib: &crate::model::Library) -> bool {
     lib.types.values().any(|t| {
         t.actor_identity()
@@ -2354,8 +2345,8 @@ pub fn combine(op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
     use Value as V;
     // the zero of a sum over no elements meets a duration or an amount in a
     // sum, a difference or a comparison; a product or a quotient takes 0 as
-    // the scalar it is, where `0 * du` was a duration times a duration and
-    // not run (the differential battery, 2026-10-15)
+    // the scalar it is, so `0 * du` is a duration (the differential
+    // battery, 2026-10-15)
     let (za, zb) = if matches!(op, BinOp::Mul | BinOp::Div) {
         (a.clone(), b.clone())
     } else {
@@ -2478,8 +2469,7 @@ pub fn combine(op: BinOp, a: &Value, b: &Value) -> Result<Value, NotRun> {
         ),
         (BinOp::Add | BinOp::Sub, V::Date(day), V::Duration(s)) => {
             // a date moved by part of a day has no value, as one moved past
-            // the calendar has none, where it answered not run (fifteenth
-            // production review)
+            // the calendar has none (fifteenth production review)
             if s % 86_400 != 0 {
                 return Ok(V::Absent);
             }
@@ -2981,10 +2971,10 @@ types:
         let out = Err(NotRun::OutOfRange("job-1".into()));
         assert_eq!(read("hours + 1"), out);
         // an int literal past 64 bits has none either, as a caller's filter
-        // writes it, where it was a decimal of scale 0 (the values audit's L3)
+        // writes it (the values audit's L3)
         assert_eq!(read("hours < 9223372036854775808"), out);
-        // and a duration literal past 64 bits of seconds, where it was not
-        // run (ADR-0202 decision 8)
+        // and a duration literal past 64 bits of seconds (ADR-0202 decision
+        // 8)
         assert_eq!(read("1 s < 9223372036854775808 s"), out);
         assert_eq!(read("1 s < 153722867280912931 min"), out);
         assert_eq!(read("1 s < 9223372036854775807 s"), Ok(Value::Bool(true)));
@@ -3098,8 +3088,8 @@ types:
             combine(BinOp::Add, &Value::Date(10), &Value::Duration(86_400)),
             Ok(Value::Date(11))
         );
-        // a date moved by part of a day has no value, where it was not run
-        // (fifteenth production review)
+        // a date moved by part of a day has no value (fifteenth production
+        // review)
         assert_eq!(
             combine(BinOp::Add, &Value::Date(10), &Value::Duration(3600)),
             Ok(Value::Absent)
@@ -3114,8 +3104,8 @@ types:
             Ok(usd("1.00"))
         );
         assert!(combine(BinOp::Lt, &Value::Int(1), &Value::Duration(60)).is_err());
-        // a product takes 0 as a scalar, where it was read as the zero of
-        // the duration or the amount it multiplied and not run
+        // a product takes 0 as a scalar, never as the zero of the duration
+        // or the amount it multiplies
         assert_eq!(
             combine(BinOp::Mul, &Value::Int(0), &Value::Duration(60)),
             Ok(Value::Duration(0))
