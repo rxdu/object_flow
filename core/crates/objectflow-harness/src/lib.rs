@@ -301,7 +301,7 @@ impl Run {
                 // conditions deciding over it skipped without a word, as they
                 // were on PostgreSQL before its fork (ADR-0213)
                 let before = match self.store.fork(&self.fork.0) {
-                    Ok(copy) => Some(copy),
+                    Ok(copy) => copy,
                     Err(e) => {
                         return Some(fail(
                             "fork",
@@ -351,9 +351,7 @@ impl Run {
                         if let Some(f) = self.recorded(r, object_id, events, *replayed) {
                             return Some(fail("record", f));
                         }
-                        if !*replayed
-                            && let Some(f) = before.and_then(|b| self.redecided(r, b, Some(events)))
-                        {
+                        if !*replayed && let Some(f) = self.redecided(r, before, Some(events)) {
                             return Some(fail("read set", f));
                         }
                         self.remember(r, object_id);
@@ -370,7 +368,7 @@ impl Run {
                         if let Some(f) = self.attempt_logged(r, logged) {
                             return Some(fail("attempts", f));
                         }
-                        if let Some(f) = before.and_then(|b| self.redecided(r, b, None)) {
+                        if let Some(f) = self.redecided(r, before, None) {
                             return Some(fail("refusal", f));
                         }
                     }

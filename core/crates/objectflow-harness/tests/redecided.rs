@@ -3,7 +3,7 @@
 //! examples' scans refuse too rarely for a seeded run to reach one, so a
 //! transcript reaches both sides here.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::unwrap_used)]
 
 use std::collections::BTreeMap;
 
