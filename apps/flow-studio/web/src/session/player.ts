@@ -1,8 +1,7 @@
 // An example played through the wire a step at a time, as a caller would
 // (docs/design/flow-studio.md §5, §6). Every step is a library operation or a
 // sandbox control, and every expectation is checked against what `request`,
-// `get` and `history` report. An example needing what the interface does not
-// yet offer is `waiting`, with the reason (ADR-0150, Consequences).
+// `get` and `history` report.
 
 import {
   type AttributeSpec,
@@ -162,9 +161,7 @@ export type PlanStep =
   | { kind: "step"; label: string; step: ExampleStep }
   | { kind: "tested"; label: string; step: ExampleStep; expect: Expectation };
 
-export type Outcome = "passed" | "failed" | "not run" | "waiting";
-
-export class Waiting extends Error {}
+export type Outcome = "passed" | "failed" | "not run";
 
 /** One thing done to the sandbox since it was reset, kept so a session can
  * be written as an example (docs/design/flow-studio.md §5). */
@@ -839,7 +836,7 @@ export class Player {
   }
 
   /** What differs between an expectation and what the wire reports, or null.
-   * Throws Waiting or NotRun where it cannot tell. */
+   * Throws NotRun where it cannot tell. */
   async compare(
     want: Expectation,
     v: Verdict,
@@ -1114,7 +1111,6 @@ export async function runExample(
     }
     return { outcome: "failed", why: "the example has no request under test" };
   } catch (e) {
-    if (e instanceof Waiting) return { outcome: "waiting", why: e.message };
     if (e instanceof NotRun) return { outcome: "not run", why: e.message };
     if (e instanceof Failed) return { outcome: "failed", why: e.message };
     throw e;
@@ -1125,7 +1121,7 @@ export async function runExample(
 
 /** What became of a step the page's stepper took: applied or refused by its
  * verdict; answered, imported or published, which no verdict answers; or
- * waiting, not run, failed or a fault where it could not be taken. */
+ * not run, failed or a fault where it could not be taken. */
 export interface Taken {
   status:
     | "applied"
@@ -1133,7 +1129,6 @@ export interface Taken {
     | "answered"
     | "imported"
     | "published"
-    | "waiting"
     | "not run"
     | "failed"
     | "fault";
@@ -1154,7 +1149,6 @@ export async function take(p: Player, ps: PlanStep): Promise<Taken> {
     if (ps.kind === "step" && ps.step.publish) return { status: "published" };
     return { status: "answered" };
   } catch (e) {
-    if (e instanceof Waiting) return { status: "waiting", note: e.message };
     if (e instanceof NotRun) return { status: "not run", note: e.message };
     if (e instanceof WireFault)
       return { status: "fault", note: `${e.status}: ${e.message}` };

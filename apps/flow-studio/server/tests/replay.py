@@ -3,9 +3,7 @@
 It talks HTTP only: every step is a library operation or a sandbox control,
 and every expectation is checked against what `request`, `get` and `history`
 report (`docs/design/flow-studio.md` §6, slice 1). Its outcomes are the flow
-checker's, `passed`, `failed` and `not run`, and one more: `waiting`, for an
-example that needs what the interface does not yet offer (ADR-0150,
-Consequences).
+checker's, `passed`, `failed` and `not run`.
 """
 
 from __future__ import annotations
@@ -25,10 +23,6 @@ VERBS = ("request", "propose", "approve", "reject", "withdraw")
 BUILT_IN = {"id": "text", "open": "bool", "created_at": "timestamp",
             "created_by_kind": "text", "recorded_from": "timestamp",
             "declaration_version": "int"}
-
-
-class Waiting(Exception):
-    """The example needs what the interface does not yet offer."""
 
 
 class NotRun(Exception):
@@ -647,8 +641,6 @@ def replay(wire: Wire, module_file: str,
                               f"{ex['expect']['proposal']}, and it is " \
                               f"{prop['state']}"
             out[name] = ("failed", problem) if problem else ("passed", "")
-        except Waiting as w:
-            out[name] = ("waiting", str(w))
         except NotRun as n:
             out[name] = ("not run", str(n))
         except Failed as f:

@@ -151,12 +151,11 @@ describe.each(BACKENDS)("against the %s", (backend) => {
   });
 
   describe("every example, played through the wire as the page plays it", () => {
-    it("passes, and none fails, waits or is not run", async () => {
+    it("passes, and none fails or is not run", async () => {
       const tally: Record<Outcome, number> = {
         passed: 0,
         failed: 0,
         "not run": 0,
-        waiting: 0,
       };
       const failures: string[] = [];
       for (const m of await wire.modules()) {

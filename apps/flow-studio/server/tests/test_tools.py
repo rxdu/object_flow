@@ -170,7 +170,7 @@ def test_an_agent_can_read_before_it_acts(tee):
 
 
 def test_an_unknown_actor_kind_is_a_fault_alike(tee):
-    tools(tee, "people.yaml" if "people.yaml" in FILES else FILES[0], "human")
+    tools(tee, FILES[0], "human")
     tee.found.clear()
     for body in ({"actor_kind": "robot"}, {}):
         with pytest.raises(Exception):

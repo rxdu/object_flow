@@ -98,7 +98,7 @@ class Catalogue:
         order: list[tuple[str, str]] = []
 
         def visit(src: str, file: str) -> None:
-            if (src, file) in order or any(f == file for _, f in order):
+            if any(f == file for _, f in order):
                 return
             for m in self._doc(src, file).get("imports") or {}:
                 visit(*self._file_of(m))
