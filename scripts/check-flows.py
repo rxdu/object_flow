@@ -154,8 +154,7 @@ SURROGATE_ESCAPE = re.compile(r"\\u[dD][89a-fA-F][0-9a-fA-F]{2}|\\U0000[dD][89a-
 def shallow(text):
     """A description nesting its collections deeper than NESTING refused, read from the parser's events, which recurse on
     nothing, before anything composes it, as the core's loader refuses it; and a scalar an escape made hold a surrogate,
-    which is no character, refused at the escape, as the core's loader refuses it, where it crashed a later step (the
-    values audit's C2)."""
+    which is no character, refused at the escape, as the core's loader refuses it (the values audit's C2)."""
     depth = 0
     for event in yaml.parse(text, Loader=StrictLoader):
         if isinstance(event, yaml.ScalarEvent) and SURROGATE.search(event.value):
@@ -1684,9 +1683,8 @@ def personal_errors(doc, library):
                                 f"the backfill of {tn}.{a} reads {carried}, and {a} is not personal; a backfill is a "
                                 "write; a personal value reaches only a personal attribute (the model's check 10)"))
 
-    # a metric over objects reads no personal value through a reference or a derived attribute either, where check 56,
-    # reading its item's own members, passed `d.owner.name`, `max(d.owner.salary)` and `d.owner_name`, and an agent's
-    # metric read answered each person's name and salary (sixteenth production review N6, ADR-0203 decision 2)
+    # a metric over objects reads no personal value through a reference or a derived attribute either, which check 56,
+    # reading its item's own members alone, does not see (sixteenth production review N6, ADR-0203 decision 2)
     def chains(tree, item):
         """Each path read from the item, as its members, every path of the tree, outermost first."""
         found = []
@@ -1705,8 +1703,8 @@ def personal_errors(doc, library):
         visit(tree)
         return found
 
-    # a copy of an identity is the identity, personal where an actor type marks its own so (ADR-0203 decision 1), where
-    # a metric grouped by an approver set from actor.id answered each person's address (the audit's personal data R8)
+    # a copy of an identity is the identity, personal where an actor type marks its own so (ADR-0203 decision 1; the
+    # audit's personal data R8)
     identities_personal = any(isinstance(spec, dict) and spec.get("actor_kind") and spec.get("personal")
                               for k in kinds.values() for spec in ((k or {}).get("attributes") or {}).values())
 
@@ -3578,8 +3576,7 @@ def attribute_type(spec, enums):
     if isinstance(spec.get(FIELDS), dict):
         return ("record", typ, spec[FIELDS])
     if typ.endswith("[]"):
-        # a set of values, of its element's type, where it typed as nothing, so a set added, multiplied, ordered or
-        # negated published and the core did not run it (the differential battery, 2026-10-15)
+        # a set of values, of its element's type (the differential battery, 2026-10-15)
         element = attribute_type({"type": typ[:-2]}, enums)
         return None if element is None else ("values", element)
     m = re.fullmatch(r"decimal\(\s*\d+\s*,\s*(\d+)\s*\)", typ)
@@ -3710,7 +3707,7 @@ class Typing:
             return ("bool",)
         if k == "money":
             # an amount in a currency the engine has no minor unit for, or with more places than its minor unit, is
-            # one it cannot hold, where it was rounded (the audit's values L1 and L6)
+            # one it cannot hold (the audit's values L1 and L6)
             places = flowrun.MINOR_UNITS.get(e[1])
             if places is None:
                 self.fail(f"{e[1]} is a currency whose minor unit the engine does not know")
@@ -3718,8 +3715,7 @@ class Typing:
                 self.fail(f"{e[1]} {e[2]} has more places than {e[1]}'s minor unit")
             return ("money", e[1])
         if k == "dur":
-            # a duration is whole seconds, where `1.5 s` was rounded to 2 s (the audit's values L2), and holds 64 bits of
-            # them, where one past was not run (ADR-0202 decision 8)
+            # a duration is whole seconds (the audit's values L2), and holds 64 bits of them (ADR-0202 decision 8)
             if e[2] in flowrun.SECONDS:
                 seconds = Fraction(str(e[1])) * flowrun.SECONDS[e[2]]
                 if seconds.denominator != 1:
@@ -3739,8 +3735,8 @@ class Typing:
                 return ("category",)
             if n in ((self.kinds.get(tn) or {}).get("states") or {}):
                 return ("state", tn)
-            # an enumeration's name is no value, and a name naming nothing is none, where each typed as nothing and
-            # the core did not run it (the values audit's K-9); an all-capital name is a state's, the rule below's
+            # an enumeration's name is no value, and a name naming nothing is none (the values audit's K-9); an
+            # all-capital name is a state's, the rule below's
             if n in self.enums:
                 self.fail(f"{n} is an enumeration, which is no value: name one of its members, as {n}.<MEMBER>")
                 return None
@@ -3760,7 +3756,7 @@ class Typing:
                 return attribute_type(spec, self.enums)
             if base == ("name", "actor") and "actor" not in env:
                 # who acted, as an outcome value reads it (§8.1): `.id` an identity, `.kind` an actor kind, `.principal`
-                # a string, where they typed as nothing, so `"by " + actor.id` passed and the core did not run it (D687)
+                # a string (D687)
                 return {"id": ("identity",), "kind": ("actor_kind",), "principal": ("string",)}.get(m)
             if base[0] == "name" and base[1] not in env and base[1] == ACTOR_KIND:
                 if m in ACTOR_KINDS:
@@ -3771,8 +3767,8 @@ class Typing:
                 return ("enumeration", base[1])
             if base[0] == "name" and base[1] not in env and base[1] in self.kinds and m.isupper():
                 return ("state", base[1])
-            # a type's member is one of its states, and a value with no members has none read, where each typed as
-            # nothing and the core did not run it (the values audit's K-9)
+            # a type's member is one of its states, and a value with no members has none read (the values audit's
+            # K-9)
             if base[0] == "name" and base[1] not in env and base[1][:1].isupper() and base[1] not in self.kinds:
                 return None                     # an owner nothing declares, the qualified names' rule's
             if base[0] == "name" and base[1] not in env and base[1] in self.kinds:
@@ -3828,8 +3824,7 @@ class Typing:
             f = e[1]
             if f[0] == "path" and f[1][0] == "name" and f[1][1] in self.evaluators:
                 return ("verdict",)
-            # a function the language has, given one argument, where any other call typed as nothing and the core
-            # did not run it (the values audit's K-7, K-8)
+            # a function the language has, given one argument (the values audit's K-7, K-8)
             if f[0] == "name" and f[1] not in FUNCTIONS and f[1] not in METRIC_ONLY_FUNCTIONS:
                 name = f[1]
                 self.fail(f"{name} is no function the language has: it has length, trim, date, add_months, whole, is_whole, contains, starts_with, ends_with, entered_at and time_in, and in a metric avg, median, percentile, day, week, month, quarter and year")
@@ -3845,7 +3840,7 @@ class Typing:
                 return None
             # a member function on what has it, `held` on a row of intervals or transitions, the others on an object,
             # `intervals(m)` of a member its type tracks; and a flow function names a state or a member, never a
-            # literal; where each published and the core did not run it (the values audit's K-8)
+            # literal (the values audit's K-8)
             bt = self.of(f[1], tn, x, env, seen) if f[0] == "path" else None
             if bt is not None:
                 if f[2] == "held" and bt[0] == "row":
@@ -3876,7 +3871,7 @@ class Typing:
                     return None
             # a flow function names what its object's type has: `time_in` a state, `entered_at` a state or a tracked
             # member, wherever an expression is typed, as the model's check 58 has it for a transition's body (the
-            # audit's values G2, where `time_in` of a member answered 0 s)
+            # audit's values G2)
             fname = f[1] if f[0] == "name" else f[2] if f[0] == "path" else None
             if self.flow_names and fname in ("time_in", "entered_at") and len(e[2]) == 1 and e[2][0][0] == "name":
                 on = tn
@@ -3909,8 +3904,7 @@ class Typing:
                     self.fail(f"trim takes a string, and is given {type_text(arg)}")
                 return ("string",)
             if f == ("name", "date"):
-                # the UTC day of a timestamp, or a date itself, where any argument typed and the core did not run the
-                # date of a text (ADR-0283)
+                # the UTC day of a timestamp, or a date itself (ADR-0283)
                 arg = self.of(e[2][0], tn, x, env, seen) if len(e[2]) == 1 else None
                 if arg is not None and arg[0] not in ("timestamp", "date"):
                     self.fail(f"date takes a timestamp or a date, and is given {type_text(arg)}")
@@ -3938,8 +3932,8 @@ class Typing:
                 return yields
             return {"entered_at": ("timestamp",), "time_in": ("duration",)}.get(f[1] if f[0] == "name" else None)
         if k == "changed":
-            # the event it reads is one no type here names, so a value of a type it can tell is not one, where an int
-            # was read as a log position (the values audit's G7)
+            # the event it reads is one no type here names, so a value of a type it can tell is not one (the values
+            # audit's G7)
             given = self.of(e[2], tn, x, env, seen)
             if given is not None:
                 self.fail(f"changed_since reads an event, and is given {type_text(given)}")
@@ -3953,8 +3947,7 @@ class Typing:
                 self.fail(f"not takes a bool, and is given {type_text(v)}")
             return ("bool",)
         if k == "neg":
-            # a negative of a number, an amount or a duration, where any other typed as its operand and the core did
-            # not run it (the values audit's K-5)
+            # a negative of a number, an amount or a duration (the values audit's K-5)
             v = self.of(e[1], tn, x, env, seen)
             if v is not None and v[0] not in SCALARS + ("money", "duration"):
                 self.fail(f"it negates {type_text(v)}, which has no negative")
@@ -3963,13 +3956,12 @@ class Typing:
         if k == "agg":
             _, fn, _distinct, var, coll, where, body = e
             if var is None:
-                # a metric's own count, over its rows, where it typed as an int and the core did not run it (K-9)
+                # a metric's own count, over its rows (K-9)
                 self.fail("count(where …) and count(distinct …) count a metric's rows, which no expression outside a metric has")
                 return None
             inner = dict(env)
             if var is not None and coll[0] == "set":
-                # a literal's elements share one type, its item's, where a mixed one typed as nothing and the core did
-                # not run it (the values audit's K-10)
+                # a literal's elements share one type, its item's (the values audit's K-10)
                 known = [t for t in (self.of(item, tn, x, env, seen) for item in coll[1]) if t is not None]
                 clash = next(((a, b) for a in known for b in known if not self.alike(a, b)), None)
                 if clash is not None:
@@ -3989,7 +3981,7 @@ class Typing:
                 elif element is not None:
                     inner[var] = element          # a set of values, its item of their type (K-10)
                 elif ct is not None:
-                    # an aggregate ranges over a collection, where one over a single value was not run (K-10)
+                    # an aggregate ranges over a collection (K-10)
                     t = type_text(ct)
                     self.fail(f"{fn} ranges over {t}, which is no collection")
                     return None
@@ -4036,7 +4028,7 @@ class Typing:
                         self.fail(f"it asks whether {type_text(left)} is among {type_text(it)}")
                         break
             else:
-                # membership in a collection, where one in a single value was not run (the values audit's K-6)
+                # membership in a collection (the values audit's K-6)
                 rt = self.of(right, tn, x, env, seen)
                 if rt is not None and rt[0] not in ("objects", "values", "rows"):
                     self.fail(f"it asks for membership in {type_text(rt)}, which is no collection")
@@ -4069,13 +4061,12 @@ class Typing:
                 elif l is not None and r is not None and not self.alike(l, r):
                     self.fail(f"it compares {type_text(l)} with {type_text(r)}")
                 elif op not in ("==", "!=") and any(v is not None and v[0] == "enumeration" for v in (l, r)):
-                    # an enumeration has no order, which the core did not run (the values audit's K-4)
+                    # an enumeration has no order (the values audit's K-4)
                     self.fail(f"it orders {type_text(l if l is not None and l[0] == 'enumeration' else r)}, and an "
                               "enumeration has no order")
                 elif op not in ("==", "!=") and any(v is not None and v[0] in ("state", "values", "record") for v in (l, r)):
-                    # nor has a state or a set, which the core did not run and the runner ordered by name or crashed
-                    # on (the differential battery, 2026-10-15), nor a value of several fields, equal by its fields
-                    # alone (ADR-0254 decision 3)
+                    # nor has a state or a set (the differential battery, 2026-10-15), nor a value of several fields,
+                    # equal by its fields alone (ADR-0254 decision 3)
                     v = l if l is not None and l[0] in ("state", "values", "record") else r
                     what = {"state": "a state", "record": "a value of several fields"}.get(v[0], "a set")
                     self.fail(f"it orders {type_text(v)}, and {what} has no order")
@@ -4127,14 +4118,14 @@ class Typing:
         if op in ("+", "-"):
             if numeric(l) and numeric(r):
                 # a literal takes its partner's scale (§8.1), and one of more places than a decimal holds would lose
-                # them, where `rate + 0.005` was rounded on its write (the audit's values W5)
+                # them (the audit's values W5)
                 for a, b in ((l, r), (r, l)):
                     if a[0] == "number" and b[0] == "decimal" and b[1] is not None and a[1] > b[1]:
                         self.fail(f"it {'adds' if op == '+' else 'subtracts'} a number of {a[1]} places and a decimal of "
                                   f"scale {b[1]}, which holds fewer")
                         return None
-                # two literals keep the more places, and a literal beside an int its own, as the core aligns them, where
-                # `i + 1.5` was an int and written to one (the differential battery)
+                # two literals keep the more places, and a literal beside an int its own, as the core aligns them (the
+                # differential battery)
                 if l[0] == r[0] == "number":
                     return ("number", max(l[1], r[1]))
                 for a, b in ((l, r), (r, l)):
@@ -4163,7 +4154,7 @@ class Typing:
             if op == "-" and l[0] == r[0] == "timestamp":
                 return ("duration",)
             # a date less a date is a duration, and a date plus or minus a duration a date, as §8.3's Dates says and
-            # the core runs; every other with a date is an error, where it typed as nothing (the values audit's K-1)
+            # the core runs; every other with a date is an error (the values audit's K-1)
             if op == "-" and l[0] == r[0] == "date":
                 return ("duration",)
             if l[0] == "date" and r[0] == "duration":
@@ -4199,7 +4190,7 @@ class Typing:
             self.fail(f"it divides {type_text(l)} by {type_text(r)}, and / takes its scalar on the right")
             return None
         if "timestamp" in (l[0], r[0]) or "date" in (l[0], r[0]):
-            # neither is multiplied nor divided, where it typed as nothing and the core did not run it (K-1, K-2)
+            # neither is multiplied nor divided (K-1, K-2)
             self.fail(f"it {'multiplies' if op == '*' else 'divides'} {type_text(l)} by {type_text(r)}, and a time or a "
                       "date is neither multiplied nor divided")
             return None
@@ -4238,8 +4229,7 @@ def typed_write_error(typing, t, step, tn, x, env, kinds, enums):
     if target is None or got is None:
         return None
     if (target[0] == "values") != (got[0] == "values"):
-        # a set holds a set and nothing else does, where either was written and the core refused it at run time (the
-        # differential battery)
+        # a set holds a set and nothing else does (the differential battery)
         return f"{type_text(got)}, to {loc}, which holds {type_text(target)}: a write's value must fit its target"
     # a value of several fields holds one of its own value, and nothing else holds one (ADR-0254 decision 5)
     if target[0] == "record" or got[0] == "record":
@@ -4347,7 +4337,7 @@ def expression_type_errors(doc, library):
                 for e in step_expressions(st, kind)[:-1] if looped else step_expressions(st, kind):
                     check(where, f"{tn}.{xn}'s effect", e, tn, x, env)
                 if looped:
-                    # a loop's filter reads each item, bound as the loop's own steps see it, where it typed as nothing
+                    # a loop's filter reads each item, bound as the loop's own steps see it
                     inner = binders(kinds, tn, x, path + ("foreach", "steps", 0))
                     own = {n: (("reference", k) if k else None) for n, k in inner.items()}
                     check(where, f"{tn}.{xn}'s effect", st["foreach"]["where"], tn, x, own)
@@ -4355,8 +4345,8 @@ def expression_type_errors(doc, library):
                     misfit = typed_write_error(typing, t, st["assign"], tn, x, env, kinds, enums)
                     if misfit:
                         out.append((where, "names", f"{tn}.{xn} writes {st['assign']['expr']}, {misfit} (the model's check 17)"))
-                # an element added or removed fits its set, and a loop ranges over a collection, where each published
-                # and the core refused or did not run it (the values audit's K-10)
+                # an element added or removed fits its set, and a loop ranges over a collection (the values audit's
+                # K-10)
                 if kind in ("add", "remove"):
                     misfit = typed_element_error(typing, t, st[kind], tn, x, env, kinds, enums)
                     if misfit:
@@ -4428,8 +4418,7 @@ def metric_arith(op, a, b):
     elif b[0] == "number" and a[0] == "decimal":
         b = a
     if op in ("*", "/") and any(k[0] in ("timestamp", "date") for k in (a, b)):
-        # neither is multiplied nor divided, as K-1 refuses elsewhere, where a metric's was not run or answered a date's
-        # seconds (the differential battery)
+        # neither is multiplied nor divided, as K-1 refuses elsewhere (the differential battery)
         t = a if a[0] in ("timestamp", "date") else b
         verb = "multiplies" if op == "*" else "divides"
         return f"it {verb} {type_text(t)}, and a time or a date is neither multiplied nor divided"
@@ -4550,9 +4539,8 @@ def argument_type_errors(doc, library):
     kinds.update(dict(types(doc)))
     kinds.update(observation_kinds(kinds))       # a create recording an observation passes its fields (ADR-0270)
     enums = set(doc.get("enumerations") or {})
-    # a value no literal or name tells is typed as an expression is, where an
-    # int passed to a time or an amount to an int was taken and the core
-    # refused the call (the differential battery, 2026-10-16)
+    # a value no literal or name tells is typed as an expression is (the
+    # differential battery, 2026-10-16)
     typing = Typing(kinds, enums | {n for names in (doc.get("imports") or {}).values() for n in names if n not in kinds},
                     set(doc.get("categories") or []) | BUILT_IN_CATEGORIES, evaluator_names(doc))
     out = []
@@ -4583,7 +4571,7 @@ def argument_type_errors(doc, library):
                         got = typing.of(tree, tn, x, env)
                         value = typed_kind(got) if got is not None and not typing.broken else None
                         # an identity and a string the typing gives the benefit of the doubt, as it does in a
-                        # comparison, where `actor.principal` passed to an identity input was refused (alike)
+                        # comparison (alike)
                         if value and target and {value[0], target[0]} == {"identity", "string"}:
                             value = None
                     if target and value and not fits(target, value, kinds):
@@ -4670,8 +4658,7 @@ def value_errors(doc, tn, t):
         for owner, value in qualified:
             if not re.fullmatch(r"[A-Z][A-Z0-9_]*", value):
                 # a member of another case: an enumeration's is one of its values, and an owner nothing declares names
-                # nothing, where Foo.bar and Kind.small passed and the core did not run them; ActorKind.<kind> is the
-                # typing's, whatever a module declares (ADR-0282, ADR-0269)
+                # nothing; ActorKind.<kind> is the typing's, whatever a module declares (ADR-0282, ADR-0269)
                 if owner == ACTOR_KIND:
                     pass
                 elif owner in enums and value not in enums[owner]:
@@ -5302,8 +5289,7 @@ def identifier_errors(doc, tn, t, library):
                 if not re.fullmatch(r"n(:\d+)?", ph):
                     out.append((where + ("format",), "names", f"{tn}.{a}'s format has {{{ph}}}, whose width is not a number of digits"))
                 elif ph.startswith("n:") and int(ph[2:]) > IDENTIFIER_WIDTH:
-                    # a width a number can fill, where one of a million panicked as each object was made (tenth
-                    # production review)
+                    # a width a number can fill (tenth production review)
                     out.append((where + ("format",), "names", f"{tn}.{a}'s format has {{{ph}}}, wider than the "
                                                               f"{IDENTIFIER_WIDTH} digits a number is padded to at most"))
                 continue

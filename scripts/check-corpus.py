@@ -179,10 +179,8 @@ def check_amendments():
 
 
 def check_defect_index():
-    """Every register entry must appear in the register's own index table.
-
-    The index reached 62 of 170 before anyone noticed, which is what
-    LESSONS.md predicts of a summary maintained beside its body.
+    """Every register entry must appear in the register's own index table,
+    since a summary maintained beside its body drifts from it (LESSONS.md).
     """
     reg = ROOT / "docs/design/defects.md"
     text = reg.read_text()
@@ -194,11 +192,10 @@ def check_defect_index():
 def check_answer_blocks():
     """Recommendation paragraphs belong only in the answers section.
 
-    A scripted edit keyed on `^\\d+\\. ` once inserted four of them into two
-    unrelated numbered lists, including the name-resolution order check 19
-    depends on.  Nothing mechanical distinguishes that from a legitimate
-    indented continuation -- the shapes are identical -- so this checks the one
-    thing that is decidable: where those paragraphs are allowed to be.
+    One inserted into a numbered list, such as the name-resolution order check
+    19 depends on, has the shape of a legitimate indented continuation, so this
+    checks the one thing that is decidable: where those paragraphs are allowed
+    to be.
     """
     spec = ROOT / "docs/design/declaration-syntax.md"
     lines = spec.read_text().split("\n")
@@ -262,7 +259,7 @@ def check_declarations():
     the syntax checker. The YAML descriptions and the metric scenarios are
     checked by scripts/check-flow-docs.py and scripts/check-scenarios.py, which
     scripts/check-all runs as gates of their own, so they are not run again
-    here, where they took 5.8 of this check's 6 minutes (2026-11-03).
+    here, where they would take most of this check's time (2026-11-03).
 
     Decision records are exempt: they are historical, and several deliberately
     quote the notation of their own moment with a note saying what replaced it.
@@ -310,10 +307,9 @@ def _num(s):
 def check_counts(maxcheck):
     """The numbers the status lines quote must match what they count.
 
-    D176 corrected a set of stale counts and D200 found eight more one day
-    later, because nothing held a summary against its source.  This holds the
-    register size, the open count and the check counts against the register,
-    the check table and the syntax checker's own output.
+    This holds the register size, the open count and the check counts against
+    the register, the check table and the syntax checker's own output, since
+    nothing else holds a summary against its source (D176, D200).
     """
     reg = (ROOT / "docs/design/defects.md").read_text()
     total = len(re.findall(r"^### D\d+$", reg, re.M))

@@ -182,8 +182,8 @@ def requested(store, xn, oid, actor, inputs, flows=None, read_evidence=None):
     identity, kind = who(store, actor)
     if oid is not None and (oid not in store.objects or store.type_of(oid) != DECLARATION_CHANGE):
         raise Refused("not_found", remedy="unreachable_from_here")
-    # a supersession is a publish's, and the approval is its own operation, where a request of it was taken as no
-    # transition (ninth production review N-2, ADR-0196 decision 7)
+    # a supersession is a publish's, and the approval is its own operation (ninth production review N-2, ADR-0196
+    # decision 7)
     if xn in ("supersede", "publish") and oid is not None:
         raise Refused("not_requestable", remedy="unreachable_from_here", parents=["publish"])
     if xn not in MOVES or (xn == "draft") != (oid is None):
@@ -359,7 +359,7 @@ class Found:
 
     def own(self, severity, code, message):
         """A finding of its own, never merged with another of its code: each of the checks' findings says a different
-        thing, where merging them by code kept the first module's alone (D608); an exact repeat once."""
+        thing (D608); an exact repeat once."""
         if not any(f["code"] == code and f["message"] == message for f in self.findings):
             self.findings.append({"severity": severity, "code": code, "message": message, "ids": []})
 
@@ -902,7 +902,7 @@ def impact(store, new, found, actor, change_id, ran=None, reads=None):
                 for frm, to in maps.items():
                     if frm not in (ot.get("attributes") or {}):
                         # the installed type lacks it, so the entry renames nothing, as the core's reads the installed
-                        # type, where a value an earlier version removed was carried to the new name (F2)
+                        # type, so that no value an earlier version removed is carried to the new name (F2)
                         continue
                     if frm in o.attrs:
                         o.attrs[to] = o.attrs.pop(frm)
@@ -974,7 +974,7 @@ def impact(store, new, found, actor, change_id, ran=None, reads=None):
                     continue
                 ev, tree = flowrun.Evaluator(sim, o.type, oid), flowrun.parsed(str(text))
                 # what its attribute holds, an integer to a decimal at its scale and an identity well formed, one it
-                # cannot hold refusing the publish, where it was written as it came, as the core's
+                # cannot hold refusing the publish, as the core's
                 v, why = fitted(spec, ev.value(tree, {}), ev.held_kind(tree, ev.kinds_here({}), {}))
                 if why is None and str(spec.get("type")) == "identity" and isinstance(v, str):
                     why = flowrun.identity_fault(v, kinds)

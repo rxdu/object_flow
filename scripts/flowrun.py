@@ -282,8 +282,8 @@ def at_declared_scale(spec, v, oid=None):
     if v is ABSENT or not typ or (spec or {}).get("reference"):
         return v
     if typ.endswith("[]"):
-        # a set holds a set, each element at its element's type, and nothing else, as the core's fit_value writes it,
-        # where a value of another kind was written whole and the object could not be read (the differential battery)
+        # a set holds a set, each element at its element's type, and nothing else, as the core's fit_value writes it
+        # (the differential battery)
         if not is_set(v):
             raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[oid] if oid else [])
         return tuple(at_declared_scale(dict(spec, type=typ[:-2]), x, oid) for x in v)
@@ -303,7 +303,7 @@ def at_declared_scale(spec, v, oid=None):
     elif typ == "bool":
         fits = isinstance(v, bool)
     # an amount, a duration or a time takes a number, a date a date and an enumeration's attribute its own member, as
-    # the core's fit_value, where a state written to any of them was held (the differential battery)
+    # the core's fit_value (the differential battery)
     elif typ.startswith("money(") or typ in ("duration", "timestamp"):
         fits = number
     elif typ == "date":
@@ -427,8 +427,8 @@ def held_arith_kind(op, a, b):
         return ("decimal", places(a, b)) if a[0] != "int" else ("other",)   # an int by a decimal is not run
     if op == "/" and a == b and a[0] in ("money", "duration"):
         return ("decimal", 6)
-    # a date less a date is a duration of whole days, and a date moved by one a date (ADR-0145), where the read wrote
-    # the duration as a number (the differential battery)
+    # a date less a date is a duration of whole days, and a date moved by one a date (ADR-0145; the differential
+    # battery)
     if op == "-" and a[0] == b[0] == "date":
         return ("duration",)
     if op in ("+", "-") and a[0] == "date" and b[0] == "duration":
@@ -472,7 +472,7 @@ def bucket(unit, ts):
     """A timestamp's UTC calendar bucket, the week being the ISO 8601 week that begins on Monday (ADR-0106); a date's
     own, since the start of its day, UTC, is in it (ADR-0145)."""
     t = EPOCH + datetime.timedelta(seconds=math.floor(instant(ts)))
-    # a year of four digits, below 1000 as above it, as the core writes it, where `%Y` wrote `999` (the audit's values R8)
+    # a year of four digits, below 1000 as above it, as the core writes it and `%Y` does not (the audit's values R8)
     if unit == "week":
         year, week, _ = t.isocalendar()
         return f"{year:04d}-W{week:02d}"
@@ -1144,7 +1144,7 @@ class Evaluator:
         """Real elapsed time: every span in the state, a current one up to now, whatever state the object is in; the
         closed stretch is a rule of a span's .duration in a metric, not of time_in (declaration-syntax.md §8.3, ADR-0147)."""
         if state not in ((self.s.kinds.get(o.type) or {}).get("states") or {}):
-            # of what is no state it is not run, as the core does not run it, where it was 0 s (the audit's values G2)
+            # of what is no state it is not run, as the core does not run it (the audit's values G2)
             raise NotRunnable(f"`time_in({state})`, which names no state of {o.type}")
         spans = [sp for sp in o.spans.get("state", []) if sp["state"] == ("state", o.type, state)]
         return sum(((sp["left_at"] if sp["left_at"] is not ABSENT else self.s.now) - sp["entered_at"] for sp in spans), Fraction(0))
@@ -1300,10 +1300,9 @@ class Evaluator:
     def as_held(self, e, env, r):
         """A quotient, or a product of an amount or a duration, rounded half to even where the core's evaluator rounds
         it (declaration-syntax.md §8.3): a decimal quotient at its dividend's scale, an amount at its currency's minor
-        unit, a duration at whole seconds; a product of numbers is exact. Where it rounded only a value written to an
-        attribute, and a derived quotient that did not terminate failed its read (the audit's values R1). Then a value
-        past what the core holds is out of range: a duration or a time past 64 bits of seconds, a decimal or an amount
-        past 128 bits of units or 38 places, where the runner answered it (R5, ADR-0205 decision 2)."""
+        unit, a duration at whole seconds; a product of numbers is exact (the audit's values R1). Then a value past what
+        the core holds is out of range: a duration or a time past 64 bits of seconds, a decimal or an amount past 128
+        bits of units or 38 places (R5, ADR-0205 decision 2)."""
         try:
             kinds = self.kinds_here(env)
             k = held_arith_kind(e[1], self.held_kind(e[2], kinds, env), self.held_kind(e[3], kinds, env))
@@ -1346,7 +1345,7 @@ class Evaluator:
     def held_kind(self, e, kinds, values=None):
         """The type the core's evaluator holds an expression's value at: `kind`, except that arithmetic aligns as it is
         evaluated (`held_arith_kind`); given the values of its names, an `if` at the branch it takes, as the core holds
-        it, where its first branch's scale was taken for either (the audit's values R7)."""
+        it (the audit's values R7)."""
         if e[0] == "bin" and e[1] in ("+", "-", "*", "/"):
             return held_arith_kind(e[1], self.held_kind(e[2], kinds, values), self.held_kind(e[3], kinds, values))
         if e[0] == "neg":
@@ -1406,7 +1405,7 @@ class Evaluator:
         if is_date(a) and op in ("+", "-") and isinstance(b, Fraction):
             if b % 86400:
                 # a date moved by part of a day is out of range, as one moved past the calendar is, which a read refuses
-                # as the core does (ADR-0205 decision 2), where it read as null (the differential battery)
+                # as the core does (ADR-0205 decision 2; the differential battery)
                 raise OverflowError("a date moved by part of a day")
             return a + datetime.timedelta(days=int(b / 86400) * (1 if op == "+" else -1))
         raise NotRunnable(f"a date {op} a value that is not a date or a duration of days")
@@ -1536,7 +1535,7 @@ class Evaluator:
                 held = None
             # a time is a Fraction here, as a decimal, an amount and a duration are, so an int, a text or a bool is
             # none, and a Fraction is one where it is held as one or its kind cannot be told; any other value is not
-            # run, as the core's is, where text raised TypeError and 5 read as a time (ADR-0283)
+            # run, as the core's is (ADR-0283)
             if not isinstance(v, Fraction) or held not in ("timestamp", "other", None):
                 raise NotRunnable("date of a value that is not a timestamp or a date")
             return (EPOCH + datetime.timedelta(seconds=math.floor(v))).date()
@@ -3460,7 +3459,7 @@ class Runner:
                     continue
                 if v is ABSENT:
                     # arithmetic on an absent operand has no value, which refuses the request as one past its bound
-                    # does, where it answered not run (fourteenth production review N5)
+                    # does (fourteenth production review N5)
                     raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[o.id])
                 if self.owner_end(attrs.get(spec["location"])) and o.attrs.get(spec["location"]) not in (None, v):
                     raise NotRunnable("re-parenting a part by an effect, whose whole_open guard this runner does not yet evaluate")
@@ -3615,8 +3614,8 @@ class Runner:
                         asking = Evaluator(work, tn, o.id, inputs, ctx.who, ctx.stubs)
                         v = asking.value(flowexpr.parse(e), {})
                         if v is ABSENT and asking.failed_arithmetic:
-                            # an input a division by zero left with none refuses, as an effect's value does, where it
-                            # was not passed (ADR-0185, ADR-0277)
+                            # an input a division by zero left with none refuses, as an effect's value does (ADR-0185,
+                            # ADR-0277)
                             raise Refused("unsatisfied", "value_in_range", "unreachable_from_here", objects=[o.id])
                         if v is not ABSENT:
                             values[k] = v
@@ -3728,7 +3727,7 @@ class Runner:
                     proposal_event(work, key, "invalidate", "PENDING", "INVALIDATED", ctx.who["id"])
                     ctx.erased.setdefault(key, set()).update(names)
         # and every one decided on it keeps its inputs but those personal to the transition it proposed, one redact
-        # event each, which an erasure left in the proposal, its history and the log (thirteenth production review A)
+        # event each (thirteenth production review A)
         for key, proposal in work.proposals.items():
             if proposal["state"] == "pending" or proposal["object"] != o.id or key not in work.objects:
                 continue
