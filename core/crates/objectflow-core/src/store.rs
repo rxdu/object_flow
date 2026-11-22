@@ -4023,8 +4023,8 @@ impl Store {
     /// The write-ahead log carried into the store's file and truncated,
     /// waiting `wait` for the reads still open on it, which a service holding
     /// back its long reads leaves short: whether it completed, an erasure's
-    /// truncation, due till then, done with it. Reads that always overlapped
-    /// kept the log growing, 3.2 GB in 150 s, and an erasure's frames in it
+    /// truncation, due till then, done with it. Reads that always overlap
+    /// would otherwise keep the log growing, and an erasure's frames in it
     /// (fourth production review A-5, A-14).
     pub fn truncate_log(&mut self, wait: std::time::Duration) -> Stored<bool> {
         // PostgreSQL's log is its own; what an erasure left due is its vacuum
@@ -8284,7 +8284,7 @@ fn write(
             "UPDATE of_attempt SET actor_principal = ?2 WHERE lower(actor_principal) = lower(?1)",
             "UPDATE of_interval SET entered_by = ?2 WHERE entered_by = ?1",
             // a key the object's id already holds gives way, as SQLite's
-            // update or replace had it, which PostgreSQL has no form of
+            // update or replace would have it, which PostgreSQL has no form of
             "DELETE FROM of_idempotency WHERE actor_id = ?2 AND key IN \
              (SELECT key FROM of_idempotency WHERE actor_id = ?1)",
             "UPDATE of_idempotency SET actor_id = ?2 WHERE actor_id = ?1",

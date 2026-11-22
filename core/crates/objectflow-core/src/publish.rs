@@ -211,7 +211,7 @@ pub fn prepare(world: &World<'_>, change: &str, actor: &str) -> Result<Option<Pr
 /// Findings gathered by category, in the order first met, with the ids each
 /// already names, by its place, so that naming one more is a lookup and not
 /// a search of its list: a backfill names every object of its type under one
-/// finding, which a search made quadratic in them.
+/// finding, which a search would make quadratic in them.
 #[derive(Debug, Default)]
 struct Found(Vec<Finding>, BTreeMap<usize, BTreeSet<String>>);
 
@@ -228,9 +228,7 @@ impl Found {
         let at = match findings.iter().position(|f| f.code == code) {
             // one of its code met already takes the graver severity and its
             // message, so a fatal met after a notice of its code refuses the
-            // publish whatever order the objects are met in, where a backfill
-            // that fitted its first object kept the notice and skipped a later
-            // object it could not write
+            // publish whatever order the objects are met in
             Some(at) => {
                 let f = &mut findings[at];
                 if gravity(severity) < gravity(f.severity) {
@@ -324,8 +322,8 @@ pub fn simulate(world: &World<'_>, draft: &Draft<'_>) -> Result<Simulated, NotRu
 
 /// [`simulate`], keeping what an approval installs only where it is
 /// installing: a dry run's report needs no copy of every object as the
-/// mappings leave it, which was a third copy of the store in memory, beside
-/// the store as read and the simulation (MEMORY).
+/// mappings leave it, which would be a third copy of the store in memory,
+/// beside the store as read and the simulation (MEMORY).
 fn simulate_as(
     world: &World<'_>,
     draft: &Draft<'_>,
@@ -353,10 +351,10 @@ pub fn checks_of(old: &Library, now: i64, draft: &Draft<'_>) -> Result<Checked, 
     checks_until(old, now, draft, None)
 }
 
-/// [`checks_of`] by a deadline, where one is given: a dry run's, whose one
-/// slot a change's checks held as long as they took, past every deadline
-/// (eleventh production review). Checks past it are not run as a read past
-/// its deadline is not, their findings incomplete.
+/// [`checks_of`] by a deadline, where one is given: a dry run's, so a
+/// change's checks hold its one slot no longer than the deadline (eleventh
+/// production review). Checks past it are not run as a read past its
+/// deadline is not, their findings incomplete.
 pub fn checks_until(
     old: &Library,
     now: i64,
@@ -427,11 +425,10 @@ fn checks_by(old: &Library, now: i64, draft: &Draft<'_>) -> Result<Checked, NotR
         ..report
     };
     // each of the checks' findings of its own, never merged with another
-    // of its code: each says a different thing, where merging them by code
-    // kept the first module's alone (D608); an exact repeat once, found by a
-    // set, where each was compared with every one before it, so a change of
-    // 60,000 types checked in 374 s, past the dry run's deadline (thirteenth
-    // production review D)
+    // of its code, since each says a different thing (D608); an exact repeat
+    // once, found by a set, never by comparing each with every one before
+    // it, which is quadratic in a change's findings (thirteenth production
+    // review D)
     let mut seen: BTreeSet<(String, String)> = found
         .0
         .iter()
@@ -534,9 +531,9 @@ fn simulate_checked(
 }
 
 /// The world a version is simulated in, over the read it simulates on: its
-/// deadline bounding the simulation, where a new rule's cost over the
-/// objects ran on past it (PUBLISH-SCALE), and its stop, so an urgent cut of
-/// the log stops the simulation as it stops the read (ADR-0195 decision 1).
+/// deadline bounding the simulation, so a new rule's cost over the objects
+/// stops there (PUBLISH-SCALE), and its stop, so an urgent cut of the log
+/// stops the simulation as it stops the read (ADR-0195 decision 1).
 fn simulating<'l>(new: &'l Library, world: &World<'_>) -> World<'l> {
     let mut sim = World::new(new, world.now);
     sim.deadline = world.deadline;
@@ -565,8 +562,8 @@ fn history_roots(lib: &Library) -> BTreeSet<String> {
 
 /// A type a version dropped, as the store keeps it: its objects and history
 /// readable, no transition but its erasure, so the personal data its objects
-/// hold can still be erased, where none could be once its type was dropped
-/// (`storage-schema.md` §10, the audit's personal data S14).
+/// hold can still be erased (`storage-schema.md` §10, the audit's personal
+/// data S14).
 pub(crate) fn retired(t: &crate::model::Type) -> crate::model::Type {
     let mut r = t.clone();
     r.transitions
@@ -1230,9 +1227,8 @@ fn impact(
     moved_attribute_notices(old, &new, &mut found);
     // the objects as the mappings leave them, read under the new version:
     // each the store's own, shared with the world it was read in, until a
-    // mapping writes it, which copies it then, where every object was
-    // copied, the version's own changes or none, a copy of the store beside
-    // the store as read (MEMORY, ADR-0222)
+    // mapping writes it, which copies it then, never a copy of the store
+    // beside the store as read (MEMORY, ADR-0222)
     let mut mapped: BTreeMap<String, Rc<Object>> = BTreeMap::new();
     // every object whole, the version carrying each record over
     let all = world.in_order()?;
@@ -1469,12 +1465,10 @@ fn impact(
             );
             // a backfill writes what its attribute holds, an integer to a
             // decimal at its scale; a value it cannot hold refuses the
-            // publish, where it was written as it came (the audit's values
-            // W1 and W3, ADR-0205 decision 1)
+            // publish (the audit's values W1 and W3, ADR-0205 decision 1)
             let v = match t.attribute(attr).map(|a| fitted(a, v.clone())) {
-                // an identity well formed, as one an input sends is, where a
-                // backfill wrote one the wire refuses (the audit's write
-                // path I-03)
+                // an identity well formed, as one an input sends is (the
+                // audit's write path I-03)
                 Some(Ok(Value::Text(text)))
                     if t
                         .attribute(attr)
@@ -1874,10 +1868,9 @@ fn impact(
             install: None,
         });
     }
-    // the simulation's objects taken out of it, never copied: a copy of
-    // every object, beside the store as read and the simulation, was an
-    // approval's peak in memory, 656 MiB of heap where the simulation held
-    // 472 on the 37k-object store (MEMORY); one the version leaves as it
+    // the simulation's objects taken out of it, never copied, since a copy
+    // of every object, beside the store as read and the simulation, would be
+    // an approval's peak in memory (MEMORY); one the version leaves as it
     // was is still the store's own, shared (ADR-0222)
     let objects: BTreeMap<String, Rc<Object>> = sim
         .into_shared()
@@ -2166,8 +2159,8 @@ fn fitted(a: &crate::model::Attribute, v: Value) -> Result<Value, String> {
 /// Notices of the declaration: an attribute dropped where one of its type
 /// is added, which may be a rename, and an attribute whose type changed,
 /// which is a drop and an add of the same name, naming each object holding
-/// a value it sets aside, which its migration records, where it named none
-/// and said nothing was affected (the audit's write path A-06).
+/// a value it sets aside, which its migration records (the audit's write
+/// path A-06).
 fn attribute_notices(world: &World<'_>, new: &Library, found: &mut Found) -> Result<(), NotRun> {
     let old = world.lib;
     for (tn, nt) in &new.types {
@@ -2480,8 +2473,8 @@ types:
     }
 
     /// A refused approval is a row of the attempt log, its transition
-    /// `publish` on the change, by its actor, with its verdict, where none
-    /// was written (the audit's write path A-02).
+    /// `publish` on the change, by its actor, with its verdict (the audit's
+    /// write path A-02).
     #[test]
     fn a_refused_approval_is_an_attempt() {
         let (mut s, _, _, _) = fleet();
@@ -2515,9 +2508,7 @@ types:
 
     /// A version adding a type whose ids would name an identity an actor
     /// holds, in any case of its letters, is refused, naming the actor by
-    /// its object and never the identity, where a person whose identity
-    /// was `gadget-12` was then found as the gadget of that id (D669,
-    /// ADR-0205 decision 4).
+    /// its object and never the identity (D669, ADR-0205 decision 4).
     #[test]
     fn a_type_whose_ids_would_name_a_held_identity_is_refused() {
         let v1 = "\nmodule: fleet\ncategories: [live, closed]\ntypes:\n  Staff:\n    description: A person on the staff.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human }\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      hire: { kind: initial, to: ON, required_inputs: [login] }\n      leave: { kind: external, from: [ON], to: OFF }\n";
@@ -2548,9 +2539,8 @@ types:
 
     /// A backfill of an actor's identity is held as an input sending it
     /// is: one the wire refuses, shaped as an object's id, refuses the
-    /// publish, and one another actor holds is `identity_taken`, where a
-    /// backfill gave a person an agent's identity and the person could act
-    /// as no one (the audit's write path I-03).
+    /// publish, and one another actor holds is `identity_taken` (the audit's
+    /// write path I-03).
     #[test]
     fn a_backfilled_identity_is_held_as_one_sent() {
         let v1 = "\nmodule: fleet\ncategories: [live, closed]\ntypes:\n  Staff:\n    description: A person on the staff.\n    tracking: record\n    attributes:\n      staff_no: { type: string }\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      hire: { kind: initial, to: ON, required_inputs: [staff_no] }\n      leave: { kind: external, from: [ON], to: OFF }\n  Bot:\n    description: An agent.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: agent }\n    states:\n      UP: { category: live }\n      DOWN: { category: closed, final: true }\n    transitions:\n      start: { kind: initial, to: UP, required_inputs: [login] }\n      stop: { kind: external, from: [UP], to: DOWN }\n";
@@ -2594,8 +2584,7 @@ types:
     }
 
     /// A backfill writes what its attribute holds and refuses the publish
-    /// where it cannot, where an integer was written to a string as it came
-    /// (the audit's values W1 and W3, ADR-0205 decision 1).
+    /// where it cannot (the audit's values W1 and W3, ADR-0205 decision 1).
     #[test]
     fn a_backfill_of_another_type_refuses_the_publish() {
         let (mut s, _, _, _) = fleet();
@@ -2740,7 +2729,7 @@ types:
     }
 
     /// Two of the checks' findings of one code, in two modules, are each
-    /// reported, where the report kept the first module's alone (D608).
+    /// reported (D608).
     #[test]
     fn each_of_the_checks_findings_is_reported() {
         let (mut s, _, _, _) = fleet();
@@ -2846,11 +2835,8 @@ types:
     }
 
     /// A change's checks grow with what it declares, not with its square: a
-    /// module of 4,000 types checks in about twice the time of 2,000, where
-    /// each type read every type's states and supersessions again and 8,000
-    /// types ran past eleven minutes; and a mapping of 100,000 keys parses in
-    /// a moment, where each key was compared with every earlier one and a
-    /// draft of 100k keys held the writer 37.8 s (ninth production review
+    /// module of 4,000 types checks in about twice the time of 2,000; and a
+    /// mapping of 100,000 keys parses in a moment (ninth production review
     /// N-4, N-8).
     #[test]
     fn a_changes_checks_and_its_parse_grow_with_what_it_holds() {
@@ -2886,9 +2872,9 @@ types:
             large < small * BOUND,
             "checks: 1,000 types {small:.2} s, 4,000 types {large:.2} s"
         );
-        // and types the checks refuse, each with findings of its own: each
-        // finding was compared with every one before it, and its line found
-        // by searching every type's key, so 60,000 checked in 374 s
+        // and types the checks refuse, each with findings of its own, which
+        // comparing each finding with every one before it, or finding its
+        // line by searching every type's key, would make quadratic
         // (thirteenth production review D)
         let refused = |n: usize| {
             let text = "module: m\ncategories: [live, closed]\ntypes:\n".to_string()
@@ -2927,8 +2913,7 @@ types:
         // and a key named twice is still found
         assert!(crate::yaml::load("{a: 1, b: 2, a: 3}").is_err());
         // a condition comparing `state` 20,000 times, each compared state
-        // found where it is, where each was found by collecting the rest of
-        // the text again and 128k held the dry run's slot 229 s
+        // found where it is, never by collecting the rest of the text again
         let long = NOTE
             .replace(
                 "    transitions:
@@ -2962,9 +2947,9 @@ types:
         );
         // a chain of derived attributes each reading the one before twice
         // unfolds to 2^n reads, and every check that reads one through those
-        // it reads walked each again, forty holding a dry run's slot past six
-        // minutes (eleventh production review): a change's own is refused
-        // before any check walks it, its first link past the bound named once
+        // it reads would walk each again (eleventh production review): a
+        // change's own is refused before any check walks it, its first link
+        // past the bound named once
         let diamond = |n: usize| {
             (1..n)
                 .map(|i| {
@@ -3079,9 +3064,8 @@ types:
         assert!(matches!(late, Err(NotRun::TimedOut(_))), "{took:.2} s");
         assert!(took < 5.0, "checks past their deadline {took:.2} s");
         // and a chain split across a module and one importing it, each within
-        // the bound, is counted whole, its importer refused by its first link,
-        // where each passed and an invariant on the far end held a dry run's
-        // slot to its deadline (twelfth production review)
+        // the bound, is counted whole, its importer refused by its first link
+        // (twelfth production review)
         let end = "    states:\n      S: { category: live, description: Open. }\n      E: { category: closed, final: true, description: Done. }\n";
         let ca = format!(
             "module: ca\ncategories: [live, closed]\ntypes:\n  TA:\n    description: A thing.\n    tracking: record\n    attributes:\n      x: {{ type: int }}\n{end}    derived_attributes:\n      a0: {{ description: The first., expression: this.x + this.x }}\n{}    transitions:\n      t: {{ kind: initial, to: S, required_inputs: [x] }}\n      e: {{ kind: external, from: S, to: E }}\n",
@@ -3137,13 +3121,12 @@ types:
     }
 
     /// A dry run over a store's objects grows with the types a change
-    /// declares only as they add work of their own, where each object's
-    /// lookup by key walked every type of the library: a change adding 1,000
-    /// types to a store of 37k objects took 14.5 s, about 13 ms a type
-    /// (tenth production review). Timed with the empty copy of the tables
-    /// left out, which makes a table for each new type, its own linear cost
-    /// measured apart (ADR-0248): with it, CI's PostgreSQL took 1.52 s for
-    /// 50 types and 14.00 s for 800 on 2026-11-04, past this bound.
+    /// declares only as they add work of their own, never a walk of every
+    /// type of the library for each object's lookup by key (tenth production
+    /// review). Timed with the empty copy of the tables left out, which
+    /// makes a table for each new type, its own linear cost measured apart
+    /// (ADR-0248): with it, CI's PostgreSQL took 1.52 s for 50 types and
+    /// 14.00 s for 800 on 2026-11-04, past this bound.
     #[test]
     fn a_dry_runs_impact_does_not_walk_every_type_for_each_object() {
         COPY_LEFT_OUT.with(|c| c.set(true));
@@ -3190,9 +3173,8 @@ types:
 
     /// A dry run's checks run apart from any read of the store, and its
     /// impact on a world that carries its read's stop, so an urgent cut of
-    /// the log stops it as it stops every read, where an erasure's values
-    /// stayed in the store's files for the whole of a dry run (eighth
-    /// production review ERASE-WAL-DRYRUN, ADR-0195 decision 1).
+    /// the log stops it as it stops every read (eighth production review
+    /// ERASE-WAL-DRYRUN, ADR-0195 decision 1).
     #[test]
     fn a_dry_runs_impact_is_stopped_by_an_urgent_cut() {
         let (mut s, _, _, _) = fleet();
@@ -3470,8 +3452,7 @@ types:
     /// A publish approved by an actor of a declared type, which the
     /// approval reads by id before the install reads every object, installs
     /// as any other: the install reads each object's record, the actor's
-    /// among them, for the identifiers it held (ADR-0165; the scenarios'
-    /// replay found its publish answered 500 without it).
+    /// among them, for the identifiers it held (ADR-0165).
     #[test]
     fn a_publish_approved_by_a_declared_actor_reads_every_record_it_installs() {
         const USER: &str = "  User:\n    description: A person who works the fleet.\n    tracking: record\n    attributes:\n      login: { type: identity, actor_kind: human, unique: true }\n    states: { ACTIVE: { category: live }, GONE: { category: closed, final: true } }\n    transitions:\n      add: { kind: initial, to: ACTIVE, required_inputs: [login] }\n      leave: { kind: external, from: [ACTIVE], to: GONE }\n  Robot:\n";
@@ -3543,8 +3524,7 @@ types:
         assert!(matches!(verdict, Verdict::Satisfied { .. }), "{verdict:?}");
         assert_eq!(s.lib.publishing, None);
         // with none declared, an agent's approval is refused and a person's
-        // taken, where the agent approved its own change (eighth production
-        // review, ADR-0195 decision 4)
+        // taken (eighth production review, ADR-0195 decision 4)
         let services = with("service");
         let (change, v) = submitted(&mut s, &services);
         let (verdict, _) = s.publish(&bot, &change, v).unwrap().unwrap();
@@ -3645,9 +3625,8 @@ types:
     }
 
     /// A metric read's filter a row cannot answer, a number where a boolean
-    /// is read, is refused `malformed_filter` with a short reason, where it
-    /// answered 501 and its fault carried what it met (ninth production
-    /// review N-3, ADR-0196 decision 7).
+    /// is read, is refused `malformed_filter` with a short reason (ninth
+    /// production review N-3, ADR-0196 decision 7).
     #[test]
     fn a_metric_filter_a_row_cannot_answer_is_malformed() {
         let (s, _, _, _) = fleet();
@@ -4017,9 +3996,8 @@ types:
 
     /// A version changing an attribute's type names each object holding a
     /// value it sets aside, and records the setting aside on each, a
-    /// migration naming the change, where its notice named none and said
-    /// nothing was affected (the audit's write path A-06); an object holding
-    /// no value is untouched.
+    /// migration naming the change (the audit's write path A-06); an object
+    /// holding no value is untouched.
     #[test]
     fn a_retyped_attribute_names_each_object_holding_a_value() {
         let retyped = SHOP_V1.replace(
@@ -4252,9 +4230,7 @@ types:
 
     /// A backfill writing a value its attribute cannot hold refuses the
     /// publish whatever order its objects are met in, its submit refused
-    /// `dry_run_clean`: where it fitted the first object met, the notice
-    /// naming the objects it writes kept the finding a notice, the version
-    /// installed, and the later object was left unwritten, nothing said.
+    /// `dry_run_clean`, though the first object it meets fits.
     #[test]
     fn a_backfill_it_cannot_write_refuses_the_publish_in_either_order() {
         let v1 = LAB_V1
@@ -4563,8 +4539,8 @@ types:
             );
             assert_eq!(joined.payload["inputs"]["nick"], json!("a"), "{what}");
             // and what it wrote, personal under the version it was written
-            // under, where it was left in the log once a later version
-            // dropped or retyped the attribute (ADR-0209 decision 2)
+            // under, though a later version dropped or retyped the attribute
+            // (ADR-0209 decision 2)
             assert_eq!(
                 joined.payload["wrote"]["name"],
                 json!(null),
@@ -5350,7 +5326,7 @@ types:
     /// A dry run runs the approval's table changes on an empty copy of the
     /// tables they touch: one the database refuses, as it refused 0.12.0's
     /// rename of a derived end, planted back, is a fatal finding naming the
-    /// statement, so the submit is refused where its approval faulted; the
+    /// statement, so the submit is refused before its approval can fault; the
     /// same version without it is accepted; and the store's tables, indexes
     /// and schemas are as they were (issue #59, ADR-0248 decision 1).
     #[test]
@@ -5521,9 +5497,8 @@ types:
         );
     }
 
-    /// A version renaming a derived end beside another renamed column of
-    /// its type applies, where the end, which has no column, was sent to
-    /// `RENAME COLUMN` and the approval faulted (issue #59); every value, its
+    /// A version renaming a derived end, which has no column, beside another
+    /// renamed column of its type applies (issue #59); every value, its
     /// intervals, its write index and the objects' histories read alike
     /// after it, under the new names.
     #[test]
@@ -5686,7 +5661,7 @@ types:
     /// A composite end's rename carries its write-index rows, which each
     /// transition of a part writes on its whole and `changed_since` reads,
     /// renamed alone, which leaves its type's table as it was, and beside a
-    /// renamed column, which faulted (issue #59): a line edited after the
+    /// renamed column (issue #59): a line edited after the
     /// sign-off keeps the order's `close` refused after the publish, as it
     /// was before it, and another type's attribute of the old name keeps
     /// its own.
@@ -6281,9 +6256,8 @@ types:
     /// The dry run carries a rename's write index as its approval does,
     /// for each kind of attribute: an object changed after its sign-off,
     /// whose `close` its guard refuses, is reported gaining and losing
-    /// nothing, and the approval leaves `close` refused, where the dry run
-    /// reported `close` gained, reading no write under the new name
-    /// (`storage-schema.md` §10, issue #59).
+    /// nothing, and the approval leaves `close` refused (`storage-schema.md`
+    /// §10, issue #59).
     #[test]
     fn a_dry_run_reads_a_renamed_attributes_writes_as_its_approval_leaves_them() {
         let stale =
@@ -6364,8 +6338,7 @@ types:
     /// judged on the writes the rename carries, for each kind of attribute:
     /// an object changed after its sign-off is a decision, as it is where
     /// the version keeps the name, and the approval is refused
-    /// `decision_unresolved`, where it installed a violation nobody
-    /// admitted (ADR-0146).
+    /// `decision_unresolved` (ADR-0146).
     #[test]
     fn a_new_invariant_over_a_renamed_attribute_reads_its_writes() {
         for kind in RENAMED_KINDS {
@@ -6829,9 +6802,8 @@ types:
 "#;
 
     /// A move gives an attribute of a renamed enumeration from the old
-    /// one's value by its member, and carries one of its name alike, where
-    /// both were refused as what the target cannot hold (ADR-0247 decision
-    /// 1, issue #58).
+    /// one's value by its member, and carries one of its name alike
+    /// (ADR-0247 decision 1, issue #58).
     #[test]
     fn a_move_gives_a_renamed_enumerations_value_by_its_member() {
         let lib = Library::load(&[("catalog.yaml".into(), FORMAT_CATALOG.into())]).unwrap();
