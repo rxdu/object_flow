@@ -41,8 +41,7 @@ pub struct Object {
 
 /// A name an object's record repeats, an attribute's, a tracked member's or
 /// an actor's, held once and shared by every object a read of the store
-/// gives it to, where each held a `String` of its own: a million of them
-/// on the two-year profile store (MEMORY). A `&str` finds it in a map.
+/// gives it to (MEMORY). A `&str` finds it in a map.
 pub type Name = std::rc::Rc<str>;
 
 /// The names one read of the store gives its objects, each held once, so
@@ -299,8 +298,8 @@ struct Held {
     whole: std::cell::RefCell<BTreeSet<String>>,
     /// Each read of a type's ids by its attributes' values the operation
     /// has made, by [`crate::store::Keyed::key`]: each is made once, since
-    /// the store is not written while the operation reads, where a draft
-    /// read its claim's number twice (`research/write-throughput.md` §6).
+    /// the store is not written while the operation reads
+    /// (`research/write-throughput.md` §6).
     read_by_key: std::cell::RefCell<BTreeSet<String>>,
     /// The highest place in creation order the store holds, read on first
     /// use.
@@ -334,12 +333,12 @@ struct Held {
 }
 
 /// The held objects of one type by one attribute's value, a key of each
-/// value an index can hold and `None` for an absent one (PERF-SCAN): a scan
-/// of every held object for each object read, as a dry run's invariants
-/// made over a whole store, is one lookup. It is kept, not rebuilt: a
-/// lookup keys the slots held since it last looked and those changed
-/// since, so its cost is what changed, where rebuilding it on any change
-/// made an import's checks, each holding an object more, quadratic again
+/// value an index can hold and `None` for an absent one (PERF-SCAN): what
+/// would be a scan of every held object for each object read, as a dry
+/// run's invariants over a whole store make, is one lookup. It is kept, not
+/// rebuilt: a lookup keys the slots held since it last looked and those
+/// changed since, so its cost is what changed; rebuilding it on any change
+/// would make an import's checks, each holding an object more, quadratic
 /// (IMPORT-GROWTH).
 #[derive(Clone, Debug, Default)]
 struct Column {
@@ -661,10 +660,9 @@ impl TypesThen<'_, '_> {
 #[derive(Clone, Debug)]
 pub struct World<'l> {
     /// Each type's family, itself and the types extending it in the
-    /// library's order, found once per world, where each lookup walked every
-    /// type of the library: a change adding thousands of types made each of
-    /// a store's objects' checks walk them all, about 13 ms a type on 37k
-    /// objects (tenth production review).
+    /// library's order, found once per world, so a change adding thousands
+    /// of types does not make each object's checks walk them all (tenth
+    /// production review).
     families: std::cell::RefCell<BTreeMap<String, std::sync::Arc<Vec<String>>>>,
     pub lib: &'l Library,
     /// Each earlier version's library, by version, which an erasure reads
@@ -852,9 +850,9 @@ impl<'l> World<'l> {
         f
     }
 
-    /// Whether the read is within its deadline, where it has one: a filter,
-    /// a metric or a sweep with no bound held a reader, and an erasure's
-    /// truncation behind it, for minutes (ADR-0184 decision 3).
+    /// Whether the read is within its deadline, where it has one, so a
+    /// filter, a metric or a sweep with no bound holds no reader, and no
+    /// erasure's truncation behind it, for minutes (ADR-0184 decision 3).
     pub fn on_time(&self) -> Result<(), crate::eval::NotRun> {
         if self.deadline.is_none() && self.stop.is_none() {
             return Ok(());
@@ -1303,8 +1301,8 @@ impl<'l> World<'l> {
     }
 
     /// An object's attempts, in the order written, read by their index,
-    /// where a rule reading `o.attempts` read the whole attempt log for each
-    /// object (the audit's cost B1, ADR-0205 decision 12).
+    /// never the whole attempt log (the audit's cost B1, ADR-0205 decision
+    /// 12).
     pub fn attempts_of(&self, id: &str) -> Result<Vec<crate::store::Attempt>, crate::eval::NotRun> {
         self.attempts_where("object_id = ?1", &id, |a| {
             a.object_id.as_deref() == Some(id)
@@ -1547,11 +1545,10 @@ impl<'l> World<'l> {
     /// A scan of many rows, until the guard is dropped: a type its rows
     /// reach object by object, by id or narrowed, past [`BATCH`] times is
     /// read whole once and served from what is held, so a row's reach, a
-    /// claim's lines summed for its total, is a lookup, where each row read
-    /// its own by a query of its own. Only the types the rows reach are read,
-    /// where reading every type a row's type refers to made a metric that
-    /// reads none three times slower (the audit's cost B2, ADR-0205
-    /// decision 13). A write never scans: its reads stay its own.
+    /// claim's lines summed for its total, is a lookup. Only the types the
+    /// rows reach are read, not every type a row's type refers to (the
+    /// audit's cost B2, ADR-0205 decision 13). A write never scans: its
+    /// reads stay its own.
     pub(crate) fn scan(&self) -> Scan<'_> {
         Scan {
             flag: &self.held.scanning,
@@ -1594,9 +1591,9 @@ impl<'l> World<'l> {
     /// The place in creation order of each object the ids name: a held
     /// object's, and the others' from the store's directory in reads of a
     /// few hundred ids, holding nothing more; an id neither holds is left
-    /// out, as [`World::get`] finds no object for it. Where each was got
-    /// whole, a metric ranking its groups by the 600 claimants they name
-    /// made 1,200 round trips on PostgreSQL (ADR-0213).
+    /// out, as [`World::get`] finds no object for it. Getting each whole
+    /// would cost a metric ranking its groups by their claimants two round
+    /// trips a claimant on PostgreSQL (ADR-0213).
     pub fn orders<'i>(
         &self,
         ids: impl IntoIterator<Item = &'i str>,
@@ -1717,8 +1714,8 @@ impl<'l> World<'l> {
             (column.slots, column.changes) = (slots, changed.len());
             // the objects holding no value, which a narrowing keeps and an
             // exact match never wants: gathered for every lookup of an
-            // optional identifier, they made a dry run's check of each
-            // object's quadratic (PUBLISH-SCALE)
+            // optional identifier, they would make a dry run's check of each
+            // object quadratic (PUBLISH-SCALE)
             let absent = absent_too.then_some(None);
             for k in std::iter::once(key.clone()).chain(absent) {
                 if let Some(ns) = column.by.get(&k) {
@@ -1757,16 +1754,16 @@ impl<'l> World<'l> {
     }
 
     /// How many slots the operation's column indexes have keyed: linear in
-    /// what it holds, where an index rebuilt whenever an object was held
-    /// made a sweep of a store quadratic (READ-COST).
+    /// what it holds, since an index rebuilt whenever an object is held makes
+    /// a sweep of a store quadratic (READ-COST).
     pub fn keyed_count(&self) -> usize {
         self.held.keyed.get()
     }
 
     /// How many candidates the operation's column indexes have given its
-    /// lookups: what an exact lookup matches, where the objects holding no
-    /// value, given to every lookup of an optional identifier, made a dry
-    /// run's check of each object quadratic (PUBLISH-SCALE).
+    /// lookups: what an exact lookup matches, never the objects holding no
+    /// value, which given to every lookup of an optional identifier make a
+    /// dry run's check of each object quadratic (PUBLISH-SCALE).
     pub fn gathered_count(&self) -> usize {
         self.held.gathered.get()
     }
@@ -1801,8 +1798,8 @@ impl<'l> World<'l> {
                     ))
                 })?;
                 // every type read whole, counted as a type's whole read is,
-                // where a test of a read that must read none could not see
-                // this one (ADR-0194 decision 3)
+                // so a test of a read that must read none sees this one
+                // (ADR-0194 decision 3)
                 WHOLE_TYPE_READS.with(|n| {
                     let mut n = n.borrow_mut();
                     for t in self.lib.types.keys() {
@@ -2115,8 +2112,8 @@ impl<'l> World<'l> {
     /// table at most `first` at a time: those certain to come next, up to
     /// the earliest last place among the tables that gave as many as asked,
     /// so none is passed over, in ascending id order; and whether more may
-    /// follow. A query's page reads from its cursor so, where each page read
-    /// its type whole, which made reading a result page by page quadratic
+    /// follow. A query's page reads from its cursor so, never its type
+    /// whole, which makes reading a result page by page quadratic
     /// (READ-PAGES).
     pub fn of_type_from(
         &self,
@@ -2212,8 +2209,8 @@ impl<'l> World<'l> {
     /// What [`World::with_key`] reads of each type named, its own objects
     /// and its subtypes', by one attribute's value, read together in one
     /// statement, so that `with_key` reads nothing more of them: an actor
-    /// named by its identity was a read of each actor type's in turn
-    /// (`research/write-throughput.md` §6).
+    /// named by its identity is one statement, not a read of each actor
+    /// type's in turn (`research/write-throughput.md` §6).
     pub(crate) fn read_by_keys(
         &self,
         keys: &[(&str, &str, &Value)],
@@ -2277,8 +2274,8 @@ impl<'l> World<'l> {
             self.lib.is_a(&o.type_, type_) && pairs.iter().all(|(a, v)| o.attr(a).equals(v))
         };
         // the held objects by the index on a pair's column, where its value
-        // is one the index holds, never every held object: a uniqueness
-        // checked on each of a store's objects was a scan of all of them
+        // is one the index holds, never every held object, so a uniqueness
+        // checked on each of a store's objects is no scan of all of them
         // for each (PERF-SCAN)
         if let Some(found) = pairs
             .iter()
@@ -2293,9 +2290,9 @@ impl<'l> World<'l> {
     /// is the text given but for the case of its ASCII letters, in ascending
     /// id order: read by the store's index on the folded column and the
     /// operation's folded column of what it holds, never the type whole,
-    /// where a sweep of every actor for each actor checked made a publish
-    /// grow with the square of the actors, 70 s of approval with 3,600
-    /// (seventh production review PUBLISH-SLOW, ADR-0194 decision 1).
+    /// since a sweep of every actor for each actor checked makes a publish
+    /// grow with the square of the actors (seventh production review
+    /// PUBLISH-SLOW, ADR-0194 decision 1).
     pub fn with_folded(
         &self,
         type_: &str,
@@ -2442,8 +2439,8 @@ impl<'l> World<'l> {
     /// installed one for an object with none.
     pub fn version_of(&self, id: &str) -> Result<i64, crate::eval::NotRun> {
         // the operation's own last, then the store's by the object's index,
-        // where every object's version scanned the whole log back (the
-        // audit's cost B1, ADR-0205 decision 12)
+        // never a scan of the whole log back (the audit's cost B1, ADR-0205
+        // decision 12)
         if let Some(e) = self.appended.iter().rfind(|e| e.object_id == id) {
             return Ok(e.declaration_version);
         }

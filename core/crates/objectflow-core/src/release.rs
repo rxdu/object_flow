@@ -632,8 +632,7 @@ pub fn store_release_postgres(config: &crate::db::PgConfig) -> Result<Option<Str
 /// `upgrade` of a store on PostgreSQL, through each release between, as a
 /// file's is: the store's lock held for it, so no service writes beside
 /// the upgrade, and refused where one holds it (ADR-0213; durability on
-/// PostgreSQL 6, where every PostgreSQL store was stranded at the first
-/// release after the one that made it).
+/// PostgreSQL 6).
 pub fn upgrade_postgres(
     config: &crate::db::PgConfig,
     now: i64,
@@ -701,8 +700,9 @@ fn upgrade_on(
     };
     // every version the store records loads with this release's loader, or
     // the upgrade, its dry run too, is refused naming each that does not,
-    // where the store was carried to a release whose every request then
-    // touching that version answered 500 (the audit's durability U4)
+    // since a store carried to a release that cannot load a version it
+    // records answers 500 to every request touching that version (the
+    // audit's durability U4)
     let versions: Vec<i64> = conn
         .prepare("SELECT version FROM of_declaration ORDER BY version")?
         .query_map([], |r| r.get(0))?
@@ -850,8 +850,7 @@ mod tests {
     /// A store on PostgreSQL is upgraded as a file's is: each release
     /// between a step of its own, its row and its operator's act recorded,
     /// a dry run leaving it as it was; and refused while a service holds the
-    /// store, where every PostgreSQL store was stranded at the first release
-    /// after the one that made it (durability on PostgreSQL 6).
+    /// store (durability on PostgreSQL 6).
     #[test]
     fn a_store_on_postgresql_is_upgraded_through_each_release_between() {
         let base = std::env::var(crate::store::SANDBOX_POSTGRES).unwrap_or_default();

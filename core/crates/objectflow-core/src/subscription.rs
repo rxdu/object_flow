@@ -58,14 +58,9 @@ pub fn pull_page(
         return Ok(refuse("revoked"));
     }
     // a cursor past what the store has handed out is none of its own, as
-    // `acknowledge` and `export` refuse it, where one a subscriber kept from
-    // before a restore answered an empty page and a settled cursor behind
-    // it, and the events written since never came (sixteenth production
-    // review)
-    // and one in a gap a restore skipped, which the copy never saw, where it
-    // was honoured once the log passed it and the events at the positions
-    // it reached past were never delivered (the audit's durability B5,
-    // ADR-0207 decision 5)
+    // `acknowledge` and `export` refuse it (sixteenth production review),
+    // and one in a gap a restore skipped, which the copy never saw (the
+    // audit's durability B5, ADR-0207 decision 5)
     let from = match cursor {
         Some(c) if c < 0 || c > settled || world.skipped_position(c)? => {
             return Ok(refuse("invalid_cursor"));
@@ -78,9 +73,9 @@ pub fn pull_page(
     let mut more = heads.len() > limit;
     heads.truncate(limit);
     // the page's events read whole one at a time, ending at its bytes as at
-    // its limit, one event at least, where 1,000 events of large inputs
-    // answered 197 MB (ninth production review N-9) and every one was read
-    // before the page was cut (tenth production review)
+    // its limit, one event at least, so a page of large inputs stays bounded
+    // (ninth production review N-9) and no event past the cut is read (tenth
+    // production review)
     let mut events = Vec::new();
     let mut bytes = 0;
     for (i, h) in heads.iter().enumerate() {
@@ -141,10 +136,9 @@ fn types_of(world: &World<'_>, s: &Object) -> Vec<String> {
 
 /// The heads of the first `limit` events after a position its filter
 /// selects, read from the log by their objects' types a chunk at a time from
-/// the position, where each pull read the whole log and every object of the
-/// type (fourth production review FEED); their heads alone, so choosing them
-/// reads no event whole, where a `get` of a lagging subscription read 256
-/// events of 2 MB (tenth production review).
+/// the position, never the whole log or every object of the type (fourth
+/// production review FEED); their heads alone, so choosing them reads no
+/// event whole (tenth production review).
 fn selected(world: &World<'_>, s: &Object, from: i64, limit: usize) -> Result<Vec<Head>, NotRun> {
     let types = types_of(world, s);
     let mut out = Vec::new();
@@ -206,11 +200,9 @@ mod tests {
     use serde_json::{Value as Json, json};
 
     /// An acknowledgement of a cursor the log never had, past its last
-    /// position or below 0, is refused, where one past the log skipped
-    /// every later event, and 0 still replays it from the start; and an
-    /// export's cursor past the log or the attempts is
-    /// refused, where a forged one answered an empty page for ever (fourth
-    /// production review A-12).
+    /// position or below 0, is refused, and 0 still replays it from the
+    /// start; and an export's cursor past the log or the attempts is refused
+    /// (fourth production review A-12).
     #[test]
     fn a_cursor_the_store_never_handed_out_is_refused() {
         let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();
@@ -253,9 +245,7 @@ mod tests {
     }
 
     /// A page of the feed reads from its cursor, never the whole log nor
-    /// every object: a pull with nothing new took 1.3 s and 640 MB on six
-    /// years, an export page about 5 s whatever its size (fourth production
-    /// review FEED).
+    /// every object (fourth production review FEED).
     #[test]
     fn a_page_of_the_feed_reads_from_its_cursor() {
         let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();
@@ -356,9 +346,8 @@ types:
 
     /// A subscription is refused where its filter would select nothing of
     /// the installed version or its durations make no sense, each input
-    /// named, where it was taken and delivered nothing for good (D689,
-    /// ADR-0205 decision 10); a family's subscription may name a transition
-    /// only a kind of it declares.
+    /// named (D689, ADR-0205 decision 10); a family's subscription may name
+    /// a transition only a kind of it declares.
     #[test]
     fn a_subscription_selecting_nothing_is_refused() {
         let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();
@@ -518,10 +507,10 @@ types:
     }
 
     /// A request, a `get` and a pull from a cursor given read no
-    /// subscription's cursor and no admission, where every operation read
-    /// both (`research/write-throughput.md` §6); one reaching either reads
-    /// it once and finds what the store holds, and a cursor the store cannot
-    /// read stops the operation reading it alone, named.
+    /// subscription's cursor and no admission (`research/write-throughput.md`
+    /// §6); one reaching either reads it once and finds what the store holds,
+    /// and a cursor the store cannot read stops the operation reading it
+    /// alone, named.
     #[test]
     fn an_operation_reads_the_cursors_and_the_admissions_where_it_reaches_them() {
         let lib = Library::load(&[("jobs.yaml".into(), JOBS.into())]).unwrap();
