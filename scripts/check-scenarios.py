@@ -361,10 +361,8 @@ NO_EFFECT = {("Delivery", "mark_ready"), ("Delivery", "back_to_preparation"), ("
              ("RobotModel", "set_reorder_point"), ("RobotModel", "set_yield_floor"), ("RobotModel", "set_usual_lead_time"),
              ("Warranty", "start"), ("Service", "register"), ("Delivery", "open"), ("Robot", "add_opening_stock"), ("Robot", "add_to_intake"), ("Robot", "request"),
              ("Robot", "deliver_internal"), ("Robot", "receive"), ("Shipment", "arrive"), ("RobotModel", "add"),
-             ("User", "add"), ("Agent", "issue"), ("PdiCheck", "add"), ("PdiCheck", "retire")}
-FIXED_REMEDY = {"unavailable": "unreachable_from_here", "stale": "self_serviceable", "not found": "unreachable_from_here",
-                "not requestable": "unreachable_from_here", "invalid input": "self_serviceable",
-                "unknown transition": "self_serviceable"}
+             ("Agent", "issue"), ("PdiCheck", "add"), ("PdiCheck", "retire")}
+FIXED_REMEDY = {"stale": "self_serviceable"}
 FIRST = "none(s in r.subject.pdi_results where s.unit == r.unit and s.check == r.check and s.recorded_at < r.recorded_at)"
 DECLARED_METRICS = {
     ("Delivery", "delivery_wait"): {"source": "intervals", "item": "i", "dimensions": {

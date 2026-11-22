@@ -233,7 +233,7 @@ class Driver:
         publishes = [yaml.safe_load(b) for i, _s, b in cs.fences(text) if i == "yaml publish"]
         self.publishes = sorted((p for p in publishes if not p.get("change")), key=lambda p: cs.when(p["at"]))
         self.governed = {p["change"]: p for p in publishes if p.get("change")}
-        self.changes, self.answers, self.checks, self.advice = {}, {}, {}, []
+        self.changes, self.answers, self.checks = {}, {}, {}
         self.versions = {}
         self.cited = {}
         self.now = None
@@ -1029,8 +1029,6 @@ def main():
         for gap in survey:
             print(f"    {gap}")
         return 0
-    for a in d.advice:
-        print(f"  stepped past, changing nothing a compared read reads: {a}")
     for u in unrun:
         print(f"  not run: {u}")
     for p in partial:

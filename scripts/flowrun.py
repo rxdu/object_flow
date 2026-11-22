@@ -1921,12 +1921,12 @@ class Evaluator:
             return refused("personal")
         groups, kind = self.grouped(owner, spec, module, bind, keep, over, filt)
         rows = [{"dimensions": dict(zip(keep, key)), "value": rounded(v, kind), "gaps": list(gaps), "time_basis": "UTC calendar"}
-                for key, (v, gaps) in sorted(groups.items(), key=lambda kv: self.page_order(owner, keep, kv[0]))]
+                for key, (v, gaps) in sorted(groups.items(), key=lambda kv: self.page_order(keep, kv[0]))]
         flags = []
         if spec.get("flag_when"):
             # a flag is raised on each declared group, whatever the read keeps, over the rows the read selects (§6.9)
             every, _ = self.grouped(owner, spec, module, bind, declared, over, filt)
-            for key, (v, _gaps) in sorted(every.items(), key=lambda kv: self.page_order(owner, declared, kv[0])):
+            for key, (v, _gaps) in sorted(every.items(), key=lambda kv: self.page_order(declared, kv[0])):
                 env = dict(zip(declared, key), value=rounded(v, kind))
                 for flag, text in spec["flag_when"].items():
                     t = truth(Evaluator(s, owner, stubs=self.stubs).value(parsed(text), env))
@@ -2071,7 +2071,7 @@ class Evaluator:
             keys = [{**k, **{i: t[n] for n, (i, _rest) in enumerate(idx)}} for k in keys for t in tuples]
         return [tuple(k[i] for i in range(len(exprs))) for k in keys]
 
-    def page_order(self, owner, keep, key):
+    def page_order(self, keep, key):
         """A page's order: by each kept dimension ascending, an absent value last, a state, an enumeration member or a
         kind of actor in declaration order, an object by id, which is creation order, a time bucket in time order and
         a string by code point (ADR-0127, ADR-0147)."""
@@ -4302,7 +4302,7 @@ class Runner:
         then inherited ones, then the generated, each state's requirement and then each attribute's uniqueness by
         attribute, inherited attributes first (flow-format.md §4.8, ADR-0147)."""
         t = self.kinds.get(o.type) or {}
-        out, generated = [], []
+        out = []
         invariants = t.get("invariants") or {}
         origin = t.get("_from") or {}
         for n in [n for n in invariants if ("invariants", n) not in origin] + [n for n in invariants if ("invariants", n) in origin]:

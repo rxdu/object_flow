@@ -162,7 +162,6 @@ def main():
             said.append(line)
         wire = Wire(m.group(1))
         threading.Thread(target=lambda: [None for _ in proc.stderr], daemon=True).start()
-        rng = random.Random(a.seed)
         text = FLOW.read_text()
         publish(wire, text)
         functions = [took(wire, {"actor": OPERATOR, "type": "BusinessFunction", "transition": "establish",

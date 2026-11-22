@@ -52,7 +52,6 @@ def diagram(doc, type_name):
     """The Mermaid source of the type's state diagram, one line per element."""
     t = lifecycle(doc, type_name)
     states = t.get("states") or {}
-    live = [s for s, v in states.items() if not (v or {}).get("final")]
     out = [f"%% {doc['module']}.{type_name}", "stateDiagram-v2", "    direction LR"]
     notes, inside, anywhere = [], {s: [] for s in states}, []
     for name, x in (t.get("transitions") or {}).items():
