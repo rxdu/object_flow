@@ -1089,7 +1089,7 @@ fn decide_or_stop(
     let unknown: Vec<String> = req
         .inputs
         .keys()
-        .filter(|k| !takes(t, x, k))
+        .filter(|k| !takes(x, k))
         .cloned()
         .collect();
     if !unknown.is_empty() {
@@ -1547,8 +1547,7 @@ pub(crate) fn read_entries(
 }
 
 /// Whether a transition takes an input of a name.
-fn takes(t: &Type, x: &Transition, k: &str) -> bool {
-    let _ = t;
+fn takes(x: &Transition, k: &str) -> bool {
     (x.kind == Kind::Assertion && (k == "to" || k == "admits"))
         || x.required_inputs
             .iter()
@@ -1811,7 +1810,7 @@ fn take_unwound(
                 state: o.state.clone(),
             });
         }
-        let unknown: Vec<String> = inputs.keys().filter(|k| !takes(t, x, k)).cloned().collect();
+        let unknown: Vec<String> = inputs.keys().filter(|k| !takes(x, k)).cloned().collect();
         if !unknown.is_empty() {
             return refused(Verdict::invalid_input(
                 unknown.into_iter().map(|k| (k, InputReason::UnknownInput)),
@@ -4312,7 +4311,7 @@ fn file(
     let mut wrong: Vec<(String, InputReason)> = req
         .inputs
         .keys()
-        .filter(|k| !takes(t, x, k))
+        .filter(|k| !takes(x, k))
         .map(|k| (k.clone(), InputReason::UnknownInput))
         .collect();
     // whether an input the transition does not take, or one not of its type,
@@ -5446,6 +5445,7 @@ fn erase_chain(
         return Ok(());
     }
     ctx.in_group = true;
+    #[cfg(test)]
     GROUP_WALKS.with(|n| n.set(n.get() + 1));
     let mut chain = BTreeSet::new();
     let mut todo = vec![id.to_string()];
@@ -5518,12 +5518,14 @@ fn erase_chain(
     Ok(())
 }
 
+#[cfg(test)]
 thread_local! {
     /// How many groups this thread's erasures walked (ADR-0192 decision 7).
     static GROUP_WALKS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// How many supersession groups this thread's erasures walked.
+#[cfg(test)]
 pub fn group_walks() -> u64 {
     GROUP_WALKS.with(std::cell::Cell::get)
 }
