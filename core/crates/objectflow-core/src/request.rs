@@ -9023,11 +9023,10 @@ types:
     /// A subtype's own invariant named as one its base's attribute
     /// generates, a marked text's `<attribute>_not_blank` or a value's
     /// `<attribute>_<invariant>`, is refused when the library is read, as one
-    /// named after the type's own attribute is, where it took the generated
-    /// one's place in the subtype and the text was written blank there; a
-    /// subtype without one holds the inherited invariant, a blank written by
-    /// an effect refused `invariant_violated` and nothing written (ADR-0257
-    /// decision 3, ADR-0255). On both backends.
+    /// named after the type's own attribute is; a subtype without one holds
+    /// the inherited invariant, a blank written by an effect refused
+    /// `invariant_violated` and nothing written (ADR-0257 decision 3,
+    /// ADR-0255). On both backends.
     #[test]
     fn a_subtype_holds_the_invariants_its_bases_attributes_generate() {
         const SPACES: &str = r#"
@@ -10158,10 +10157,8 @@ types:
 
     /// A division by zero an effect reads through a derived attribute, or a
     /// cascade passes as an input, refuses the request as `value_in_range`,
-    /// as one written in the effect does (ADR-0185), where a loop over it ran
-    /// no step, an argument was not passed and a `set` cleared what was
-    /// stored; and one a presence test has read refuses nothing more, where a
-    /// value absent for another reason was refused (#97's specialist look).
+    /// as one written in the effect does (ADR-0185); and one a presence test
+    /// has read refuses nothing more (#97's specialist look).
     #[test]
     fn a_division_by_zero_refuses_through_a_derivation_and_a_cascade() {
         const RATIOS: &str = r#"
@@ -10298,8 +10295,8 @@ types:
     /// A database of its own on the server `base` names, dropped with this,
     /// for a test of an erasure's vacuum: the snapshots that hold it and the
     /// files it clears are the whole database's, so in the database every
-    /// test shares, another test's open transaction kept it due past the
-    /// test's wait (2026-10-23).
+    /// test shares, another test's open transaction keeps it due past the
+    /// test's wait.
     struct OwnDatabase {
         admin: crate::db::Connection,
         name: String,
@@ -10390,9 +10387,8 @@ types:
     }
 
     /// A part's `taken_by` its whole's cascade breaks names `delegable`, as a
-    /// call's does, since another kind of actor taking the whole can pass,
-    /// where the cascade was not looked at and the refusal said
-    /// `unreachable_from_here` (the audit's write path A-04).
+    /// call's does, since another kind of actor taking the whole can pass
+    /// (the audit's write path A-04).
     #[test]
     fn a_taken_by_a_cascade_breaks_names_delegable() {
         const SHOP: &str = r#"
@@ -11048,8 +11044,7 @@ types:
             assert_eq!(last.principal.as_deref(), Some("ana"));
         }
         // none named, an outcome's write of `actor.principal` is skipped, as
-        // an unsupplied input's is, the value before it kept, where it
-        // refused the request `value_in_range` (D687)
+        // an unsupplied input's is, the value before it kept (D687)
         created(&sign(&mut s, None));
         let w = s.snapshot().unwrap();
         assert_eq!(
@@ -13328,10 +13323,10 @@ types:
 
     /// An input a creation passes into another object's personal attribute
     /// is personal on the caller's event too, as one its own effect writes
-    /// into its own is (check 10), one hop on: the export omits it, where it
-    /// exported it in clear (caller taint, found probing the write path
-    /// audit's last minor). The caller's erasure redacts it on the caller's
-    /// own event, and nothing it flowed into (ADR-0210 decision 4).
+    /// into its own is (check 10), one hop on: the export omits it (caller
+    /// taint, found probing the write path audit's last minor). The caller's
+    /// erasure redacts it on the caller's own event, and nothing it flowed
+    /// into (ADR-0210 decision 4).
     #[test]
     fn an_input_passed_into_a_personal_attribute_is_personal_for_the_caller() {
         const CRM: &str = r#"
@@ -13594,8 +13589,8 @@ types:
         );
         // its label's note leaves the label's row and its creation event,
         // the name kept, with a `redact` event of the label's own, caused by
-        // the erasure, where it went with nothing in the label's history
-        // (declaration-syntax.md §6.8, the audit's write path A-01)
+        // the erasure (declaration-syntax.md §6.8, the audit's write path
+        // A-01)
         let l = w.whole(&tag).unwrap().unwrap();
         assert_eq!(
             (
@@ -13851,10 +13846,9 @@ types:
 
     /// A part is put into no finished whole by any route: an effect moving
     /// it and a creation from another whole's transition are refused
-    /// `whole_open`, naming the whole, where only an input naming it was
-    /// decided (the audit's write path R-03); and a transition `only_via`
-    /// names is taken through a call from those alone, refused
-    /// `not_requestable` from any other, where a call took it (R-05).
+    /// `whole_open`, naming the whole (the audit's write path R-03); and a
+    /// transition `only_via` names is taken through a call from those alone,
+    /// refused `not_requestable` from any other (R-05).
     #[test]
     fn a_part_enters_no_finished_whole_and_only_via_holds_through_a_call() {
         let text = r#"
@@ -13974,8 +13968,8 @@ types:
     }
 
     /// An erasure whose reason is personal, leaving an invariant admitted,
-    /// records the admission without it, where the reason stayed in the
-    /// admission, which nothing erases (the audit's personal data S29).
+    /// records the admission without it, since no erasure reaches an
+    /// admission's reason (the audit's personal data S29).
     #[test]
     fn an_admission_keeps_no_personal_reason() {
         let text = "\nmodule: crm\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      name: { type: string, optional: true, personal: true }\n    states:\n      ON: { category: live }\n    invariants:\n      named: { expression: name is not null }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [name] }\n      forget: { kind: erasure, inputs: { reason: { type: string, personal: true } } }\n";
@@ -14008,8 +14002,7 @@ types:
 
     /// A refused request's input its effect writes into a personal
     /// attribute is withheld from the attempt log, named and not kept, as
-    /// one marked personal is, where it stayed past the person's erasure
-    /// (the audit's personal data S26).
+    /// one marked personal is (the audit's personal data S26).
     #[test]
     fn a_refused_input_personal_by_its_effect_is_withheld() {
         let text = "\nmodule: crm\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      nicknames: { type: \"string[]\", optional: true, personal: true }\n      open: { type: bool, optional: true }\n    states:\n      ON: { category: live }\n    conditions:\n      shut: { expression: open is null, remedy: unreachable_from_here }\n    transitions:\n      join: { kind: initial, to: ON }\n      nick:\n        kind: internal\n        from: [ON]\n        inputs: { m: { type: string } }\n        guards: { shut: deny }\n        effect:\n          - add: { location: nicknames, expr: inputs.m }\n      unlock: { kind: internal, from: [ON], required_inputs: [open] }\n";
@@ -14051,8 +14044,7 @@ types:
 
     /// What was erased stays erased through a loop too: a step nested in a
     /// `foreach` writing an erased object's personal attribute is refused
-    /// `not_erased`, where it added a phone after the erasure (the audit's
-    /// write path R-02).
+    /// `not_erased` (the audit's write path R-02).
     #[test]
     fn a_loop_writes_no_erased_value_again() {
         let text = "\nmodule: crm\ncategories: [live]\ntypes:\n  Person:\n    attributes:\n      phones: { type: \"string[]\", optional: true, personal: true }\n    states:\n      ON: { category: live }\n    transitions:\n      join: { kind: initial, to: ON }\n      add_phones:\n        kind: internal\n        from: [ON]\n        inputs: { numbers: { type: \"string[]\" } }\n        effect:\n          - foreach:\n              item: n\n              array: inputs.numbers\n              limit: 5\n              steps:\n                - add: { location: phones, expr: n }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
@@ -14094,9 +14086,8 @@ types:
     }
 
     /// An object erased before still gets a `redact` event when a later
-    /// erasure redacts an input in its history, naming the input, where the
-    /// customer's event lost a contact's phone with nothing in its history
-    /// (the audit's write path A-03).
+    /// erasure redacts an input in its history, naming the input (the
+    /// audit's write path A-03).
     #[test]
     fn an_erased_caller_records_what_a_later_erasure_redacts() {
         let text = "\nmodule: crm\ncategories: [live]\ntypes:\n  Customer:\n    attributes:\n      name: { type: string, optional: true, personal: true }\n    states:\n      ON: { category: live }\n    transitions:\n      join: { kind: initial, to: ON, optional_inputs: [name] }\n      add_contact:\n        kind: internal\n        from: [ON]\n        inputs: { phone: { type: string } }\n        effect:\n          - create: { type: Contact, transition: make, inputs: { phone: inputs.phone } }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Contact:\n    attributes:\n      phone: { type: string, optional: true, personal: true }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, required_inputs: [phone] }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n";
@@ -14159,10 +14150,8 @@ types:
 
     /// A type named beside a proposal's or a change's id holds it as it
     /// holds a declared type's object, refused `not_found` outside the
-    /// family, where a tool bound to another type decided either (the
-    /// audit's write path R-01); and a proposal of a change's or a
-    /// proposal's transition is refused `not_proposable`, where it took it
-    /// (R-06).
+    /// family (the audit's write path R-01); and a proposal of a change's or
+    /// a proposal's transition is refused `not_proposable` (R-06).
     #[test]
     fn a_proposal_and_a_change_are_held_to_the_type_named_beside_them() {
         let text = JOBS.replace(
@@ -14648,8 +14637,8 @@ types:
     }
 
     /// A group whose rollback fails keeps none of its requests, and no
-    /// request after it runs in the transaction it left open, where on
-    /// PostgreSQL its begin only warned and its commit committed the
+    /// request after it runs in the transaction it left open, since on
+    /// PostgreSQL its begin would only warn and its commit would commit the
     /// group's writes with its own (ADR-0208 decision 4, PRD F2): the
     /// store's connection is given up, the next request refused, and the
     /// store opened again holds only what was committed before the group,
@@ -16864,7 +16853,7 @@ types:
         let (order, created) = made(&req(&mut s, "place", OPERATOR, ("Order", true), json!({})));
         assert_eq!(created, vec![order.clone(), lines(&s)[0].clone()]);
         // a transition answers its own object's id, and names what it made,
-        // in the order made, which E16's screen re-read the parent to guess
+        // in the order made (E16)
         let (id, created) = made(&req(
             &mut s,
             "add_two",
@@ -18060,9 +18049,7 @@ types:
 
     /// A type's own member named like one an object answers by a path,
     /// added after format 1, is the type's: a retry counter named `attempts`
-    /// is read as the counter, by its bare name and by a path, where the
-    /// object's attempt log shadowed it, a guard `attempts == 0` was false on
-    /// a counter holding 0 and `attempts + 1` was not run (issue #22,
+    /// is read as the counter, by its bare name and by a path (issue #22,
     /// ADR-0216); a type declaring none keeps the object's own.
     #[test]
     fn an_attribute_named_like_a_later_member_is_the_types() {
@@ -18175,7 +18162,7 @@ types:
     /// identity attribute, what it replaced and what it wrote, each by the
     /// actor's object id, matched in any case of its ASCII letters, as it
     /// leaves the attribute and the inputs that sent it (the audit's
-    /// personal data S17, ADR-0203 decision 1), where no test held it.
+    /// personal data S17, ADR-0203 decision 1).
     #[test]
     fn an_erased_identity_leaves_a_corrections_record() {
         const HANDED: &str = r#"
@@ -18267,8 +18254,8 @@ types:
     }
 
     /// An erasure's rewrite leaves a payload as the engine wrote it, each
-    /// erased value null and no key moved, on either backend, where
-    /// PostgreSQL's `jsonb` gave its keys in its own order, the shortest
+    /// erased value null and no key moved, on either backend, since
+    /// PostgreSQL's `jsonb` gives its keys in its own order, the shortest
     /// first (records F6); values compared as JSON cannot see it, a map's
     /// equality ignoring its order.
     #[test]
@@ -18638,8 +18625,7 @@ types:
 
     /// A key replays only the request it was first sent with: before an
     /// erasure, the same request replays and one with another personal
-    /// value is refused `key_reused`, where it replayed the first's verdict
-    /// for a contact never created; after it, every request under the key
+    /// value is refused `key_reused`; after it, every request under the key
     /// is refused, so the key confirms no guess of what was erased (fourth
     /// production review A-5, fourteenth N2, the audit's write path K-02,
     /// ADR-0205 decision 3).
@@ -18705,7 +18691,7 @@ types:
             );
         }
         // a key 0.2.0 marked erased, its digest made whole, replays nothing
-        // either, where it replayed whatever was sent (K-03)
+        // either (K-03)
         s.connection()
             .execute("UPDATE of_idempotency SET request_digest = 'erased'", [])
             .unwrap();
@@ -18714,8 +18700,7 @@ types:
 
     /// A key's request names its principal as resolved, as its actor: sent
     /// by identity, in another case or by object id, it is one request and
-    /// replays, where the second was refused `key_reused` (the audit's write
-    /// path K-04).
+    /// replays (the audit's write path K-04).
     #[test]
     fn a_keys_principal_counts_as_resolved() {
         let text = "\nmodule: crew\ncategories: [live, closed]\ntypes:\n  Person:\n    attributes:\n      login: { type: identity, actor_kind: human }\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login] }\n      leave: { kind: external, from: [ON], to: OFF }\n  Note:\n    attributes:\n      text: { type: string }\n    states:\n      ON: { category: live }\n    transitions:\n      write: { kind: initial, to: ON, required_inputs: [text] }\n";
@@ -18755,9 +18740,8 @@ types:
 
     /// An assignment whose arithmetic reads an absent optional attribute has
     /// no value, which refuses the request `value_in_range`, as arithmetic
-    /// past its bound does, where it answered not run; one from an
-    /// unsupplied optional input still changes nothing (fourteenth production
-    /// review N5).
+    /// past its bound does; one from an unsupplied optional input still
+    /// changes nothing (fourteenth production review N5).
     #[test]
     fn an_assignment_of_arithmetic_on_an_absent_value_is_refused() {
         let text = "\nmodule: c\ncategories: [live]\ntypes:\n  Counter:\n    attributes:\n      count: { type: int, optional: true }\n      note: { type: string, optional: true }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON }\n      bump:\n        kind: internal\n        from: [ON]\n        inputs: { by: { type: int } }\n        effect:\n          - assign: { location: count, expr: count + inputs.by }\n      jot:\n        kind: internal\n        from: [ON]\n        inputs: { text: { type: string, optional: true } }\n        effect:\n          - assign: { location: note, expr: inputs.text }\n";
@@ -18773,10 +18757,10 @@ types:
     }
 
     /// Each event records what it wrote, each attribute it changed and no
-    /// other, so a fold of an object's events reproduces its row, where an
-    /// effect's writes were in no event (D692, ADR-0209 decision 1); and an
-    /// erasure clearing a copy its value flowed into nulls the copy where
-    /// the event that wrote it recorded it (decision 2).
+    /// other, so a fold of an object's events reproduces its row (D692,
+    /// ADR-0209 decision 1); and an erasure clearing a copy its value flowed
+    /// into nulls the copy where the event that wrote it recorded it
+    /// (decision 2).
     #[test]
     fn an_event_records_what_it_wrote_and_its_log_folds_to_its_row() {
         let text = "\nmodule: c\ncategories: [live]\ntypes:\n  Counter:\n    attributes:\n      count: { type: int, default: 0 }\n      stamp: { type: timestamp, optional: true }\n      label: { type: string, optional: true }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, optional_inputs: [label] }\n      bump:\n        kind: internal\n        from: [ON]\n        inputs: { by: { type: int } }\n        effect:\n          - assign: { location: count, expr: count + inputs.by }\n          - assign: { location: stamp, expr: now }\n  Customer:\n    attributes:\n      email: { type: string, optional: true, personal: true }\n    states:\n      ON: { category: live }\n    transitions:\n      join: { kind: initial, to: ON, optional_inputs: [email] }\n      refer:\n        kind: internal\n        from: [ON]\n        effect:\n          - create: { type: Contact, transition: make, inputs: { phone: email } }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Contact:\n    attributes:\n      phone: { type: string, optional: true, personal: true }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, required_inputs: [phone] }\n";
@@ -18866,8 +18850,8 @@ types:
     }
 
     /// A refusal an effect causes holds in its read set what the effect read
-    /// before it stopped, so it replays over its record, where it held only
-    /// its rules' reads (ADR-0210 decision 5).
+    /// before it stopped, so it replays over its record (ADR-0210 decision
+    /// 5).
     #[test]
     fn a_refusal_an_effect_causes_records_what_the_effect_read() {
         let text = "\nmodule: c\ncategories: [live]\ntypes:\n  Counter:\n    attributes:\n      peer: { reference: Counter, optional: true }\n      count: { type: int, optional: true }\n      total: { type: int, default: 0 }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, optional_inputs: [peer] }\n      take:\n        kind: internal\n        from: [ON]\n        effect:\n          - assign: { location: total, expr: peer.count + 1 }\n";
@@ -18969,8 +18953,8 @@ types:
     }
 
     /// A date moved by part of a day has no value, so an assignment of it
-    /// refuses its request `value_in_range`, where it answered not run; a
-    /// date moved by whole days is moved (fifteenth production review).
+    /// refuses its request `value_in_range`; a date moved by whole days is
+    /// moved (fifteenth production review).
     #[test]
     fn a_date_moved_by_part_of_a_day_has_no_value() {
         let text = "\nmodule: d\ncategories: [live]\ntypes:\n  Task:\n    attributes:\n      due: { type: date }\n    states:\n      ON: { category: live }\n    transitions:\n      make: { kind: initial, to: ON, required_inputs: [due] }\n      defer:\n        kind: internal\n        from: [ON]\n        inputs: { by: { type: duration } }\n        effect:\n          - assign: { location: due, expr: due + inputs.by }\n";
@@ -19004,9 +18988,9 @@ types:
     }
 
     /// An erasure reads the events it walks, its object's own, those they
-    /// caused and those that called them, by the log's indexes, where it
-    /// read the whole log under the writer; what it redacts is the same
-    /// (fourth production review).
+    /// caused and those that called them, by the log's indexes, never the
+    /// whole log, which would be read under the writer; what it redacts is
+    /// the same (fourth production review).
     #[test]
     fn an_erasure_reads_only_the_events_it_walks() {
         const CRM: &str = r#"
@@ -19069,7 +19053,7 @@ types:
     }
 
     /// An invariant reading related objects is checked from them: a write
-    /// reads none of its type whole, where every write swept it under the
+    /// reads none of its type whole, which every write would sweep under the
     /// writer (sixth production review P8), and every way a write can break
     /// one is still found: a bound over a part set, a sum over its parts, a
     /// path through another type, a part moved between wholes and a chain
@@ -19336,8 +19320,8 @@ types:
 
     /// A supersession group's erasure reads its members' predecessors by the
     /// index on their successor's column, never a superseding type whole,
-    /// where a 41-member group held the writer 1.43 s (fifth production
-    /// review, ADR-0191 decision 5); what it erases is the same.
+    /// since reading the types whole for each member holds the writer (fifth
+    /// production review, ADR-0191 decision 5); what it erases is the same.
     #[test]
     fn a_groups_erasure_reads_no_type_whole() {
         let lib = Library::load(&[("accounts.yaml".into(), GROUPED_ACCOUNTS.into())]).unwrap();
@@ -19390,9 +19374,9 @@ types:
     }
 
     /// `history` with `follow` reads a group's members' predecessors by the
-    /// index on their successor's column, never a superseding type whole,
-    /// where it read the type whole for each member (the audit's cost B9);
-    /// the group is the same, a chain two deep among it.
+    /// index on their successor's column, never a superseding type whole for
+    /// each member (the audit's cost B9); the group is the same, a chain two
+    /// deep among it.
     #[test]
     fn a_followed_history_reads_no_type_whole() {
         let lib = Library::load(&[("accounts.yaml".into(), GROUPED_ACCOUNTS.into())]).unwrap();
@@ -19888,8 +19872,8 @@ types:
 
     /// A read of an object's one-to-many end holds that object's parts,
     /// read through the stored end's index, never every object of the
-    /// parts' type, which made every read of a claim read every claim line
-    /// in the store (PERF-SCAN); and a query by a reference's id reads the
+    /// parts' type, which would make every read of a claim read every claim
+    /// line in the store (PERF-SCAN); and a query by a reference's id reads the
     /// objects naming it, never the type whole.
     #[test]
     fn a_one_to_many_end_is_read_by_its_index_not_its_type_whole() {
@@ -19953,9 +19937,8 @@ types:
 
     /// A sweep reading each object's parts, as a filter on a derived count
     /// of them does, keys each object it holds into the column indexes a
-    /// bounded number of times: a column rebuilt whenever an object was
-    /// held keyed every held object again for each one read, and a metric
-    /// or filter over 12,000 claims took 77 to 84 s (READ-COST).
+    /// bounded number of times, since a column rebuilt whenever an object is
+    /// held keys every held object again for each one read (READ-COST).
     #[test]
     fn a_sweep_keys_what_it_holds_a_bounded_number_of_times() {
         let text = r#"
@@ -20005,8 +19988,8 @@ types:
     /// A query read page by page in creation order, over a family of two
     /// interleaved types, gives what one read of it gives, each page read
     /// and judged from its cursor a chunk at a time: a page deep in the
-    /// result holds the chunks its span needs, where each page read the
-    /// family whole, and reading a result page by page was quadratic
+    /// result holds the chunks its span needs, since reading the family whole
+    /// for each page makes reading a result page by page quadratic
     /// (READ-PAGES).
     #[test]
     fn a_query_read_by_pages_reads_each_from_its_cursor() {
@@ -20088,9 +20071,8 @@ types:
 
     /// A store an earlier release left with a sequence's next value wrapped
     /// past 64 bits refuses only a creation that mints from it, as a value
-    /// past its bound, and takes every other write, where the allocator's
-    /// SQL overflowed to a REAL and every write answered 500 (fourth
-    /// production review A-15).
+    /// past its bound, and takes every other write (fourth production review
+    /// A-15).
     #[test]
     fn a_wrapped_sequence_refuses_only_what_mints_from_it() {
         let text = r#"
@@ -20144,9 +20126,9 @@ types:
 
     /// An external identifier's uniqueness, checked on each object of a
     /// store held whole, as a dry run checks it, is looked up among the
-    /// objects holding the same identifier only: the objects holding none
-    /// were gathered for every check, and a publish on 110k objects held
-    /// every write 44 s, 36 s of it there (PUBLISH-SCALE).
+    /// objects holding the same identifier only, since gathering the objects
+    /// holding none for every check would hold every write through a large
+    /// publish (PUBLISH-SCALE).
     #[test]
     fn an_identifiers_check_gathers_only_its_matches() {
         let text = r#"
@@ -20188,10 +20170,9 @@ types:
 
     /// An identity's check on each actor of a store held whole, as a
     /// dry run checks every object, looks the identity's folded value up,
-    /// sweeping no actors: a sweep of every actor for each actor checked
-    /// made a publish grow with the square of the actors, 70 s of approval
-    /// with 3,600 (seventh production review PUBLISH-SLOW, ADR-0194
-    /// decision 1).
+    /// sweeping no actors, since a sweep of every actor for each actor
+    /// checked makes a publish grow with the square of the actors (seventh
+    /// production review PUBLISH-SLOW, ADR-0194 decision 1).
     #[test]
     fn an_identitys_check_sweeps_no_actors() {
         let text = r#"
@@ -20282,9 +20263,9 @@ types:
     }
 
     /// `referrers` reads each stored end that may name the object by its
-    /// column's index, never a type whole: it read the store whole for each
-    /// object, a filter over a type running to its deadline at 1 GB (seventh
-    /// production review REFERRERS, ADR-0194 decision 3).
+    /// column's index, never a type whole, which a filter over a type would
+    /// read for each object (seventh production review REFERRERS, ADR-0194
+    /// decision 3).
     #[test]
     fn referrers_are_read_by_index_never_a_type_whole() {
         let text = r#"
@@ -20390,9 +20371,8 @@ types:
 
     /// A page of history ends at [`EVENT_BYTES`] of events as at its limit,
     /// with a cursor going on, and an answer of events past them is refused
-    /// with how many positions fit, where a page of 1,000 events of large
-    /// inputs answered 123 MB (seventh production review HISTORY, ADR-0194
-    /// decision 6).
+    /// with how many positions fit (seventh production review HISTORY,
+    /// ADR-0194 decision 6).
     #[test]
     fn a_page_of_events_ends_at_its_bytes() {
         let text = r#"
@@ -20554,8 +20534,7 @@ types:
                 loop {
                     let read = crate::world::events_read();
                     let (page, next) = s.history_page(&ids, from, 1000, newest_first).unwrap();
-                    // and decodes whole only the events it holds, where each
-                    // object's were read whole to its own bytes and merged
+                    // and decodes whole only the events it holds
                     assert_eq!(crate::world::events_read() - read, page.len() as u64);
                     let bytes: usize = page.iter().map(crate::store::event_bytes).sum();
                     assert!(bytes < crate::store::EVENT_BYTES + 100_000, "{bytes}");
@@ -20583,9 +20562,7 @@ types:
 
     /// A subscription's lag reads no event whole, and a page of `pull` or of
     /// the log's `export` reads whole only the events it holds and one chunk
-    /// more, where a `get` of a lagging subscription read 256 events whole
-    /// and a page read its limit before cutting at its bytes (tenth
-    /// production review).
+    /// more (tenth production review).
     #[test]
     fn a_subscriptions_reads_hold_only_the_events_they_answer() {
         let text = r#"
@@ -20648,10 +20625,9 @@ types:
         );
     }
 
-    /// A derived value computed once in one evaluation, where a chain of
-    /// attributes each reading the one before twice computed each 2^n times
-    /// and a read of twenty took a second of a core (eleventh production
-    /// review).
+    /// A derived value computed once in one evaluation, since a chain of
+    /// attributes each reading the one before twice would compute each 2^n
+    /// times (eleventh production review).
     #[test]
     fn a_derived_chain_is_computed_once_per_read() {
         let mut text = String::from(
@@ -20700,8 +20676,7 @@ types:
 
     /// A personal value passed to an evaluator is recorded as `(personal)`
     /// in what a guard consulted, on the event, a refusal's attempt and the
-    /// log's export, where the address was written and outlived an erasure
-    /// (thirteenth production review A).
+    /// log's export (thirteenth production review A).
     #[test]
     fn a_personal_argument_is_consulted_as_personal() {
         let text = "\nmodule: crm\ncategories: [live]\nevaluators:\n  crm:\n    functions:\n      known: { arguments: { email: { type: string } } }\ntypes:\n  Customer:\n    attributes:\n      email: { type: string, personal: true }\n    states:\n      ON: { category: live }\n    conditions:\n      known: { expression: crm.known(email), remedy: dependent }\n    transitions:\n      make: { kind: initial, to: ON, required_inputs: [email] }\n      check: { kind: internal, from: [ON], guards: { known: deny } }\n";
@@ -20745,8 +20720,7 @@ types:
 
     /// An object named beside a type is found only as one of that type's
     /// family, so a tool bound to a type takes no other type's object of the
-    /// id it is given: an agent's `customer_revoke` revoked a person's
-    /// subscription (thirteenth production review B).
+    /// id it is given (thirteenth production review B).
     #[test]
     fn an_object_named_beside_another_type_is_not_found() {
         let text = "\nmodule: two\ncategories: [live, closed]\ntypes:\n  Base:\n    abstract: true\n    attributes:\n      n: { type: int, optional: true }\n  Customer:\n    extends: Base\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      make: { kind: initial, to: ON }\n      revoke: { kind: external, from: [ON], to: OFF }\n  Pass:\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      make: { kind: initial, to: ON }\n      revoke: { kind: external, from: [ON], to: OFF }\n";
@@ -20795,8 +20769,8 @@ types:
 
     /// A transition calling itself down a reference chain, which both
     /// checkers refuse and an unchecked load may hold, stops past
-    /// [`CALL_DEPTH`] links as not run, where 3,000 aborted the process on
-    /// a stack overflow (twelfth production review).
+    /// [`CALL_DEPTH`] links as not run, since 3,000 would overflow the stack
+    /// (twelfth production review).
     #[test]
     fn a_chain_of_calls_stops_without_a_crash() {
         // on a stack as large as the service's request threads have
@@ -20849,8 +20823,7 @@ types:
 
     /// A derived attribute reading itself through a set, which a version
     /// installed before the checkers refused it may hold, answers a read of
-    /// a leaf, where typing its sum over nothing recursed until the stack
-    /// overflowed and aborted the service (eleventh production review).
+    /// a leaf (eleventh production review).
     #[test]
     fn a_derived_value_reading_itself_through_a_set_answers_a_leaf() {
         let text = "\nmodule: tree\ncategories: [live]\ntypes:\n  Node:\n    attributes:\n      parent: { reference: Node, optional: true, opposite: children }\n      children: { reference: \"Node[]\", opposite: parent }\n    derived_attributes:\n      size: { expression: \"count(c in children) + sum(c in children: c.size)\" }\n    states:\n      LIVE: { category: live }\n    transitions:\n      make: { kind: initial, to: LIVE, optional_inputs: [parent] }\n";
@@ -20880,18 +20853,15 @@ types:
 
     /// A derived attribute reading itself through a reference, which a
     /// version installed before the checkers refused it may hold, is not run
-    /// past [`crate::eval::DERIVED_HOPS`] references, where a cycle of two
-    /// nodes, or a chain of thousands, overflowed the stack and aborted the
-    /// service on a `get` (tenth production review), and where it was then
-    /// answered as none (fourteenth production review N1); a chain within
-    /// the bound is read; and an identifier's width past what a number fills
-    /// refuses its creation as not run, where it panicked (tenth production
-    /// review). It runs on a stack as large as the service's request
-    /// threads have, as a request runs, where on the test harness's 2 MiB a
-    /// debug build sat at its edge: 64 hops needed between 1,792 and 2,048
-    /// KiB on either backend, and overflowed it once on PostgreSQL when the
-    /// evaluator's frame grew (2026-10-18; a release build needs under 384
-    /// KiB).
+    /// past [`crate::eval::DERIVED_HOPS`] references (fourteenth production
+    /// review N1), since a cycle of two nodes, or a chain of thousands, would
+    /// overflow the stack (tenth production review); a chain within the bound
+    /// is read; and an identifier's width past what a number fills
+    /// refuses its creation as not run (tenth production review). It runs on
+    /// a stack as large as the service's request threads have, as a request
+    /// runs, since a debug build sits at the edge of the test harness's 2 MiB:
+    /// 64 hops need between 1,792 and 2,048 KiB on either backend (measured
+    /// 2026-10-18), and a release build needs under 384 KiB.
     #[test]
     fn a_recursive_derived_value_and_a_wide_identifier_stop_without_a_crash() {
         let ran = std::thread::Builder::new()
@@ -21015,8 +20985,7 @@ types:
     /// A page of `query`, `pull` and `export` ends at [`PAGE_BYTES`] as at
     /// its limit, one item at least, its cursor going on, and the next page
     /// takes up where it ended: nothing passed over, nothing twice; `pull`
-    /// and `export` say `more` where a page ended so, where 1,000 objects
-    /// of three 64 KiB strings answered 197 MB a page (ninth production
+    /// and `export` say `more` where a page ended so (ninth production
     /// review N-9).
     ///
     /// [`PAGE_BYTES`]: crate::reads::PAGE_BYTES
@@ -21140,8 +21109,7 @@ types:
 
     /// `available` reads the objects in a state its transition is taken
     /// from, by the state's index, and each one's offer of that transition
-    /// alone: a worklist with nothing to find read every claim of the type,
-    /// 41 s at 12,000 claims (READ-COST).
+    /// alone, never every object of the type (READ-COST).
     #[test]
     fn available_reads_only_the_objects_its_transition_is_taken_from() {
         let text = r#"
@@ -21173,9 +21141,9 @@ types:
     }
 
     /// An actor named by its identity is found by the identity's column,
-    /// holding the actor alone: reading every object of each actor type for
-    /// each lookup made a person's submit on 37k objects run past 20 minutes,
-    /// the dry run resolving its submitter for each object (DRYRUN-ACTOR).
+    /// holding the actor alone, since a dry run resolves its submitter for
+    /// each object, and reading every object of each actor type for each
+    /// lookup grows with the store's actors times its objects (DRYRUN-ACTOR).
     #[test]
     fn an_actor_named_by_identity_is_found_by_its_column() {
         let text = r#"
@@ -21347,9 +21315,9 @@ types:
 
     /// An actor named by its identity is read from every actor type's
     /// column in one statement, and a read by key is made once in an
-    /// operation, what the operation holds still filtered as it changes: on
-    /// PostgreSQL each read was a round trip, one an actor type, and a draft
-    /// read its claim's number twice (`research/write-throughput.md` §6).
+    /// operation, what the operation holds still filtered as it changes,
+    /// since on PostgreSQL each read is a round trip of its own
+    /// (`research/write-throughput.md` §6).
     #[test]
     fn an_actor_and_a_key_are_each_read_once_in_one_statement() {
         let text = r#"
@@ -21653,9 +21621,8 @@ types:
     /// An effect whose arithmetic of present values has none, an integer
     /// past 64 bits, a negation of the least or a division by zero, refuses
     /// its request as `value_in_range`, naming its object and storing
-    /// nothing, where it stopped not run; a guard over the same arithmetic
-    /// refuses it so too, where it was unknown (production review F5,
-    /// ADR-0185, ADR-0205 decision 2).
+    /// nothing; a guard over the same arithmetic refuses it so too
+    /// (production review F5, ADR-0185, ADR-0205 decision 2).
     const VALS: &str = r#"module: vals
 categories: [live, closed]
 types:
@@ -21751,12 +21718,11 @@ types:
 
     /// A value is written as its attribute's type holds it, by a default, an
     /// effect and a creation's argument alike: an integer to a decimal at its
-    /// scale, where `5` was stored as `0.05`; a decimal to an integer only
-    /// where it is whole, where `10.50` was stored as `1050`; a value of
+    /// scale; a decimal to an integer only where it is whole; a value of
     /// another kind, or an absent element added to a set, refused
     /// `value_in_range`; and a quotient written to a wider decimal divided
-    /// once at its scale, where it was rounded at its dividend's first (the
-    /// audit's values W1 to W4 and W6, ADR-0205 decision 1).
+    /// once at its scale (the audit's values W1 to W4 and W6, ADR-0205
+    /// decision 1).
     #[test]
     fn a_value_is_written_as_its_type_holds_it() {
         use crate::value::Decimal;
@@ -21845,11 +21811,9 @@ types:
     }
 
     /// Arithmetic past its bound is refused wherever it is read, never
-    /// unknown: an invariant refuses its request, where it held and admitted
-    /// the write; a loop's filter refuses it, where it dropped the element;
-    /// and a read of a derived value or by a filter refuses the read, where
-    /// it answered null and left the object out (the audit's values U1 to
-    /// U4, ADR-0205 decision 2).
+    /// unknown: an invariant refuses its request; a loop's filter refuses it;
+    /// and a read of a derived value or by a filter refuses the read (the
+    /// audit's values U1 to U4, ADR-0205 decision 2).
     #[test]
     fn arithmetic_past_its_bound_is_refused_where_it_is_read() {
         let lib = Library::load(&[("vals.yaml".into(), VALS.into())]).unwrap();
@@ -21904,9 +21868,9 @@ types:
 
     /// Where an actor type marks its identity personal, a guard's consulted
     /// key writes an argument of type `identity` as `(personal)`, as a
-    /// personal one, where `crm.known` of an author's address kept it (the
-    /// audit's personal data S19); and an erasure masks one a store wrote
-    /// before, so it leaves the store (S20, ADR-0205 decision 6).
+    /// personal one (the audit's personal data S19); and an erasure masks one
+    /// a store wrote before, so it leaves the store (S20, ADR-0205 decision
+    /// 6).
     #[test]
     fn a_consulted_identity_is_masked_and_an_erasure_masks_one_written_before() {
         let text = "\nmodule: crm\ncategories: [live]\nevaluators:\n  crm:\n    functions:\n      known: { arguments: { who: { type: identity } } }\ntypes:\n  Person:\n    attributes:\n      login: { type: identity, actor_kind: human, personal: true, optional: true }\n    states:\n      ON: { category: live }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login] }\n      forget: { kind: erasure, inputs: { reason: { type: string } } }\n  Memo:\n    attributes:\n      author: { type: identity, optional: true }\n    states:\n      ON: { category: live }\n    conditions:\n      known: { expression: crm.known(author), remedy: dependent }\n    transitions:\n      write: { kind: initial, to: ON, effect: [ { assign: { location: author, expr: actor.id } } ] }\n      vouch: { kind: internal, from: [ON], guards: { known: deny } }\n";
@@ -21959,10 +21923,8 @@ types:
 
     /// An actor's identity is written only at its creation: a later
     /// transition changing it is refused `identity_unchanged`, naming the
-    /// actor, where a changed email was taken by another person, who then
-    /// acted as the first in its records (the audit's write path I-01,
-    /// ADR-0205 decision 5); one writing the identity it holds changes
-    /// nothing and passes.
+    /// actor (the audit's write path I-01, ADR-0205 decision 5); one writing
+    /// the identity it holds changes nothing and passes.
     #[test]
     fn an_actors_identity_is_written_only_at_its_creation() {
         let text = "\nmodule: crew\ncategories: [live, closed]\ntypes:\n  Person:\n    attributes:\n      login: { type: identity, actor_kind: human }\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login] }\n      relogin: { kind: internal, from: [ON], required_inputs: [login] }\n      leave: { kind: external, from: [ON], to: OFF }\n";
@@ -22004,9 +21966,8 @@ types:
 
     /// An actor named by a string that is an object's id and, in any case,
     /// another actor's identity names neither, which an earlier release's
-    /// store can hold, where the object was taken for the person (the
-    /// audit's write path I-02, D669); named by its own object's id, the
-    /// person still acts.
+    /// store can hold (the audit's write path I-02, D669); named by its own
+    /// object's id, the person still acts.
     #[test]
     fn an_actor_named_ambiguously_is_no_actor() {
         let text = "\nmodule: crew\ncategories: [live, closed]\ntypes:\n  Person:\n    attributes:\n      login: { type: identity, actor_kind: human }\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      join: { kind: initial, to: ON, required_inputs: [login] }\n      leave: { kind: external, from: [ON], to: OFF }\n  Bot:\n    attributes:\n      name: { type: identity, actor_kind: agent }\n    states:\n      UP: { category: live }\n      DOWN: { category: closed, final: true }\n    transitions:\n      start: { kind: initial, to: UP, required_inputs: [name] }\n      stop: { kind: external, from: [UP], to: DOWN }\n";
@@ -22060,8 +22021,7 @@ types:
     /// as an `invalid_input` marks its own (issue #28, ADR-0224): a rule over
     /// two inputs names both, written the other way round in its
     /// expression; one over one names it; a generated `<attribute>_provided`
-    /// names its attribute's input, where clients mapped the clause's name
-    /// to a field by convention; a rule over the stored object names none,
+    /// names its attribute's input; a rule over the stored object names none,
     /// and so does a clause the transition does not guard with.
     #[test]
     fn an_unsatisfied_clause_names_the_inputs_it_reads() {
@@ -22240,7 +22200,7 @@ types:
             Some(&crate::value::Value::Int(i64::MAX - 5))
         );
         // a guard whose arithmetic passes its bound refuses its request
-        // so too, where it was unknown (ADR-0205 decision 2)
+        // so too (ADR-0205 decision 2)
         let (v, t) = told(&mut s, "check", &big, json!({}));
         assert!(
             matches!(&v, Verdict::Unsatisfied { clause, .. } if clause == "value_in_range"),
@@ -23807,11 +23767,10 @@ types:
     /// A refused request's `each` list whose field the target transition
     /// passes, one hop on, into another object's personal attribute is
     /// withheld whole from its attempt row, named and no value of it kept,
-    /// as an erasure reads such a field (`entry_field_personal`), where the
-    /// list was kept in clear (`DESIGN.md` §8; issue #102). Refused over its
-    /// limit and by a guard alike; and a proposal filed with it exports no
-    /// value of the field, where the text of the inputs it proposed kept the
-    /// list. A list no field of which is personal is kept. On both backends.
+    /// as an erasure reads such a field (`entry_field_personal`, `DESIGN.md`
+    /// §8; issue #102). Refused over its limit and by a guard alike; and a
+    /// proposal filed with it exports no value of the field. A list no field
+    /// of which is personal is kept. On both backends.
     #[test]
     fn a_refused_list_whose_field_a_hop_makes_personal_is_withheld() {
         const LISTED: &str = r#"
@@ -23936,8 +23895,8 @@ types:
     /// attempt row names it withheld and keeps no value of it, refused by
     /// the act's guard or by the created object's; the log exported leaves
     /// it out; and an erasure of the creating object redacts it from the
-    /// act's event, where each kept it in clear (`DESIGN.md` §8). An input
-    /// that reaches nothing personal is kept. On both backends.
+    /// act's event (`DESIGN.md` §8). An input that reaches nothing personal
+    /// is kept. On both backends.
     #[test]
     fn an_input_rest_derives_that_a_hop_makes_personal_is_withheld() {
         const RESTED: &str = r#"
