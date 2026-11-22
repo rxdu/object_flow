@@ -493,9 +493,9 @@ types:
 def test_a_creation_leaving_a_required_attribute_absent_is_refused_alike(tee, case):
     """A creation that writes no value to a required attribute, a reference or
     a string, each of which check 8 refuses and so loaded with the checks
-    skipped, refuses `value_in_range` naming no object on both backends,
-    where the core's store faulted it 500 (ADR-0201 decision 7); a counter,
-    which starts at 0, is no such attribute, and the creation applies."""
+    skipped, refuses `value_in_range` naming no object on both backends
+    (ADR-0201 decision 7); a counter, which starts at 0, is no such attribute,
+    and the creation applies."""
     tee.module = f"unwritten ({case})"
     before = len(tee.found)
     op = {"id": "operator"}
@@ -727,7 +727,8 @@ def test_a_proposal_is_refused_in_the_order_a_request_is_alike(tee):
     its limit (ADR-0290 decision 4); then a reference naming nothing or an
     input left out. A list past its limit with a required input left out,
     or a reference naming nothing, is `over_limit`, executed or filed, and
-    a proposal of a transition taking no list is refused as before."""
+    a proposal of a transition taking no list is refused `invalid_input`
+    naming every input at fault, with no `entries`."""
     tee.module = "placing (order of refusals)"
     before = len(tee.found)
     op = {"id": "operator"}

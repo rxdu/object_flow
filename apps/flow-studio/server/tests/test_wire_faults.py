@@ -84,9 +84,7 @@ def bases(oid: str, change: str) -> dict:
 
 def test_the_studio_takes_the_keys_the_wire_lists():
     """The studio's server takes each operation's keys as the core's service
-    holds them, `wire-v1.json`'s list, where a key the core added, `params`
-    on a query and a metric, was refused by the runner's backend and no test
-    said so (ADR-0218, ADR-0221)."""
+    holds them, `wire-v1.json`'s list (ADR-0218, ADR-0221)."""
     from flowstudio.http import TAKES
     for path, keys in TAKES.items():
         if path in WIRE:
@@ -229,9 +227,8 @@ types:
 
 def test_no_imported_value_faults_the_core(core):
     """Each value imported into each attribute of a mirror, an input of
-    every type and a reference, is written, reported as a class or
-    refused, never `500`: the import's decoder is the request's, and a null
-    element once reached the store's constraint through both."""
+    every type and a reference, is written, reported as a class or refused,
+    never `500`: the import's decoder is the request's."""
     assert call(core.url, "/sandbox/load", {"files": [
         {"name": "mirrored.yaml", "text": MIRROR}]})[1]["loaded"]
     call(core.url, "/sandbox/reset", {})

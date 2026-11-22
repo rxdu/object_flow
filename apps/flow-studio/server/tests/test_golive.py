@@ -242,7 +242,7 @@ def test_a_go_live_version_keeps_who_may_take_a_type():
     """A type's `taken_by` says who may take the erasure its mirror keeps,
     which declares none of its own (flow-format.md §4.2), so the go-live
     version keeps the key, where the format declares it, and checks clean
-    (issue #75: it was written last, and refused at `order`)."""
+    (issue #75)."""
     made = subprocess.run(
         [str(ROOT / "scripts/.venv/bin/python"),
          str(ROOT / "scripts/mirror-version.py"), "-", "Visitor"],

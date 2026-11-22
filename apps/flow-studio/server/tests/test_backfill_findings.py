@@ -1,9 +1,7 @@
 """A backfill writing a value its attribute cannot hold refuses the publish
 whatever order its objects are met in, through the studio's server on the
-reference runner, as the core's does: where it fitted the first object met,
-the notice naming the objects it writes kept the finding a notice (TODO.md,
-"A backfill that fits its first object hides a later object's value it cannot
-hold").
+reference runner, as the core's does (TODO.md, "A backfill that fits its
+first object hides a later object's value it cannot hold").
 """
 
 import pytest

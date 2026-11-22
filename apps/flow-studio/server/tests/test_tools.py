@@ -75,7 +75,7 @@ def test_an_agent_is_not_handed_a_persons_confirmation(tee):
 def test_an_agent_may_only_propose_what_a_person_takes(tee):
     """A transition `taken_by: [human]` is left out for an agent, unless it
     is proposable, when the agent is handed it for proposing only; a person
-    takes it as before (ADR-0176 decision 1)."""
+    takes it (ADR-0176 decision 1)."""
     tee.found.clear()
     assert tee.post("/sandbox/load",
                     {"files": [{"name": "taken.yaml", "text": TAKEN}]})["loaded"]
@@ -108,7 +108,7 @@ def test_an_agent_is_handed_only_what_its_flow_names_it_for(tee):
     """A transition whose taken_by does not name agent, its type's where it
     names none, is offered an agent only for proposing, where it may be
     proposed, and otherwise not at all; one naming agent is handed it as a
-    person is, and a person is handed each as before (ADR-0189 decision 1).
+    person is, and a person is handed each (ADR-0189 decision 1).
     """
     assert TAKEN.count(RETITLE) == 1
     variants = {

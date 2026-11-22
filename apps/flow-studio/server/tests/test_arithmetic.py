@@ -123,10 +123,8 @@ def test_values_are_written_and_refused_alike(tee):
     assert tee.post("/v1/get", {"id": item})["attributes"]["d4"] == "1.6667"
     took(tee, item, "count", k=7)
     assert tee.post("/v1/get", {"id": item})["attributes"]["d2"] == "7.00"
-    # a write that would round its decimal is refused at publish now that
-    # the checkers type a literal's element (K-10), where `max(x in {d4}: x)`
-    # into a decimal(10,2) passed them and was refused only at run time
-    # (W5); the core's own test holds that refusal
+    # a write that would round its decimal is refused at publish (K-10, W5);
+    # the core's own test holds that refusal at run time
     # (`request.rs`, a plain write that would round its decimal)
     refused(tee, item, "tag")
     took(tee, item, "tag_as", t="a")
@@ -196,10 +194,8 @@ def test_a_quotient_is_rounded_where_the_evaluator_rounds_it_alike(
     """A quotient at its dividend's scale, an amount at its currency's minor
     unit and a duration at whole seconds, each half to even, a product of
     numbers exact and a sum at the larger scale, and a quotient written to a
-    decimal divided once at its target's; where the reference runner held
-    every quotient exact, so a derived one that did not terminate failed its
-    read `500` and `d2 / 3 + 1` was refused as a write that rounds (the
-    audit's values R1 and R7, declaration-syntax.md §8.3)."""
+    decimal divided once at its target's (the audit's values R1 and R7,
+    declaration-syntax.md §8.3)."""
     load(tee, "quotients", QUOTIENTS)
     share = made(tee, "Share", "open", d2=d2, m="USD 10.00", du="90 min")
     got = tee.post("/v1/get", {"id": share})["attributes"]
@@ -249,8 +245,7 @@ types:
 def test_a_value_past_what_its_type_holds_is_refused_alike(tee, expr):
     """A duration or a time past 64 bits of seconds, and a decimal or an
     amount past 128 bits of units or 38 places, refuse the read that derives
-    it `value_in_range`, where the reference runner answered it (the audit's
-    values R5, ADR-0205 decision 2)."""
+    it `value_in_range` (the audit's values R5, ADR-0205 decision 2)."""
     tee.found.clear()
     load(tee, "bounded", BOUNDED % expr)
     span = made(tee, "Span", "open", d18="9999999999999999.99",
@@ -295,8 +290,7 @@ types:
 
 def test_a_year_before_1000_is_written_with_four_digits_alike(tee):
     """A time and each calendar bucket of a year below 1000 written with four
-    digits, `0999-W24`, as the core writes them, where the reference runner
-    wrote `999-W24` (the audit's values R8)."""
+    digits, `0999-W24`, as the core writes them (the audit's values R8)."""
     tee.found.clear()
     load(tee, "early", EARLY)
     visit = made(tee, "Visit", "open", at="0999-06-15T08:30:00Z")
@@ -368,10 +362,7 @@ types:
 def test_a_derived_history_and_choice_are_read_alike(tee, n, pick, half):
     """An object's own spans and events read as the core's rows, a member's
     spans with its values, an `if` at the scale of the branch it takes and a
-    category by its name; where the reference runner could write no row,
-    took an `if`'s first branch's scale for either and wrote a category as a
-    pair, and one value it could not write failed the whole read `500` (the
-    audit's values R7 and R9)."""
+    category by its name (the audit's values R7 and R9)."""
     tee.found.clear()
     load(tee, "history", HISTORY)
     person = made(tee, "Person", "join", who="ann")
@@ -419,11 +410,10 @@ types:
 
 
 def test_what_the_battery_found_is_read_alike(tee):
-    """A duration or an amount times an integer 0 is its zero, where the
-    core read the 0 as a duration or an amount and did not run the product;
-    a date less a date is a duration, and an `if` taking its branch of a
-    literal 0 reads as the zero of its expression's type, where the runner
-    wrote both as an integer (the differential battery, 2026-10-15)."""
+    """A duration or an amount times an integer 0 is its zero; a date less
+    a date is a duration, and an `if` taking its branch of a literal 0
+    reads as the zero of its expression's type (the differential
+    battery)."""
     tee.found.clear()
     load(tee, "found", FOUND % "")
     item = made(tee, "Found", "open", i=0, du="90 min", m="USD 10.00",
@@ -436,8 +426,8 @@ def test_what_the_battery_found_is_read_alike(tee):
 
 def test_a_date_moved_by_part_of_a_day_is_refused_alike(tee):
     """A date moved by part of a day is past what a date holds, which a read
-    refuses `value_in_range` as it refuses a date past the calendar, where
-    the runner read it as null (ADR-0205 decision 2, the battery)."""
+    refuses `value_in_range` as it refuses a date past the calendar
+    (ADR-0205 decision 2, the battery)."""
     tee.found.clear()
     load(tee, "found", FOUND % "      later: { description: A date moved by hours., expression: dd + du }\n")
     item = made(tee, "Found", "open", du="90 min", dd="2026-01-01")
@@ -600,8 +590,7 @@ def test_a_plans_length_is_held_by_add_months_alike(tee):
     # a metric of a date moved by months answers a date, as the reference's does
     m = tee.post("/v1/metric", {"actor": OP, "name": "Plan.latest_renewal"})
     assert [r["value"] for r in m["rows"]] == ["2029-03-28"], m
-    # a metric of the date of an instant answers a date, as the reference's does, where the core answered a count of
-    # seconds (ADR-0145)
+    # a metric of the date of an instant answers a date, as the reference's does (ADR-0145)
     m = tee.post("/v1/metric", {"actor": OP, "name": "Plan.first_opened"})
     assert [type(r["value"]) for r in m["rows"]] == [str] and len(m["rows"][0]["value"]) == 10, m
     alike(tee)
@@ -629,8 +618,7 @@ types:
 
 def test_the_date_of_anything_but_an_instant_is_not_run_alike(tee):
     """`date` of an int or a text, loaded with the checks skipped since check
-    24 refuses it, stops the request as not run on both runners alike, where
-    the reference raised TypeError on a text and read an int as an instant
+    24 refuses it, stops the request as not run on both runners alike
     (ADR-0283)."""
     tee.found.clear()
     assert tee.post("/sandbox/load", {"files": [{"name": "dues.yaml", "text": DUES}], "unchecked": True})["loaded"]
@@ -706,9 +694,8 @@ types:
 def test_a_division_by_zero_refuses_through_a_derivation_and_a_cascade_alike(tee):
     """A division by zero an effect reads through a derived attribute, or a
     cascade passes as an input, refuses as `value_in_range` on both runners,
-    as one written in the effect does, where a loop ran no step, an argument
-    was not passed and a `set` cleared what was stored; one a presence test
-    read refuses nothing more (ADR-0185, ADR-0277)."""
+    as one written in the effect does; one a presence test read refuses
+    nothing more (ADR-0185, ADR-0277)."""
     tee.found.clear()
     load(tee, "ratios", RATIOS)
     zero = made(tee, "Batch", "make", total=6, per=0)

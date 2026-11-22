@@ -1,8 +1,8 @@
 """An invariant's scan of a type ranging over every other object, held alike
 on the core and the reference runner (ADR-0061 decision 1, D696): a booking
-overlaps itself, so both refused every booking that came under a rule that
-no two live bookings of a room overlap, the first included; every answer
-compared whole by the tee, a difference failing the test.
+is never judged against itself, so the first booking under a rule that no
+two live bookings of a room overlap holds; every answer compared whole by
+the tee, a difference failing the test.
 
 It builds the core's service with the pinned toolchain, and fails, not skips,
 without it.

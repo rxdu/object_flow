@@ -97,9 +97,9 @@ types:
 def test_a_raise_naming_no_sequence_or_past_its_last_is_refused_alike(tee):
     """A batch's raise names a sequence a module declares, in a scope its
     identifiers take, with a last value that leaves a next: one naming none,
-    past what a sequence draws, negative or scoped where none is, is
-    refused alike through both backends, where i64::MAX was stored wrapped
-    and stopped every write (fourth production review A-15)."""
+    past what a sequence draws, negative or scoped where none is, is refused
+    alike through both backends, since a raise to i64::MAX would leave no
+    next number and stop every write (fourth production review A-15)."""
     assert tee.post("/sandbox/load", {"files": [
         {"name": "numbered.yaml", "text": NUMBERED}]})["loaded"]
     tee.post("/sandbox/reset", {})
@@ -123,8 +123,7 @@ def test_a_raise_naming_no_sequence_or_past_its_last_is_refused_alike(tee):
 
 def test_a_key_an_imported_object_does_not_take_is_refused_alike(tee):
     """An imported object holding a key it does not take, a misspelt
-    `atributes`, is refused naming it through both backends, where each read
-    it as absent and imported the object without its attributes (the second
+    `atributes`, is refused naming it through both backends (the second
     production review's minor); so is a batch's or a raise's."""
     assert tee.post("/sandbox/load", {"files": [
         {"name": "numbered.yaml", "text": NUMBERED}]})["loaded"]
@@ -134,8 +133,8 @@ def test_a_key_an_imported_object_does_not_take_is_refused_alike(tee):
         tee.post("/v1/import_batch", {"actor": OP, "batch": {"objects": [
             {"type": "Part", "legacy_key": "P-1", "state": "READY",
              "atributes": {"code": "x"}}]}})
-    # and a batch's or a raise's, where a misspelt `sequence` raised none,
-    # so a go-live's numbers could take a legacy record's
+    # and a batch's or a raise's: a misspelt `sequence` would raise none,
+    # and a go-live's numbers could take a legacy record's
     with pytest.raises(Failed, match="a batch takes no key sequence"):
         tee.post("/v1/import_batch", {"actor": OP, "batch": {
             "objects": [], "sequence": [{"sequence": "serial_no", "last": 7}]}})
@@ -168,10 +167,9 @@ types:
 def test_an_imported_value_not_of_its_type_is_never_held(tee, tags):
     """A value not of its attribute's type, a null among a set's elements
     too, is a class the core's import reports and writes nothing for until
-    it is decided, where a null element faulted `500` at the store's
-    constraint; the reference runner, which leaves classes to the core
-    (ADR-0154 decision 8), answers `not_run` where it held the value (the
-    differential battery)."""
+    it is decided; the reference runner, which leaves classes to the core
+    (ADR-0154 decision 8), answers `not_run` (the differential
+    battery)."""
     for w in (tee.core, tee.runner):
         assert raw(w, "POST", "/sandbox/load", {"files": [
             {"name": "kits.yaml", "text": KITS}]})[1]["loaded"]
@@ -251,9 +249,7 @@ types:
 
 def test_an_imported_file_is_held_as_a_written_one_alike(tee):
     """A file an import gives a mirror's object is held as one a request
-    writes, so the object is read alike through both backends, where the
-    reference sandbox held the file's wire form and its read faulted,
-    "cannot encode a value of type ('file',)"."""
+    writes, so the object is read alike through both backends."""
     for w in (tee.core, tee.runner):
         assert raw(w, "POST", "/sandbox/load", {"files": [
             {"name": "scans.yaml", "text": SCANS}]})[1]["loaded"]

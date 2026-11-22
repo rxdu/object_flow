@@ -12,11 +12,6 @@ request, takes each write on a fresh object and fails on one refused on
 every object, a rule the checkers could have applied. What each found is in
 `TODO.md` and `docs/LESSONS.md`.
 
-(Its first form, 2026-10-15, judged both sides by the flow checker alone:
-a core-backed Studio checks a load with the flow checker before forwarding
-it, and the core's sandbox load runs none, so "both checkers agree" held
-the flow checker to itself. Corrected the same day.)
-
 It builds the core's service with the pinned toolchain, and fails, not
 skips, without it.
 """
@@ -370,9 +365,7 @@ def test_every_accepted_write_writes_alike(tee, writes):
     accept, taken in turn on each object, is answered and leaves the object
     alike on both backends: a value at its target's scale, a quotient
     divided once there, a write that would round or overflow refused
-    `value_in_range` (§8.3, ADR-0205). Its first run found a set written a
-    scalar and a state written an amount, which the checkers accepted, the
-    core refused and the runner held."""
+    `value_in_range` (§8.3, ADR-0205)."""
     accepted, disagree = writes
     assert not disagree, f"refused by one checker alone: {disagree[:20]}"
     assert len(accepted) > 500, len(accepted)
@@ -386,11 +379,9 @@ def test_every_accepted_write_writes_alike(tee, writes):
                     reason="about six minutes; set OBJECTFLOW_BATTERY_WIDE=1")
 def test_no_accepted_write_is_refused_on_every_object(tee, writes):
     """Each accepted write on a fresh object of each kind, the clock moved a
-    day on, so a time in a state is a whole day: alike on both backends, and none refused `value_in_range` on
-    every object, which would be a rule the checkers could have applied at
-    publish. Its first run found a zero divisor, a date moved by part of a
-    day and a literal's places lost beside an int, each now refused at
-    publish (the differential battery, 2026-10-15)."""
+    day on, so a time in a state is a whole day: alike on both backends, and
+    none refused `value_in_range` on every object, which would be a rule the
+    checkers could have applied at publish."""
     accepted, _ = writes
     found, everywhere = [], []
     for k in range(0, len(accepted), 40):
@@ -570,11 +561,7 @@ def test_every_accepted_argument_creates_alike(tee, judged):
     """Each accepted expression passed as each input of a creation: both
     checkers judge the argument alike (check 2's fit), and each one both
     accept, taken on a fresh object of each kind, is answered alike on both
-    backends. Its first run found an int passed to a time, an amount or a
-    duration input, and an amount to a decimal or an int, which the checkers
-    took, the core refused `call_refused` and the runner, holding them all
-    as numbers, satisfied; the checkers now type an argument as they type an
-    expression (the differential battery, 2026-10-16)."""
+    backends."""
     exprs, _ = judged
     accepted, disagree = judge(
         tee, [(loc, e) for e in exprs for loc in TARGETS], creating, "w")

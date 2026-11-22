@@ -46,7 +46,7 @@ def test_an_offer_follows_the_state_and_the_guards(service):
 
 def test_an_offer_of_an_unknown_object_is_null(service):
     """An object that does not exist offers nothing, null as get answers
-    for it (ADR-0173 decision 12), where it was a 404."""
+    for it (ADR-0173 decision 12)."""
     wire, ana = service
     assert wire.post("/v1/availability",
                      {"actor": {"id": ana}, "id": "x-1"}) is None

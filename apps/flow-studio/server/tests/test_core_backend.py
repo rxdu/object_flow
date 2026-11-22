@@ -60,16 +60,14 @@ def test_a_fault_keeps_the_cores_status_and_words(studio):
     with pytest.raises(Failed, match="404: no type Nothing is declared"):
         wire.post("/v1/declaration", {"type": "Nothing"})
     # an operation the core does not have is its own JSON fault, its words
-    # kept (ADR-0173 decision 12, D555), where its body was empty
+    # kept (ADR-0173 decision 12, D555)
     with pytest.raises(Failed, match="404: no operation /v1/nothing"):
         wire.post("/v1/nothing", {})
 
 
 def test_a_load_of_another_shape_is_answered_not_dropped(studio, workspace, monkeypatch):
     # files named where each is an object of a name and a text: answered
-    # 400 naming the shape, by either backend's server, where the core's
-    # forwarder raised and closed the socket, a 502 through the front end's
-    # proxy (found restarting the studio on 0.3.0)
+    # 400 naming the shape, by either backend's server
     wire, _ = studio
     with pytest.raises(Failed, match="400: load takes `files`"):
         wire.post("/sandbox/load", {"files": ["service.yaml"]})

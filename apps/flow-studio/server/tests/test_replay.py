@@ -16,7 +16,7 @@ DESIGN = Catalogue(pathlib.Path(tempfile.mkdtemp()))
 FILES = [m["file"] for m in DESIGN.modules()
          if m["examples"] and m["source"] == "design"]
 
-# what an example may wait on, and nothing else (ADR-0150, Consequences)
+
 def oracle(module_file: str) -> dict[str, str]:
     """Each example's outcome as the flow checker's step 6 decides it."""
     bundle = DESIGN.bundle(module_file)
@@ -39,7 +39,7 @@ def test_examples_replay_through_the_wire(wire, module_file):
     want = oracle(module_file)
     got = replay(wire, module_file)
     assert set(got) == set(want)
-    # every example runs through the wire since the import did (ADR-0154)
+    # every example runs through the wire, the import's among them (ADR-0154)
     for name, (outcome, why) in got.items():
         assert outcome == want[name], (name, outcome, why)
 
