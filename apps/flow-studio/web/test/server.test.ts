@@ -1,5 +1,5 @@
 // The wire tests' server: once stopped, it leaves no workspace in the
-// system's temporary directory, where every run left one per backend.
+// system's temporary directory.
 
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";

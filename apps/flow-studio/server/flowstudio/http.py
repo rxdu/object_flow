@@ -91,8 +91,8 @@ def actor_shape(actor: Any) -> str | None:
 
 
 def keys_once(pairs: list) -> dict:
-    """A JSON object naming each key once, as the core's service reads one: a key named twice is refused, where the
-    last one won (ADR-0190 decision 8)."""
+    """A JSON object naming each key once, as the core's service reads one: a key named twice is refused (ADR-0190
+    decision 8)."""
     out: dict = {}
     for k, v in pairs:
         if k in out:

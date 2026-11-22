@@ -175,7 +175,7 @@ describe.each(BACKENDS)("against the %s", (backend) => {
           );
           const { outcome, why } = await runExample(wire, doc, name, beside);
           tally[outcome] += 1;
-          // every example runs through the wire since the import did (ADR-0154)
+          // every example runs through the wire, the import's among them (ADR-0154)
           if (outcome !== "passed") failures.push(`${m.file} ${name}: ${why}`);
         }
       }

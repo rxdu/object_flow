@@ -98,7 +98,7 @@ def timestamp_text(v: Fraction) -> str:
     if Fraction(v).denominator != 1:
         raise Unencodable(f"a timestamp of {v} seconds is not whole")
     t = EPOCH + datetime.timedelta(seconds=int(v))
-    # a year of four digits, as the core writes it, where `%Y` wrote `999`
+    # a year of four digits, as the core writes it, which `%Y` does not
     # below 1000 (the audit's values R8)
     return f"{t.year:04d}-" + t.strftime("%m-%dT%H:%M:%SZ")
 
@@ -131,8 +131,8 @@ def encode(v: Any, typ: tuple) -> Any:
     if isinstance(v, tuple) and v and v[0] == "enum":
         return v[2]
     if isinstance(v, tuple) and v and v[0] == "category":
-        # a category by its name, as the core writes it, where it was read
-        # as a set of two (the audit's values R7)
+        # a category by its name, as the core writes it (the audit's values
+        # R7)
         return v[1]
     if isinstance(v, tuple) and v and v[0] == "file":
         return {"hash": v[1], "size": v[2], "media_type": v[3]}
@@ -180,8 +180,8 @@ def decode_input(v: Any, spec: dict | None, enums: dict) -> Any:
         if not isinstance(v, list):
             return flowrun.WrongKind(v)
         if any(x is None for x in v):
-            # a null is no element, as the core refuses it, where the set
-            # held it (the differential battery)
+            # a null is no element, as the core refuses it (the differential
+            # battery)
             return flowrun.WrongKind(v)
         inner = dict(spec or {})
         if "type" in inner:

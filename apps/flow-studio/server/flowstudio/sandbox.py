@@ -145,8 +145,7 @@ def checked(body: dict) -> tuple[list[tuple[str, str]], dict | None, int]:
     5): the files, the answer refusing them where it finds them wrong, and
     the number of its notes."""
     given = body.get("files") or []
-    # each file an object of a name and a text, where another shape raised
-    # and the server closed the socket (found restarting the studio on 0.3.0)
+    # each file an object of a name and a text, a fault otherwise
     if not isinstance(given, list) or not all(
             isinstance(f, dict) and isinstance(f.get("name"), str) and isinstance(f.get("text"), str)
             for f in given):
@@ -696,8 +695,8 @@ class Sandbox:
                                        f"scope, not {scope}")
 
         for o in objects:
-            # a key an object does not take refused, as the core's, where a
-            # misspelt `atributes` was read as none
+            # a key an object does not take refused, as the core's, so a
+            # misspelt `atributes` is never read as none
             unknown = next((k for k in o if k not in IMPORTED_KEYS), None)
             if unknown is not None:
                 raise Fault(400, f"an imported object takes no key {unknown}")
@@ -758,12 +757,12 @@ class Sandbox:
                                 flowrun.file_value(x) for x in held_as
                                 if isinstance(x, dict))):
                         # a value not of its type is a class the core's
-                        # import decides (ADR-0154 decision 8), where the
-                        # sandbox held it (the differential battery)
+                        # import decides (ADR-0154 decision 8), which the
+                        # runner does not run
                         raise not_run(f"an imported {tn}.{k} not of its "
                                       "type, whose class the core decides")
-                    # a file held as the runner holds one written, where its
-                    # wire form was kept and a read of it faulted
+                    # a file held as the runner holds one written, not in its
+                    # wire form
                     if str(spec.get("type", "")).removesuffix("[]") == "file" \
                             and given[k] is not None and given[k] is not flowrun.ABSENT:
                         given[k] = tuple(flowrun.file_value(x) for x in held_as) \
@@ -874,9 +873,8 @@ class Sandbox:
             for k, spec in (t.get("derived_attributes") or {}).items():
                 expr = flowexpr.parse(spec["expression"])
                 # typed as the core's evaluator holds it, a bare name read on
-                # `this`, an `if` by the branch it takes, where `d2 + 3` was
-                # no decimal and an `if` took its first branch's scale (the
-                # audit's R7)
+                # `this`, an `if` by the branch it takes (the audit's values
+                # R7)
                 held = ev.held_kind(expr, {"this": ("object", o.type)}, {})
                 v = ev.member(o.id, k)
                 if type(v) is int and v == 0:
@@ -890,8 +888,8 @@ class Sandbox:
                                                    "duration") else ("int",)
                 if held[0] in ("intervals", "transitions") and \
                         isinstance(v, tuple):
-                    # rows of flow data, as the core answers them, where
-                    # none could be written (the audit's R9)
+                    # rows of flow data, as the core answers them (the audit's
+                    # values R9)
                     attrs[k] = [row_read(r) for r in v]
                     continue
                 typ = values.type_of_kind(held)
