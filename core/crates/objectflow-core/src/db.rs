@@ -2584,6 +2584,7 @@ impl Drop for Savepoint<'_> {
 /// Whether a test of SQLite's own layout stops on PostgreSQL, where its
 /// planner and its catalog are its own: said where it does, so a run on
 /// PostgreSQL shows what it did not check (ADR-0213).
+#[cfg(test)]
 pub fn sqlite_only(backend: Backend, what: &str) -> bool {
     if backend == Backend::Postgres {
         eprintln!("skipped on PostgreSQL: {what}, which is SQLite's");

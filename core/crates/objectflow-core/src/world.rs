@@ -2024,6 +2024,7 @@ impl<'l> World<'l> {
 
     /// Every object of a type, its own or a subtype's, in one of the states
     /// given, in ascending id order, as [`World::of_type_where`] reads them.
+    #[cfg(test)]
     pub fn of_type_in(
         &self,
         type_: &str,
@@ -2479,7 +2480,6 @@ impl<'l> World<'l> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
 

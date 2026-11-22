@@ -3538,6 +3538,7 @@ impl Store {
     /// log: the first fault it finds, none where it holds. A copy restored
     /// beside another state's `-wal` opened and answered health while its
     /// reads failed (third production review N5).
+    #[cfg(test)]
     pub fn quick_check(&self) -> Stored<Option<String>> {
         let first: String = self
             .conn
@@ -5008,6 +5009,7 @@ impl Store {
     }
 
     /// Whether a group of requests is open.
+    #[cfg(test)]
     pub fn grouped(&self) -> bool {
         self.group.is_some()
     }

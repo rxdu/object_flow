@@ -180,6 +180,7 @@ pub(crate) fn draft_of(o: &Object) -> (Vec<(String, String)>, String, String) {
 /// The dry run a `submit` or `refresh` of a change would record, computed on
 /// a read; none where the id names no change in a state either is taken
 /// from.
+#[cfg(test)]
 pub fn prepare(world: &World<'_>, change: &str, actor: &str) -> Result<Option<Prepared>, NotRun> {
     let Some(o) = world
         .get(change)?
@@ -2237,7 +2238,6 @@ fn attribute_notices(world: &World<'_>, new: &Library, found: &mut Found) -> Res
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::model::{OPERATOR, Remedy};

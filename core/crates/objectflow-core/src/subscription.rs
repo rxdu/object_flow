@@ -197,7 +197,6 @@ pub fn lag(world: &World<'_>, s: &Object) -> Result<(i64, bool, bool), NotRun> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use crate::model::{Library, OPERATOR};
