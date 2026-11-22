@@ -52,10 +52,8 @@ pub struct Request {
     /// ADR-0023: a request finding it moved is refused as `stale`.
     pub expected_version: Option<i64>,
     /// For a proposal's approval, the version of the proposed object its
-    /// approver read: an approval finding it moved is refused as `stale`,
-    /// where an agent grew a payment it had proposed to send and a person's
-    /// approval sent the grown amount (tenth production review). Read by no
-    /// other request.
+    /// approver read: an approval finding it moved is refused as `stale`
+    /// (tenth production review). Read by no other request.
     pub target_version: Option<i64>,
     /// The principal its actor acts for, an object's id or the identity it
     /// holds, recorded and never read by a rule (`DESIGN.md` §5.8).
@@ -93,8 +91,8 @@ impl std::convert::From<NotRun> for NoVerdict {
 /// `masked/personal`: an input marked personal, by name in any type as a
 /// consulted reference masks it, counts in the first by its name alone, and
 /// its value in the second, which an erasure of what it sent replaces with
-/// `erased`, so the key then replays nothing and confirms no guess, where
-/// one masked digest replayed a request differing in a personal value
+/// `erased`, so the key then replays nothing and confirms no guess; one
+/// masked digest would replay a request differing only in a personal value
 /// (fourteenth production review N2, ADR-0201; the audit's write path K-01
 /// and K-02, ADR-0205 decision 3). The actor and the principal count as
 /// resolved, so a request naming either by its object, its identity or
@@ -301,9 +299,8 @@ pub(crate) fn resolve_actor(world: &World<'_>, actor: &str) -> Result<Option<Who
     };
     if let Some(o) = world.get(actor)? {
         // an id that is also an identity another actor holds, in any case,
-        // names neither, since which was meant cannot be told, where the
-        // object of that id was taken for the person (the audit's write path
-        // I-02, D669)
+        // names neither, since which was meant cannot be told (the audit's
+        // write path I-02, D669)
         for (tn, t) in &world.lib.types {
             let Some((attr, _)) = t.actor_identity() else {
                 continue;
@@ -319,12 +316,12 @@ pub(crate) fn resolve_actor(world: &World<'_>, actor: &str) -> Result<Option<Who
         return Ok(identity(o));
     }
     // by the identity's column and its index, never every object of each
-    // actor type: a dry run resolving its submitter for each object read a
-    // store's actors whole each time, and a person's submit on 37k objects
-    // ran past 20 minutes where the operator's, named by id, took 9 s
-    // (DRYRUN-ACTOR); every actor type's read in one statement, which each
-    // `with_key` below then reads nothing more of, where each was a round
-    // trip of its own on PostgreSQL (`research/write-throughput.md` §6)
+    // actor type, since a dry run resolves its submitter for each object,
+    // and reading every actor for each grows with the store's actors times
+    // its objects (DRYRUN-ACTOR); every actor type's read in one statement,
+    // which each `with_key` below then reads nothing more of, since on
+    // PostgreSQL each read is a round trip of its own
+    // (`research/write-throughput.md` §6)
     let named = Value::Text(actor.to_string());
     let identities: Vec<(&str, &str, &Value)> = world
         .lib
@@ -934,8 +931,7 @@ fn decide_as(
     let changing = target.is_some_and(|o| o.type_ == DECLARATION_CHANGE)
         || (req.object_id.is_none() && req.type_.as_deref() == Some(DECLARATION_CHANGE));
     // a proposal of a change's transition or of a proposal's is refused
-    // `not_proposable`, where it took the change (the audit's write path
-    // R-06)
+    // `not_proposable` (the audit's write path R-06)
     let answer = if req.propose && (changing || deciding) {
         // after its actor, as every refusal is
         request_who(world, req).and_then(|_| refused(Verdict::NotProposable))
@@ -1013,8 +1009,7 @@ fn decide_or_stop(
             None => return refused(Verdict::NotFound),
             // an object named beside a type is found only as one of that
             // type's family, so a tool bound to a type takes no other type's
-            // object of the id it is given: an agent's `customer_revoke`
-            // revoked a person's subscription (thirteenth production review B)
+            // object of the id it is given (thirteenth production review B)
             Some(o) if req.type_.as_deref().is_some_and(|t| !lib.is_a(&o.type_, t)) => {
                 return refused(Verdict::NotFound);
             }
@@ -1215,8 +1210,7 @@ fn decide_or_stop(
         readings: BTreeMap::new(),
     };
     // an admission records the request's reason (ADR-0054), unless it is
-    // personal, which nothing then erases, where an erasure's reason naming
-    // a caller stayed in the admission (the audit's personal data S29)
+    // personal, which nothing then erases (the audit's personal data S29)
     let reason = match lib.type_(&tn).and_then(|t| {
         t.transition(&req.transition)
             .map(|_| input_personal(lib, t, &req.transition, "reason"))
@@ -1265,8 +1259,8 @@ fn decide_or_stop(
             // a creation leaving a required attribute absent, the store's
             // NOT NULL as `store.rs` declares it, a counter holding 0 from
             // its creation, refuses as an absent value assigned does, naming
-            // no object, where the store's constraint faulted it 500
-            // (ADR-0201 decision 7)
+            // no object, since the store's constraint would otherwise fail
+            // the write (ADR-0201 decision 7)
             if let Some(t) = ctx.work.lib.type_(&obj.type_)
                 && t.attributes.iter().any(|(a, spec)| {
                     !spec.optional
@@ -1717,12 +1711,12 @@ pub(crate) fn media_taken(types: &[String], v: &Value) -> bool {
     }
 }
 
-/// The most transitions one request takes each caused by the one before:
-/// a transition calling itself down a reference chain, which both checkers
-/// refuse and an unchecked load may hold, recursed once a link and aborted
-/// the process past a few thousand (twelfth production review). A
-/// supersession group's members are each one deeper than the erasure that
-/// walks it, never one another.
+/// The most transitions one request takes each caused by the one before,
+/// past which it is not run: a transition calling itself down a reference
+/// chain, which both checkers refuse and an unchecked load may hold,
+/// recurses once a link and would overflow the stack past a few thousand
+/// (twelfth production review). A supersession group's members are each
+/// one deeper than the erasure that walks it, never one another.
 pub const CALL_DEPTH: usize = 64;
 
 /// One transition, the requested one or one it causes: its checks, its
@@ -1738,8 +1732,8 @@ fn take(
     depth: usize,
 ) -> Result<String, Stop> {
     // only_via holds through a call, a creation and a cascade, as for a
-    // request: the transition taking this one is one it names, where a
-    // call from any transition took it (the audit's write path R-05)
+    // request: the transition taking this one is one it names (the audit's
+    // write path R-05)
     let lib = ctx.work.lib;
     if depth > 0
         && let Some(x) = lib.type_(tn).and_then(|t| t.transition(xn))
@@ -1936,10 +1930,10 @@ fn take_unwound(
         ctx.admits = admits;
     }
     // a subscription selects what the installed version declares, and its
-    // durations are positive, where one naming no type, a type in another
-    // case or transitions no type has was taken and delivered nothing for
-    // good, and a negative `dead_after` was dead at once (D689, ADR-0205
-    // decision 10); checked here, not as a condition of the built-in type,
+    // durations are positive, since one naming no type, a type in another
+    // case or transitions no type has would deliver nothing for good, and a
+    // negative `dead_after` would be dead at once (D689, ADR-0205 decision
+    // 10); checked here, not as a condition of the built-in type,
     // so the built-ins, and the fingerprint a store upgrades by, stay
     if tn == crate::model::SUBSCRIPTION && x.kind == Kind::Initial {
         let wrong = subscription_inputs(lib, &inputs);
@@ -2035,8 +2029,8 @@ fn take_unwound(
             .iter()
             .chain(&x.optional_inputs)
             .filter(|k| inputs.contains_key(*k));
-        // a step at any depth, a loop's among them, where one nested in a
-        // `foreach` wrote the attribute again (the audit's write path R-02)
+        // a step at any depth, a loop's among them (the audit's write path
+        // R-02)
         fn written(steps: &[Step], out: &mut Vec<String>) {
             for st in steps {
                 match st {
@@ -2438,8 +2432,9 @@ fn take_unwound(
         // version no longer marks keeping what it was written as (ADR-0146
         // decision 2)
         // the events the erasure and its walks read, each by the log's
-        // indexes, this request's own among them, where it read the whole
-        // log under the writer (ADR-0162 step 1, fourth production review)
+        // indexes, this request's own among them, never the whole log, which
+        // would be read under the writer (ADR-0162 step 1, fourth production
+        // review)
         let writes = o.held_parts()?.writes.clone();
         // its own events, each judged under the type it was of then, which
         // a move changed (ADR-0229 decision 3)
@@ -2724,8 +2719,8 @@ fn take_unwound(
     // then the objects following it, as its parts are driven (ADR-0292)
     follows(ctx, alloc, t, xn, &id, &inputs, depth)?;
     // whole_open after the effect as well: a part an effect moved, or a
-    // creation placed, into a whole already finished, where only an input
-    // naming the whole was decided (the audit's write path R-03)
+    // creation placed, into a whole already finished (the audit's write path
+    // R-03)
     for (a, spec) in &t.attributes {
         let (Declared::Reference(target), Some(back)) = (&spec.declared, &spec.opposite) else {
             continue;
@@ -2760,10 +2755,8 @@ fn take_unwound(
         }
     }
     // identity_unchanged: an actor's identity is written only at its
-    // creation, since the record names actors by it, where a changed email
-    // was taken by another person, who then withdrew the first one's
-    // proposal as its proposer (the audit's write path I-01, ADR-0205
-    // decision 5); an erasure renames it, as the record does
+    // creation, since the record names actors by it (the audit's write path
+    // I-01, ADR-0205 decision 5); an erasure renames it, as the record does
     if x.kind != Kind::Erasure
         && let Some((attr, _)) = t.actor_identity()
         && let Some(was) = ctx.before.get(&id)?
@@ -3316,8 +3309,8 @@ fn redact_others(
         let mut p = held.clone();
         let was = p.attrs.clone();
         // an object erased before holds nothing personal to clear, and still
-        // gets the event naming the inputs redacted in its history, where it
-        // got none (the audit's write path A-03)
+        // gets the event naming the inputs redacted in its history (the
+        // audit's write path A-03)
         let erased_before = p.held_parts()?.erased;
         // one this request erases has its erasure's own event
         if erased_before && ctx.erased.contains_key(&id) {
@@ -3745,12 +3738,10 @@ fn hops_pass(
 ) -> bool {
     type Judge<'j> = &'j dyn Fn(&Type, &str, &str) -> bool;
     // what a create or a call passes it into, one hop on, as `writes_of`
-    // reads a step (D547): an argument the taken transition holds personal,
-    // where the input was recorded in clear on the caller's event and
-    // exported, though the object it reached holds it personal (the caller
-    // taint found probing the write path audit's last minor). A call's
-    // target is read by every type taking a transition of its name, so it
-    // errs to holding the input personal
+    // reads a step (D547): an argument the taken transition holds personal
+    // (the caller taint found probing the write path audit's last minor). A
+    // call's target is read by every type taking a transition of its name,
+    // so it errs to holding the input personal
     fn passes(lib: &Library, steps: &[Step], name: &str, judge: Judge<'_>) -> bool {
         steps.iter().any(|st| match st {
             Step::Create {
@@ -4170,9 +4161,8 @@ fn invalidate_proposals(
         ctx.work.insert(p)?;
     }
     // and every one decided on it, approved, rejected or withdrawn, keeps its
-    // inputs but those personal to the transition it proposed, which an
-    // erasure of its object left in the proposal, its history and the log
-    // (thirteenth production review A)
+    // inputs but those personal to the transition it proposed (thirteenth
+    // production review A)
     let decided: Vec<String> = ctx
         .work
         .of_type_where(PROPOSAL, None, &on_it)?
@@ -4273,8 +4263,7 @@ fn file(
             None => return refused(Verdict::NotFound),
             // an object named beside a type is found only as one of that
             // type's family, so a tool bound to a type takes no other type's
-            // object of the id it is given: an agent's `customer_revoke`
-            // revoked a person's subscription (thirteenth production review B)
+            // object of the id it is given (thirteenth production review B)
             Some(o) if req.type_.as_deref().is_some_and(|t| !lib.is_a(&o.type_, t)) => {
                 return refused(Verdict::NotFound);
             }
@@ -4643,8 +4632,7 @@ fn reference_formed(r: &Json) -> bool {
 /// reference, refused where empty, longer than 512 characters, or holding a
 /// control character (ADR-0135).
 fn change_source(req: &Request) -> Result<ChangeSource, Stop> {
-    // each input wrong, missing where it was not sent, as any input is,
-    // where a draft without a `source_ref` was told it was malformed (the
+    // each input wrong, missing where it was not sent, as any input is (the
     // guides' audit G-44)
     let mut wrong: Vec<(String, InputReason)> = Vec::new();
     let why = |k: &str| match req.inputs.get(k) {
@@ -4776,8 +4764,7 @@ fn decide_change(
             });
         }
         // the approval is its own operation, `publish`, as a supersession
-        // is a publish's, where a request of it answered 501 (ninth
-        // production review N-2, ADR-0196 decision 7)
+        // is a publish's (ninth production review N-2, ADR-0196 decision 7)
         ("publish", true) => {
             stale(world, req)?;
             return refused(Verdict::NotRequestable {
@@ -4795,9 +4782,8 @@ fn decide_change(
         });
     }
     // a change another actor drafted is moved on only by one that may approve
-    // the next version, as approving it is refused, where an agent rejected,
-    // reopened and revised a person's (ninth production review N-1, ADR-0196
-    // decision 5)
+    // the next version, as approving it is refused (ninth production review
+    // N-1, ADR-0196 decision 5)
     if let Some(h) = held
         && matches!(
             xn,
@@ -5070,8 +5056,7 @@ fn decide_proposal(
         return refused(Verdict::NotFound);
     };
     // a type named beside the id holds a proposal as it holds a declared
-    // type's object, where an agent's propose-only tool bound to Claim
-    // approved, and so took, its own proposal (the audit's write path R-01)
+    // type's object (the audit's write path R-01)
     if req
         .type_
         .as_deref()
@@ -5108,8 +5093,7 @@ fn decide_proposal(
     // a proposal is decided by those who may take its transition: a
     // rejection, and a withdrawal by another than its proposer, by a kind its
     // transition's `taken_by` does not name is refused as approving it would
-    // be, where an agent could reject what a person proposed (fifth
-    // production review, ADR-0191 decision 1)
+    // be (fifth production review, ADR-0191 decision 1)
     if to != "EXECUTED" {
         let text = |a: &str| match p.attr(a) {
             Value::Text(t) => Some(t),
@@ -5371,8 +5355,7 @@ fn forget_observations(
     for l in labels {
         // each with a `redact` event of its own, caused by the erasure, its
         // version advanced, as every object whose value an erasure redacts
-        // (DESIGN.md §8), where its note went with nothing in its history
-        // (the audit's write path A-01)
+        // (DESIGN.md §8, the audit's write path A-01)
         let Some(held) = ctx.work.get(&l)? else {
             continue;
         };
@@ -5438,9 +5421,9 @@ fn erase_chain(
     inputs: &BTreeMap<String, Value>,
     depth: usize,
 ) -> Result<(), Stop> {
-    // the group walked once, by the erasure that began it: each member's
-    // erasure walked it again, a chain of 1,201 holding the writer 66.5 s
-    // (sixth production review, ADR-0192 decision 7)
+    // the group walked once, by the erasure that began it, since each
+    // member's erasure walking it again holds the writer (sixth production
+    // review, ADR-0192 decision 7)
     if ctx.in_group {
         return Ok(());
     }
@@ -5459,8 +5442,8 @@ fn erase_chain(
         // its predecessors, of the types whose states supersede, the only
         // ones that hold a successor
         // by the index on the successor's column, never each type whole,
-        // where a 41-member group held the writer 1.43 s (fifth production
-        // review, ADR-0191 decision 5)
+        // since reading the types whole for each member holds the writer
+        // (fifth production review, ADR-0191 decision 5)
         for (tn, t) in &ctx.work.lib.types {
             if t.states.iter().any(|(_, s)| s.superseding) {
                 todo.extend(
@@ -5579,9 +5562,8 @@ pub(crate) fn invariant_reads(t: &Type, n: &str) -> BTreeSet<String> {
 /// A write whose right-hand side is an unsupplied optional input is skipped
 /// (`DESIGN.md` §5.4).
 fn unsupplied(e: &Expr, inputs: &BTreeMap<String, Value>, principal: Option<&str>) -> bool {
-    // and the principal where the request names none, which refused the
-    // request `value_in_range` wherever a flow recorded it, though no
-    // request need name one (D687)
+    // and the principal where the request names none, since no request need
+    // name one (D687)
     match e {
         Expr::Path(base, k) => match &**base {
             Expr::Name(n) if n == "inputs" => !inputs.contains_key(k),
@@ -5643,8 +5625,8 @@ fn effect_value(
         _ => ev.eval_in(e, env)?,
     };
     // an effect's value an arithmetic left with none, past its bound or a
-    // division by zero, refuses the request, naming its object, where it
-    // stopped as not run (production review F5, ADR-0185)
+    // division by zero, refuses the request, naming its object (production
+    // review F5, ADR-0185)
     if v.is_absent() && ev.failed_arithmetic.get() {
         return refused_naming(
             Verdict::Unsatisfied {
@@ -5735,8 +5717,7 @@ fn effects(
                 let v = effect_value(ctx, t, id, inputs, &env, position, expr, how)?;
                 // a write that would round a decimal to its target's scale
                 // loses what it holds, which §8.3 permits a product or a
-                // quotient alone, where `set d2 := d4` rounded 2.5555 to
-                // 2.56 (the audit's values W5)
+                // quotient alone (the audit's values W5)
                 if let (Evaluated::WrittenAt(scale), Value::Decimal(d)) = (how, &v)
                     && !matches!(expr, Expr::Bin(BinOp::Mul | BinOp::Div, ..))
                     && d.rescale(scale).is_none_or(|r| r != *d)
@@ -5768,8 +5749,7 @@ fn effects(
                 }
                 // an assignment's arithmetic on an absent operand has no
                 // value, which refuses the request as one past its bound
-                // does, where it answered not run (fourteenth production
-                // review N5)
+                // does (fourteenth production review N5)
                 if v.is_absent() {
                     return refused_naming(
                         Verdict::Unsatisfied {
@@ -5840,9 +5820,8 @@ fn effects(
                 }
                 let v = effect_value(ctx, t, id, inputs, &env, position, expr, Evaluated::Plain)?;
                 // an absent element, or one of another kind than the set
-                // holds, refuses the request as an assignment of one does,
-                // where it answered not run (the audit's values W6, ADR-0205
-                // decision 1)
+                // holds, refuses the request as an assignment of one does
+                // (the audit's values W6, ADR-0205 decision 1)
                 let adding = matches!(step, Step::Add { .. });
                 let fitted = t.attribute(location).map_or(Ok(v.clone()), |a| {
                     // a file added of a media type the set does not take;
@@ -6175,8 +6154,7 @@ fn cascades(
                         .with_reading(&ctx.effect_read, EFFECT);
                     let v = ev.eval(e)?;
                     // an input a division by zero left with none refuses, as
-                    // an effect's value does, where it was not passed
-                    // (ADR-0185, ADR-0277)
+                    // an effect's value does (ADR-0185, ADR-0277)
                     if v.is_absent() && ev.failed_arithmetic.get() {
                         return refused_naming(
                             Verdict::Unsatisfied {
@@ -6388,8 +6366,9 @@ fn mint(
                 let (name, width) = inner.split_once(':').unwrap_or((inner, ""));
                 if name == "n" {
                     let w: usize = width.parse().unwrap_or(0);
-                    // a width a number can fill, where one of a million
-                    // panicked in the formatter (tenth production review)
+                    // a width a number can fill, since a width such as a
+                    // million panics in the formatter (tenth production
+                    // review)
                     if w > crate::model::IDENTIFIER_WIDTH {
                         return not_run(format!(
                             "the format {}, whose width passes {}",
@@ -6584,8 +6563,8 @@ fn invariant_reach(lib: &Library, t: &Type) -> Reach {
     let own = |e: &Expr| reads_only_this(lib, t, e, &mut BTreeSet::new());
     // an invariant reading related objects is checked from them, along
     // each chain of relationship ends it reads, never by its type whole,
-    // which every write of the store swept under the writer, 2.8 s a draft
-    // on a go-live's claims (sixth production review P8)
+    // which every write of the store would sweep under the writer (sixth
+    // production review P8)
     let mut chains = BTreeSet::new();
     for (_, e) in &t.invariants {
         if own(e) {
@@ -7311,9 +7290,7 @@ fn failing_invariants_reading(
         }
     }
     // an actor's identity names one actor, across every type whose objects
-    // are actors, where the first made of two answered for both, an agent
-    // passing as a person (fifth production review IDENTITY, ADR-0190
-    // decision 4)
+    // are actors (fifth production review IDENTITY, ADR-0190 decision 4)
     if let Some((a, _)) = t.actor_identity()
         && !out.contains(&format!("{a}_unique"))
     {
@@ -7659,9 +7636,7 @@ fn writes_of(
         caused(lib, &x.effect, tn, &mut writes, &mut by_actor);
         // a part's transition its whole's cascade takes, one hop away as a
         // call's is: the clause's inputs, and what that transition's effect
-        // writes from the actor, where a cascade was not looked at and a
-        // `taken_by` it broke was answered unreachable, not delegable (the
-        // audit's write path A-04)
+        // writes from the actor (the audit's write path A-04)
         if let Some((owner, xn)) = cascading {
             for (_, end) in &owner.attributes {
                 let Declared::Reference(part) = &end.declared else {
@@ -7971,9 +7946,9 @@ pub fn request_told(
     }
     // an erasure's values leave the write-ahead log too (D584)
     // one that cannot run yet stays due, tried again by the service, which
-    // says so, never answering a request that committed with an error: an
-    // erasure whose vacuum met a lock was answered 500, and an unkeyed retry
-    // recorded a second erasure (records on PostgreSQL F3)
+    // says so, never answering a request that committed with an error, since
+    // an unkeyed retry of it would record a second erasure (records on
+    // PostgreSQL F3)
     let _ = store.after_erasure(erasing);
     let (verdict, told) = {
         let world = store.snapshot()?;
@@ -8926,8 +8901,7 @@ pub(crate) fn refused_attempt(
     let x = t.and_then(|t| t.transition(&asked.transition));
     // an input personal by its marking, by the attribute it names, or by
     // the personal attribute its effect writes it into, as check 10 reads
-    // it, where an unmarked input an effect added to a personal set stayed
-    // in the attempt log (the audit's personal data S26)
+    // it (the audit's personal data S26)
     let personal = |k: &str| {
         x.and_then(|x| x.inputs.iter().find(|(n, _)| n == k))
             .map(|(_, i)| i.personal)
