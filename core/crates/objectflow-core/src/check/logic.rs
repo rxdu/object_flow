@@ -1445,7 +1445,7 @@ fn state_invariants(t: &Value) -> Vec<(String, Expr)> {
     // an invariant `taken_by` generates, left out where no other invariant
     // reads its attribute: absence satisfies it and only its own transition
     // writes the attribute, so it holds together with any other, and
-    // expanding it only multiplied the cases past what step 5 decides
+    // expanding it would only multiply the cases past what step 5 decides
     // (ADR-0176); `flowlogic.py`'s `state_invariants`
     // and one a text's `not_blank` generates, which reads its attribute
     // alone and holds where the text is absent or not blank (ADR-0274)

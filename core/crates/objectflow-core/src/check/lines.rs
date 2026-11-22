@@ -669,9 +669,9 @@ static LABELS_SOURCE: LazyLock<Regex> = LazyLock::new(|| re(r"^from\s+\w+\s+in\s
 fn compared_states(text: &str) -> Vec<String> {
     let chars: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
-    // each `state` found where it is, the text walked once, where each match
-    // collected the rest of the text again: a literal holding it 128k times
-    // held the dry run's slot 229 s (ninth production review N-8)
+    // each `state` found where it is, the text walked once, since
+    // collecting the rest of the text at each match is quadratic in it
+    // (ninth production review N-8)
     let word = ['s', 't', 'a', 't', 'e'];
     let mut i = 0;
     while let Some(off) = chars
@@ -797,8 +797,8 @@ pub fn checks(docs: &[Value], all: &[Decl], world: &BTreeMap<&str, &Decl>, out: 
                 &l.path,
             );
         }
-        // on every line but a metric's own, where a default, a create's or a
-        // call's inputs, a loop's filter and a backfill were not read (the
+        // on every line but a metric's own, a default, a create's or a
+        // call's inputs, a loop's filter and a backfill among them (the
         // values audit's G8)
         if METRIC_ONLY.is_match(st) && !METRIC_LINE.is_match(st) {
             add(
@@ -869,17 +869,14 @@ mod tests {
     use super::*;
 
     /// The states a text compares `state` with, each found where it is, the
-    /// text walked once, where each was found by collecting the rest of the
-    /// text again: a literal holding `state` 128k times held the dry run's
-    /// slot 229 s (ninth production review N-8).
+    /// text walked once (ninth production review N-8).
     #[test]
     fn compared_states_walks_its_text_once() {
         assert_eq!(
             compared_states("state == OPEN or x.state == SHUT or state != DONE"),
             vec!["OPEN".to_string(), "DONE".to_string()]
         );
-        // 5,000, so a quadratic walk fails in seconds, where 20,000 held the
-        // suite 277 s before it failed
+        // 5,000, so a quadratic walk fails in seconds
         let long = vec!["state == OPEN"; 5_000].join(" or ");
         let t = std::time::Instant::now();
         assert_eq!(compared_states(&long).len(), 5_000);

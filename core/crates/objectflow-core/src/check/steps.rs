@@ -184,8 +184,7 @@ pub fn cleared(x: &Value) -> Vec<String> {
 }
 
 /// The inputs an expression reads, each `inputs.<name>` its tree holds, so a
-/// string literal's text names none, where a pattern over the text read
-/// `"see inputs.note"` as an input; none where it does not parse
+/// string literal's text names none; none where it does not parse
 /// (`check-flows.py`'s `input_reads`).
 pub fn input_reads(text: &str) -> BTreeSet<String> {
     fn walk(e: &Expr, out: &mut BTreeSet<String>) {

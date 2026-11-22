@@ -2,14 +2,14 @@
 //! flow description, run by the engine, held to the Python checker's
 //! findings over every design module and every plant of its self-test.
 //!
-//! It runs the checker's steps 1 to 5: each file loaded strictly, checked
+//! It runs the checker's steps 1 to 6: each file loaded strictly, checked
 //! against the schema, its YAML literals given their expression text, every
 //! expression parsed, its imports and the names its closure declares, the
 //! names and relationships of the module, with its migration's rules and its
 //! checks against the previous version, and the sixty-four checks of
 //! `declaration-syntax.md` §10 on the core's reading of the modules, and the
-//! contradictions within each type. The examples follow (`TODO.md`,
-//! `docs/design/core-checker.md`).
+//! contradictions within each type; then each examples file's names, and
+//! each of its examples run (`docs/design/core-checker.md` §1).
 
 mod data;
 mod doc;
@@ -147,9 +147,9 @@ thread_local! {
 }
 
 /// The checks this thread runs held to a deadline while the guard lives: a
-/// dry run's, whose slot a change's checks held as long as they took, every
-/// expression a derived attribute reads unfolded at each read (eleventh
-/// production review).
+/// dry run's, so a change's checks, which unfold every expression a derived
+/// attribute reads at each read, hold its slot no longer than that
+/// (eleventh production review).
 #[derive(Debug)]
 pub struct Until {
     before: Option<std::time::Instant>,
@@ -329,8 +329,7 @@ pub fn checked_as(
             continue;
         }
         // a character outside YAML's printable set is refused, as PyYAML's
-        // reader refuses it, where U+FFFF, U+FFFE, DEL and the C1 controls
-        // were read (the values audit's C2)
+        // reader refuses it (the values audit's C2)
         if let Some((i, c)) = text.char_indices().find(|(_, c)| !printable(*c)) {
             fatal(
                 found,

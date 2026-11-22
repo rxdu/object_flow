@@ -201,9 +201,8 @@ pub fn reaches(doc: &Value) -> Found {
                 }
                 let f = s.body();
                 // a loop with `where` bounds what it keeps, an author's rule
-                // on another transition, where one picking a robot's open
-                // line was noticed as if it bounded every line (ADR-0201
-                // decision 9)
+                // on another transition, so its limit is no bound on every
+                // element of the set (ADR-0201 decision 9)
                 if !erasure && f.get("where").is_some_and(|w| !w.is_null()) {
                     continue;
                 }

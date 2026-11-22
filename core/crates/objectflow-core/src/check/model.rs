@@ -1323,8 +1323,8 @@ fn only_via_checks(d: &Decl, world: &BTreeMap<&str, &Decl>, out: &mut Vec<Found4
 
 /// Check 13's converse: a create or a call into an `only via` transition
 /// from one it does not name, the caller's type or a base of it, or for a
-/// machine each type binding it (§4.2; the audit's write path R-05, refused
-/// at run time since). A cascade is the run time's alone.
+/// machine each type binding it (§4.2; the audit's write path R-05, which
+/// the run time refuses too). A cascade is the run time's alone.
 fn only_via_reached(d: &Decl, world: &BTreeMap<&str, &Decl>, out: &mut Vec<Found4>) {
     let callers: Vec<&Decl> = match d.kind {
         DeclKind::Type => vec![d],

@@ -153,8 +153,8 @@ pub fn optional(spec: &Value) -> bool {
     flag(spec, "optional")
 }
 
-/// The value an absent member reads as, borrowed where a type or its
-/// member was cloned whole to read it (tenth production review).
+/// The value an absent member reads as, borrowed, so reading an absent
+/// member clones no type or member (tenth production review).
 pub static NULL: Value = Value::Null;
 
 /// `" ".join(str(text).split())`.

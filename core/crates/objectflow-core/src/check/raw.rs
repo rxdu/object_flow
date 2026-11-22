@@ -168,12 +168,11 @@ pub fn order_errors(doc: &Value) -> Found {
 
 /// Derived attributes MUST NOT read each other in a cycle (the model's check
 /// 3): `.<name>` of a derived attribute the module declares counts as a read
-/// of it, another type's or its own type's through a reference, where
-/// `depth: parent.depth + 1` on a Node whose parent is a Node, a cycle of
-/// parents or a chain of thousands, overflowed the stack on a read (tenth
-/// production review). The reads are found by each expression's names after
-/// a dot, and the search visits each attribute once, iteratively, so neither
-/// a long chain nor many paths makes it long.
+/// of it, another type's or its own type's through a reference. The reads
+/// are found by each expression's names after a dot, and the search visits
+/// each attribute once, iteratively, so neither a long chain nor many paths
+/// makes it long, and a cycle of parents or a chain of thousands overflows
+/// no stack (tenth production review).
 fn derived_cycle_errors(doc: &Value) -> Found {
     let order: Vec<(String, String)> = types(doc)
         .into_iter()
@@ -279,35 +278,33 @@ pub const UNFOLD_LIMIT: usize = 10_000;
 
 /// The most derived attributes, each reading the next, one derived
 /// attribute's reads go through: an evaluation goes through at most
-/// `eval::DERIVED_HOPS`, past which a read is not run, where a chain of
-/// 9,500 that both checkers accepted answered all past the 65th as null
-/// (fourteenth production review N1).
+/// `eval::DERIVED_HOPS`, past which a read is not run, so a chain the checks
+/// accept is one an evaluation answers whole (fourteenth production review
+/// N1).
 pub const DEPTH_LIMIT: usize = crate::eval::DERIVED_HOPS;
 
 /// No expression MAY unfold to more than [`UNFOLD_LIMIT`] reads of derived
 /// attributes, each counted as often as it is made: one reading another
 /// twice reads everything that one reads twice, so `d1: d0 + d0` on to `d40`
 /// unfolds to 2^41 reads, and every check that reads a derived attribute
-/// through those it reads walked each again, forty holding a dry run's slot
-/// past six minutes; an invariant reading one a thousand times is inlined a
-/// thousand times (eleventh production review). A name after a dot reads
-/// every derived attribute of that name the module declares, as
-/// [`derived_cycle_errors`] reads it, and a bare name the one its own type
-/// declares; a read back into a cycle counts one, the cycle refused by its
-/// own check. Each derived attribute's count is found once, iteratively, and
-/// capped past the limit. The first derived attribute past it on each path
-/// is refused, and any other expression past it through none that is; a
-/// module holding one is refused before any later step walks it, as one
-/// that does not parse is.
+/// walks each of those it reads again; an invariant reading one a thousand
+/// times is inlined a thousand times (eleventh production review). A name
+/// after a dot reads every derived attribute of that name the module
+/// declares, as [`derived_cycle_errors`] reads it, and a bare name the one
+/// its own type declares; a read back into a cycle counts one, the cycle
+/// refused by its own check. Each derived attribute's count is found once,
+/// iteratively, and capped past the limit. The first derived attribute past
+/// it on each path is refused, and any other expression past it through
+/// none that is; a module holding one is refused before any later step
+/// walks it, as one that does not parse is.
 ///
 /// A name after a dot also reads the derived attributes of that name the
 /// modules checked before this one declare, `outer` holding the most each
-/// unfolds to: a chain split across a module and one importing it passed
-/// each module's bound and multiplied past it, a dry run's checks holding
-/// the slot to its deadline and the reference checker without end (twelfth
-/// production review). Beside the findings, what each of the module's
-/// derived attributes unfolds to, by name, which the caller adds to `outer`
-/// for the modules after it.
+/// unfolds to, so a chain split across a module and one importing it
+/// cannot pass each module's bound and multiply past it (twelfth production
+/// review). Beside the findings, what each of the module's derived
+/// attributes unfolds to, by name, which the caller adds to `outer` for the
+/// modules after it.
 pub fn fan_out_errors(
     doc: &Value,
     expressions: &[(Path, String)],

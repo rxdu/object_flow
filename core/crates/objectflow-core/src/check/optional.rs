@@ -354,10 +354,10 @@ impl<'l> OptionalReads<'l> {
                 None
             }
             Expr::Call(f, args) => {
-                // a call reads a bare name as it reads this.<name>, where
-                // length(reason) went unnoticed, an evaluator's argument
-                // among it, which is unknown absent (ADR-0146); a flow
-                // function names a state, a member or a field
+                // a call reads a bare name as it reads this.<name>, an
+                // evaluator's argument among it, which is unknown absent
+                // (ADR-0146); a flow function names a state, a member or a
+                // field
                 let names = match &**f {
                     Expr::Name(n) => NAMING_FUNCTIONS.contains(&n.as_str()),
                     Expr::Path(_, m) => NAMING_MEMBERS.contains(&m.as_str()),

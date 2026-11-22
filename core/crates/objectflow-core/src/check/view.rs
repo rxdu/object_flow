@@ -1238,8 +1238,8 @@ impl View {
         if first != "types" {
             return Some(path.to_vec());
         }
-        // read where they are, where each path mapped back cloned its type
-        // whole, twice (tenth production review)
+        // read where they are, with no type cloned for a path mapped back
+        // (tenth production review)
         static NONE: Value = Value::Null;
         let kind = obj(&self.doc, "types").get(name).unwrap_or(&NONE);
         if let (Some(Seg::Key(k)), Some(Seg::Key(n))) = (path.get(2), path.get(3))
