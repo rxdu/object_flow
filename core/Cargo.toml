@@ -21,7 +21,7 @@ rusqlite = { version = "0.43.0", features = ["bundled"] }
 # deadline (ADR-0215)
 tokio-postgres = "0.7.18"
 # the buffer a value is written into for PostgreSQL, already resolved through
-# postgres
+# tokio-postgres
 bytes = "1.12.1"
 # a PostgreSQL store reached over TLS through rustls, on ring as ureq has it,
 # with the platform's trust store (ADR-0213 decision 3)
@@ -44,12 +44,14 @@ hyper-util = { version = "0.1.21", features = ["tokio", "server", "service"] }
 # trust store (ADR-0175 decision 1)
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "platform-verifier"] }
 # malloc_trim, which gives back what glibc keeps of the memory a publish or
-# a long read freed: already resolved through tokio (ADR-0187 decision 2)
+# a long read freed, and statvfs, which reads the free space /health reports:
+# already resolved through tokio (ADR-0187 decision 2, ADR-0188 decision 3)
 libc = "0.2.190"
 
 [workspace.lints.rust]
-# denied everywhere; the service allows it at its one call into glibc, which
-# says why it is safe (ADR-0187 decision 2)
+# denied everywhere; the service allows it at its two calls into glibc,
+# statvfs and malloc_trim, each saying why it is safe (ADR-0187 decision 2,
+# ADR-0188 decision 3)
 unsafe_code = "deny"
 missing_debug_implementations = "warn"
 
