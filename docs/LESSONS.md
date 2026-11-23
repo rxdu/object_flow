@@ -1097,3 +1097,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Comments across the core, the service and the scripts carried clauses such as "where it answered 500 …", describing the behaviour before a fix. The cleanup of 2026-11-22 removed several hundred of them.
 - **Correction:** A comment states what the code does now, with a pointer to the defect, review or ADR that holds the history. Some reasons are constraints a maintainer could break. State those in the present tense, as what would happen, for example "since reading the type whole holds the writer".
 - **Context:** Every comment and doc comment in the repository.
+
+### The release scripts stop the check database when they finish
+- **Pattern:** On 2026-11-24, the full gate before 0.32.1's release record was pushed ran right after `scripts/release/verify`. Verify stops `objectflow-check-db` as it ends (`scripts/release/verify:64`), as the release gate does (`scripts/release/gate:123`), and stopping removes the container. The gate's PostgreSQL lane failed 373 tests in 47 s against no database.
+- **Correction:** After `scripts/release/gate` or `scripts/release/verify`, run `scripts/setup/postgres-check-db` before the next `scripts/check-all`. Read a PostgreSQL lane that fails hundreds of tests in seconds as a missing database first.
+- **Context:** ObjectFlow's release procedure, `core/README.md`'s *Releases*.
