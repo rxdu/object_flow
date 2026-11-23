@@ -157,10 +157,15 @@ class Parser:
 
     def implies(self):
         left = self.or_()
-        if self.at("implies"):
+        if not self.at("implies"):
+            return left
+        # each `implies` nests its right side a level, as `not` and `-` nest theirs (flow-format.md §5, F1)
+        self.nest()
+        try:
             self.take()
             return ("bin", "implies", left, self.implies())     # right-associative
-        return left
+        finally:
+            self.depth -= 1
 
     def or_(self):
         left = self.and_()

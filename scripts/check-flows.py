@@ -9166,6 +9166,9 @@ def syntax_plants():
         # an expression past the parser's bounds, which once exhausted the core's stack (F1)
         ("an expression deeper than its bound", "syntax", p(MINI, COND, "expression: " + " or ".join(["title is not null"] * 200))),
         ("an expression nested past its bound", "syntax", p(MINI, COND, "expression: " + "(" * 70 + "title is not null" + ")" * 70)),
+        # each `implies` nests a level, so a long chain of them is refused where it passes the bound (flow-format.md §5)
+        ("a chain of implies nested past its bound", "syntax",
+         p(MINI, COND, "expression: " + " implies ".join(["title is not null"] * 70))),
         ("a part created not only via its whole", "check 11",
          p(PARTS, START, "      start: { kind: initial, to: ACTIVE, required_inputs: [order] }\n")),
         ("an only via whose parent never reaches it", "check 13",

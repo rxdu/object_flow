@@ -363,6 +363,9 @@ struct Parser {
     depth: usize,
     /// Whether `:name` is a parameter, a read's filter's alone (ADR-0218).
     params: bool,
+    /// Whether a node would have been deeper than `MAX_DEPTH`, which the
+    /// parse built a stand-in for (`Parser::made`).
+    too_deep: bool,
 }
 
 /// The most an expression's parse may nest, parentheses, `not`, `-`,
@@ -372,7 +375,8 @@ pub const MAX_NESTING: usize = 64;
 
 /// The deepest an expression's tree may be, every node a level, which its
 /// evaluation and its drop recurse through: a chain of 300 `or`s is 300
-/// levels, where a list of alternatives is one, `x in {a, b, …}` (F1).
+/// levels, where a list of alternatives is one, `x in {a, b, …}` (F1). The
+/// parse builds no tree deeper (`Parser::made`).
 pub const MAX_DEPTH: usize = 128;
 
 /// The depth of a tree, counted without recursion, since the tree is what
@@ -439,6 +443,28 @@ fn boxed(e: Expr) -> Box<Expr> {
     Box::new(e)
 }
 
+/// A tree the parse built, and its depth as [`depth`] counts it, every node
+/// a level.
+struct Node {
+    e: Expr,
+    d: usize,
+}
+
+/// A leaf, one level.
+fn leaf(e: Expr) -> Node {
+    Node { e, d: 1 }
+}
+
+/// The depth of the deepest of trees that may be absent, 0 where none is.
+fn deepest_of<const N: usize>(nodes: [&Option<Node>; N]) -> usize {
+    nodes
+        .iter()
+        .filter_map(|n| n.as_ref())
+        .map(|n| n.d)
+        .max()
+        .unwrap_or(0)
+}
+
 impl Parser {
     fn peek(&self, k: usize) -> &Token {
         let last = self.toks.len() - 1;
@@ -489,7 +515,7 @@ impl Parser {
         Ok(self.take())
     }
 
-    fn expr(&mut self) -> Parsed<Expr> {
+    fn expr(&mut self) -> Parsed<Node> {
         self.depth += 1;
         let e = self.nested_expr();
         self.depth -= 1;
@@ -498,7 +524,7 @@ impl Parser {
 
     /// An expression at one more level of nesting, refused past
     /// `MAX_NESTING` (F1).
-    fn nested_expr(&mut self) -> Parsed<Expr> {
+    fn nested_expr(&mut self) -> Parsed<Node> {
         if self.depth > MAX_NESTING {
             return self.fail(&format!(
                 "the expression nests deeper than {MAX_NESTING} levels"
@@ -511,37 +537,55 @@ impl Parser {
             let a = self.expr()?;
             self.expect("else")?;
             let b = self.expr()?;
-            return Ok(Expr::If(boxed(cond), boxed(a), boxed(b)));
+            let below = cond.d.max(a.d).max(b.d);
+            return Ok(self.made(Expr::If(boxed(cond.e), boxed(a.e), boxed(b.e)), below));
         }
         self.implies()
     }
 
-    fn implies(&mut self) -> Parsed<Expr> {
+    fn implies(&mut self) -> Parsed<Node> {
         let left = self.or()?;
-        if self.at("implies", 0) {
-            self.take();
-            let right = self.implies()?;
-            return Ok(Expr::Bin(BinOp::Implies, boxed(left), boxed(right)));
+        if !self.at("implies", 0) {
+            return Ok(left);
         }
-        Ok(left)
+        // each `implies` nests its right side a level, as `not` and `-` nest
+        // theirs (flow-format.md §5, F1)
+        self.depth += 1;
+        let right = if self.depth > MAX_NESTING {
+            self.fail(&format!(
+                "the expression nests deeper than {MAX_NESTING} levels"
+            ))
+        } else {
+            self.take();
+            self.implies()
+        };
+        self.depth -= 1;
+        let right = right?;
+        let below = left.d.max(right.d);
+        Ok(self.made(
+            Expr::Bin(BinOp::Implies, boxed(left.e), boxed(right.e)),
+            below,
+        ))
     }
 
-    fn or(&mut self) -> Parsed<Expr> {
+    fn or(&mut self) -> Parsed<Node> {
         let mut left = self.and()?;
         while self.at("or", 0) {
             self.take();
             let right = self.and()?;
-            left = Expr::Bin(BinOp::Or, boxed(left), boxed(right));
+            let below = left.d.max(right.d);
+            left = self.made(Expr::Bin(BinOp::Or, boxed(left.e), boxed(right.e)), below);
         }
         Ok(left)
     }
 
-    fn and(&mut self) -> Parsed<Expr> {
+    fn and(&mut self) -> Parsed<Node> {
         let mut left = self.comparison()?;
         while self.at("and", 0) {
             self.take();
             let right = self.comparison()?;
-            left = Expr::Bin(BinOp::And, boxed(left), boxed(right));
+            let below = left.d.max(right.d);
+            left = self.made(Expr::Bin(BinOp::And, boxed(left.e), boxed(right.e)), below);
         }
         Ok(left)
     }
@@ -553,15 +597,19 @@ impl Parser {
             || self.at("is", 0)
     }
 
-    fn comparison(&mut self) -> Parsed<Expr> {
+    fn comparison(&mut self) -> Parsed<Node> {
         let left = self.additive()?;
         let t = self.peek(0).clone();
         let node = if let (Kind::Op, Some(op)) = (t.kind, BinOp::comparison(&t.text)) {
             self.take();
-            Expr::Bin(op, boxed(left), boxed(self.additive()?))
+            let right = self.additive()?;
+            let below = left.d.max(right.d);
+            self.made(Expr::Bin(op, boxed(left.e), boxed(right.e)), below)
         } else if self.at("in", 0) {
             self.take();
-            Expr::In(boxed(left), boxed(self.additive()?))
+            let right = self.additive()?;
+            let below = left.d.max(right.d);
+            self.made(Expr::In(boxed(left.e), boxed(right.e)), below)
         } else if self.at("is", 0) {
             self.take();
             let negated = self.at("not", 0);
@@ -569,7 +617,8 @@ impl Parser {
                 self.take();
             }
             self.expect("null")?;
-            Expr::IsNull(boxed(left), negated)
+            let below = left.d;
+            self.made(Expr::IsNull(boxed(left.e), negated), below)
         } else {
             return Ok(left);
         };
@@ -579,7 +628,7 @@ impl Parser {
         Ok(node)
     }
 
-    fn additive(&mut self) -> Parsed<Expr> {
+    fn additive(&mut self) -> Parsed<Node> {
         let mut left = self.multiplicative()?;
         loop {
             let t = self.peek(0);
@@ -590,11 +639,12 @@ impl Parser {
             };
             self.take();
             let right = self.multiplicative()?;
-            left = Expr::Bin(op, boxed(left), boxed(right));
+            let below = left.d.max(right.d);
+            left = self.made(Expr::Bin(op, boxed(left.e), boxed(right.e)), below);
         }
     }
 
-    fn multiplicative(&mut self) -> Parsed<Expr> {
+    fn multiplicative(&mut self) -> Parsed<Node> {
         let mut left = self.unary()?;
         loop {
             let t = self.peek(0);
@@ -605,11 +655,12 @@ impl Parser {
             };
             self.take();
             let right = self.unary()?;
-            left = Expr::Bin(op, boxed(left), boxed(right));
+            let below = left.d.max(right.d);
+            left = self.made(Expr::Bin(op, boxed(left.e), boxed(right.e)), below);
         }
     }
 
-    fn unary(&mut self) -> Parsed<Expr> {
+    fn unary(&mut self) -> Parsed<Node> {
         if !(self.at("not", 0) || self.at("-", 0)) {
             return self.postfix();
         }
@@ -618,18 +669,20 @@ impl Parser {
             self.fail(&format!(
                 "the expression nests deeper than {MAX_NESTING} levels"
             ))
-        } else if self.at("not", 0) {
-            self.take();
-            self.unary().map(|x| Expr::Not(boxed(x)))
         } else {
+            let not = self.at("not", 0);
             self.take();
-            self.unary().map(|x| Expr::Neg(boxed(x)))
+            match self.unary() {
+                Ok(x) if not => Ok(self.made(Expr::Not(boxed(x.e)), x.d)),
+                Ok(x) => Ok(self.made(Expr::Neg(boxed(x.e)), x.d)),
+                Err(e) => Err(e),
+            }
         };
         self.depth -= 1;
         e
     }
 
-    fn postfix(&mut self) -> Parsed<Expr> {
+    fn postfix(&mut self) -> Parsed<Node> {
         let mut node = self.primary()?;
         loop {
             if self.at(".", 0) {
@@ -638,27 +691,33 @@ impl Parser {
                     return self.fail("a member name follows `.`");
                 }
                 let member = self.take().text;
-                node = Expr::Path(boxed(node), member);
-            } else if self.at("(", 0) && matches!(node, Expr::Path(..)) {
-                let args = self.arguments()?;
-                node = Expr::Call(boxed(node), args);
+                let below = node.d;
+                node = self.made(Expr::Path(boxed(node.e), member), below);
+            } else if self.at("(", 0) && matches!(node.e, Expr::Path(..)) {
+                let (args, deepest) = self.arguments()?;
+                let below = node.d.max(deepest);
+                node = self.made(Expr::Call(boxed(node.e), args), below);
             } else {
                 return Ok(node);
             }
         }
     }
 
-    fn arguments(&mut self) -> Parsed<Vec<Expr>> {
+    /// A call's arguments, and the depth of the deepest, 0 where it has none.
+    fn arguments(&mut self) -> Parsed<(Vec<Expr>, usize)> {
         self.expect("(")?;
         let mut args = Vec::new();
+        let mut deepest = 0;
         while !self.at(")", 0) {
-            args.push(self.expr()?);
+            let a = self.expr()?;
+            deepest = deepest.max(a.d);
+            args.push(a.e);
             if !self.at(")", 0) {
                 self.expect(",")?;
             }
         }
         self.expect(")")?;
-        Ok(args)
+        Ok((args, deepest))
     }
 
     fn number(text: &str) -> Parsed<Number> {
@@ -672,11 +731,11 @@ impl Parser {
             .unwrap_or_else(|_| Number::Decimal(text.to_string())))
     }
 
-    fn primary(&mut self) -> Parsed<Expr> {
+    fn primary(&mut self) -> Parsed<Node> {
         let t = self.peek(0).clone();
         if self.params && t.kind == Kind::Op && t.text == ":" && self.peek(1).kind == Kind::Name {
             self.take();
-            return Ok(Expr::Param(self.take().text));
+            return Ok(leaf(Expr::Param(self.take().text)));
         }
         match t.kind {
             Kind::Num => {
@@ -684,19 +743,19 @@ impl Parser {
                 let next = self.peek(0);
                 if next.kind == Kind::Name && UNITS.contains(&next.text.as_str()) {
                     let unit = self.take().text;
-                    return Ok(Expr::Dur(Self::number(&t.text)?, unit));
+                    return Ok(leaf(Expr::Dur(Self::number(&t.text)?, unit)));
                 }
-                Ok(Expr::Num(Self::number(&t.text)?))
+                Ok(leaf(Expr::Num(Self::number(&t.text)?)))
             }
             Kind::Str => {
                 self.take();
                 let inner = &t.text[1..t.text.len() - 1];
-                Ok(Expr::Str(inner.to_string()))
+                Ok(leaf(Expr::Str(inner.to_string())))
             }
             Kind::Name => {
                 if t.text == "true" || t.text == "false" {
                     self.take();
-                    return Ok(Expr::Bool(t.text == "true"));
+                    return Ok(leaf(Expr::Bool(t.text == "true")));
                 }
                 if t.text.len() == 3
                     && t.text.bytes().all(|b| b.is_ascii_uppercase())
@@ -704,7 +763,7 @@ impl Parser {
                 {
                     self.take();
                     let amount = self.take().text;
-                    return Ok(Expr::Money(t.text, amount));
+                    return Ok(leaf(Expr::Money(t.text, amount)));
                 }
                 if KEYWORDS.contains(&t.text.as_str()) {
                     return self.fail("an operand");
@@ -713,7 +772,7 @@ impl Parser {
                 if self.at("(", 0) {
                     return self.call(&t.text);
                 }
-                Ok(Expr::Name(t.text))
+                Ok(leaf(Expr::Name(t.text)))
             }
             Kind::Op if t.text == "(" => {
                 self.take();
@@ -724,14 +783,17 @@ impl Parser {
             Kind::Op if t.text == "{" => {
                 self.take();
                 let mut items = Vec::new();
+                let mut deepest = 0;
                 while !self.at("}", 0) {
-                    items.push(self.expr()?);
+                    let item = self.expr()?;
+                    deepest = deepest.max(item.d);
+                    items.push(item.e);
                     if !self.at("}", 0) {
                         self.expect(",")?;
                     }
                 }
                 self.expect("}")?;
-                Ok(Expr::Set(items))
+                Ok(self.made(Expr::Set(items), deepest))
             }
             // a set is written as a collection literal, never as a list
             Kind::Op if t.text == "[" => {
@@ -741,7 +803,7 @@ impl Parser {
         }
     }
 
-    fn call(&mut self, function: &str) -> Parsed<Expr> {
+    fn call(&mut self, function: &str) -> Parsed<Node> {
         let comprehension =
             (self.at("distinct", 1) && self.peek(2).kind == Kind::Name && self.at("in", 3))
                 || (self.peek(1).kind == Kind::Name && self.at("in", 2));
@@ -757,22 +819,26 @@ impl Parser {
             let body = if self.at("where", 0) {
                 None
             } else {
-                Some(boxed(self.expr()?))
+                Some(self.expr()?)
             };
             let mut filter = None;
             if self.at("where", 0) {
                 self.take();
-                filter = Some(boxed(self.expr()?));
+                filter = Some(self.expr()?);
             }
             self.expect(")")?;
-            return Ok(Expr::Agg {
-                kind: function.to_string(),
-                distinct,
-                var: None,
-                collection: None,
-                filter,
-                body,
-            });
+            let below = deepest_of([&body, &filter]);
+            return Ok(self.made(
+                Expr::Agg {
+                    kind: function.to_string(),
+                    distinct,
+                    var: None,
+                    collection: None,
+                    filter: filter.map(|f| boxed(f.e)),
+                    body: body.map(|b| boxed(b.e)),
+                },
+                below,
+            ));
         }
         if aggregate && comprehension {
             self.expect("(")?;
@@ -787,11 +853,11 @@ impl Parser {
             let mut body = None;
             if self.at("where", 0) {
                 self.take();
-                filter = Some(boxed(self.expr()?));
+                filter = Some(self.expr()?);
             }
             if self.at(":", 0) {
                 self.take();
-                body = Some(boxed(self.expr()?));
+                body = Some(self.expr()?);
             }
             // the aggregates whose value is their body have one (§8, §6.9;
             // the model's check 47)
@@ -811,18 +877,23 @@ impl Parser {
                 return self.fail(&format!("a body after ':', which {which} requires"));
             }
             self.expect(")")?;
-            return Ok(Expr::Agg {
-                kind: function.to_string(),
-                distinct,
-                var: Some(var),
-                collection: Some(boxed(collection)),
-                filter,
-                body,
-            });
+            let below = collection.d.max(deepest_of([&filter, &body]));
+            return Ok(self.made(
+                Expr::Agg {
+                    kind: function.to_string(),
+                    distinct,
+                    var: Some(var),
+                    collection: Some(boxed(collection.e)),
+                    filter: filter.map(|f| boxed(f.e)),
+                    body: body.map(|b| boxed(b.e)),
+                },
+                below,
+            ));
         }
         if function == "metric" {
             self.expect("(")?;
             let name = self.additive()?;
+            let mut below = name.d;
             let mut binds = Vec::new();
             let mut over = None;
             let mut fresh = None;
@@ -831,23 +902,29 @@ impl Parser {
                 if self.at("over", 0) {
                     self.take();
                     self.expect("last")?;
-                    over = Some(boxed(self.primary()?));
+                    over = Some(self.primary()?);
                 } else if self.at("fresh", 0) {
                     self.take();
-                    fresh = Some(boxed(self.primary()?));
+                    fresh = Some(self.primary()?);
                 } else {
                     let dimension = self.take().text;
                     self.expect(":=")?;
-                    binds.push((dimension, self.expr()?));
+                    let bound = self.expr()?;
+                    below = below.max(bound.d);
+                    binds.push((dimension, bound.e));
                 }
             }
             self.expect(")")?;
-            return Ok(Expr::Metric {
-                name: boxed(name),
-                binds,
-                over,
-                fresh,
-            });
+            let below = below.max(deepest_of([&over, &fresh]));
+            return Ok(self.made(
+                Expr::Metric {
+                    name: boxed(name.e),
+                    binds,
+                    over: over.map(|o| boxed(o.e)),
+                    fresh: fresh.map(|f| boxed(f.e)),
+                },
+                below,
+            ));
         }
         if function == "changed_since" {
             self.expect("(")?;
@@ -863,10 +940,34 @@ impl Parser {
             self.expect(",")?;
             let event = self.expr()?;
             self.expect(")")?;
-            return Ok(Expr::Changed(names, boxed(event)));
+            return Ok(self.made(Expr::Changed(names, boxed(event.e)), event.d));
         }
-        let args = self.arguments()?;
-        Ok(Expr::Call(boxed(Expr::Name(function.to_string())), args))
+        let (args, deepest) = self.arguments()?;
+        // the function's name is a leaf of the call, one level
+        let below = deepest.max(1);
+        Ok(self.made(
+            Expr::Call(boxed(Expr::Name(function.to_string())), args),
+            below,
+        ))
+    }
+
+    /// A node over children whose deepest is `below` levels deep, or, where
+    /// it would be deeper than `MAX_DEPTH`, a stand-in of one level, a path
+    /// where the node is one, so a call after it parses as it would. The
+    /// expression is then refused at its end, as one too deep is, unless a
+    /// syntax fault after it is found first. No tree deeper than `MAX_DEPTH`
+    /// is ever built, so none can exhaust the stack that drops it (F1).
+    fn made(&mut self, e: Expr, below: usize) -> Node {
+        let d = below + 1;
+        if d <= MAX_DEPTH {
+            return Node { e, d };
+        }
+        self.too_deep = true;
+        let e = match e {
+            Expr::Path(_, member) => Expr::Path(boxed(Expr::Bool(false)), member),
+            _ => Expr::Bool(false),
+        };
+        Node { e, d }
     }
 }
 
@@ -999,17 +1100,19 @@ fn parsed(text: &str, params: bool) -> Result<Expr, ParseError> {
         i: 0,
         depth: 0,
         params,
+        too_deep: false,
     };
     let node = p.expr()?;
     if p.peek(0).kind != Kind::End {
         return p.fail("the end of the expression");
     }
-    if depth(&node) > MAX_DEPTH {
+    if p.too_deep || depth(&node.e) > MAX_DEPTH {
         return Err(p.error(format!(
             "the expression is deeper than {MAX_DEPTH} levels; a long list of alternatives is written x in {{a, b, …}}"
         )));
     }
-    Ok(node)
+    debug_assert_eq!(node.d, depth(&node.e), "the parse counts its tree's depth");
+    Ok(node.e)
 }
 
 #[cfg(test)]
@@ -1112,6 +1215,55 @@ mod tests {
         // past both bounds by far, refused rather than overflowing
         assert!(parse(&chain(20_000)).is_err());
         assert!(parse(&parens(5_000)).is_err());
+    }
+
+    /// Each `implies` nests its right side a level, as `not` does, so a
+    /// chain of them is refused at its 64th `implies`, however long, rather
+    /// than recursing through every one (flow-format.md §5, F1).
+    #[test]
+    fn each_implies_nests_a_level() {
+        let chain = |n: usize| vec!["a"; n].join(" implies ");
+        assert!(parse(&chain(64)).is_ok());
+        let past = parse(&chain(65)).expect_err("the 64th implies nests past the bound");
+        assert_eq!(
+            past.message,
+            "the expression nests deeper than 64 levels, found 'implies'"
+        );
+        assert_eq!(past.pos, 2 + 63 * "a implies ".len(), "at the 64th implies");
+        let far = parse(&chain(200_000)).expect_err("far past the bound");
+        assert_eq!((far.pos, far.message), (past.pos, past.message));
+    }
+
+    /// A chain of any operator that builds a node over the one before is
+    /// refused at its end once its tree passes `MAX_DEPTH`, however long,
+    /// and the parse never builds the tree, whose drop would recurse through
+    /// every level and exhaust the stack (F1). A syntax fault after it is
+    /// still the one named, as where the chain is short.
+    #[test]
+    fn a_chain_far_past_the_trees_bound_is_refused_unbuilt() {
+        let too_deep = "the expression is deeper than 128 levels; a long list of alternatives is written x in {a, b, …}";
+        for op in [" or ", " and ", " + ", " - ", " * ", " / ", "."] {
+            let chain = |n: usize| vec!["a"; n].join(op);
+            assert!(parse(&chain(128)).is_ok(), "{op:?} at the bound");
+            for n in [129, 200_000] {
+                let text = chain(n);
+                let e = parse(&text).expect_err("past the bound");
+                assert_eq!(e.message, too_deep, "{op:?} {n}");
+                assert_eq!(e.pos, text.chars().count(), "{op:?} {n}: at the end");
+            }
+            let e = parse(&format!("{} )", chain(200_000))).expect_err("a fault after it");
+            assert_eq!(e.message, "the end of the expression, found ')'", "{op:?}");
+        }
+        // a path past the bound is still a path, so a call after it parses as
+        // one, and the whole is refused as too deep
+        let call = format!("{}(x)", vec!["a"; 200_000].join("."));
+        assert_eq!(parse(&call).expect_err("too deep").message, too_deep);
+        // levels each within the bound, together past it, nested in parentheses
+        let mut nested = "a".to_string();
+        for _ in 0..60 {
+            nested = format!("({nested}){}", " or a".repeat(100));
+        }
+        assert_eq!(parse(&nested).expect_err("too deep").message, too_deep);
     }
 
     #[test]

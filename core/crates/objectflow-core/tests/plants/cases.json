@@ -62716,6 +62716,28 @@
   "could_violate": {}
  },
  {
+  "label": "syntax_plants: a chain of implies nested past its bound",
+  "files": [
+   [
+    "plant.yaml",
+    "6c553e282942cbb7"
+   ]
+  ],
+  "previous": {},
+  "findings": [
+   [
+    "plant.yaml",
+    16,
+    "fatal",
+    "syntax",
+    "the expression nests deeper than 64 levels, found 'implies', at 1657 of 'title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null implies title is not null': not an expression of declaration-syntax.md §8"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "syntax_plants: a part created not only via its whole",
   "files": [
    [

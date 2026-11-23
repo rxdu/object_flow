@@ -710,6 +710,8 @@ Findings from every review of this design. It began as the implementation-readin
 | [D696](#d696) | An invariant's scan of a type included the object written, so a booking overlapped itself | Resolved |
 | [D697](#d697) | A scan narrowed by an index named what its narrowing read | Resolved |
 | [D698](#d698) | The harness's oracle scanned the object written, so a booking overlapped itself there too | Resolved |
+| [D699](#d699) | A chain of `implies` counted as no level of nesting, so a long one exhausted the stack | Resolved |
+| [D700](#d700) | A tree past the depth bound was built whole, and its drop exhausted the stack | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4490,3 +4492,13 @@ Brought to the author the day it was found, with a recommendation (`TODO.md`, un
 
 **Resolved** 2026-10-18: the harness evaluates each invariant over the other objects, as the engine decides it (`objectflow-harness` `lib.rs`, `.over_others()`); held by the bookings fixture, the check failing without it on the trace above. The core's one other evaluation of an invariant, `invariant_objects`, only names the objects in conflict, and its naming already leaves the object out (`Named::on`).
 
+
+### D699
+**A chain of `implies` counted as no level of nesting, so a long one exhausted the stack.** `flow-format.md` §5 counts each `implies` as a level of the 64 an expression may nest. Both parsers' `implies` recursed into itself for its right side without counting one (`expr.rs` `Parser::implies`, `flowexpr.py` `Parser.implies`). A chain of 65 to 127 parsed against the format. A longer one recursed once per `implies` before the tree's bound refused it. On a sandbox, the debug build of `517424f9` aborted on a query filter of 20,000 (`thread 'tokio-rt-worker' has overflowed its stack`, exit 134). The reference parser raised `RecursionError` at 1,000. Found by the cleanup audit of 2026-11-22 and reproduced the same day.
+
+**Resolved** 2026-11-23: each `implies` nests its right side a level in both parsers, as `not` does, and is refused at the 64th with "the expression nests deeper than 64 levels". Held by `each_implies_nests_a_level`, and by the flow checker's plant "a chain of implies nested past its bound", which the core's oracle compares. Each fails with the count removed.
+
+### D700
+**A tree past the depth bound was built whole, and its drop exhausted the stack.** The core's parser built a chain of `or`, `and`, `+`, `-`, `*`, `/` or member reads to its end, then refused it as deeper than 128 levels. Dropping the refused tree recursed once per level. On a sandbox, the debug build of `3f56ad38` aborted on a query filter of 200,000 `or`s, a 1 MB body, and refused one of 20,000. The reference parser was not affected, since it counts depth without recursion and Python frees a deep tuple without recursing. Found while reproducing D699.
+
+**Resolved** 2026-11-23: the parse counts each node's depth as it builds it. Where a node would pass 128, it builds a stand-in of one level, so no deeper tree is made (`expr.rs` `Parser::made`). The expression is refused at its end as before, and a syntax fault after it is still named first. Held by `a_chain_far_past_the_trees_bound_is_refused_unbuilt`, over seven operators at 129 and at 200,000 terms, which overflows its stack with the stand-in removed. A debug assertion also checks, on every parse the tests make, that the counted depth is the tree's.
