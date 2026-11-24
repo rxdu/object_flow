@@ -3815,7 +3815,7 @@ types:
 
 def test_an_object_named_beside_another_type_is_not_found_alike(tee):
     """An object named beside a type is found only as one of that type's family, alike through both backends, so a
-    tool bound to a type takes no other type's object of the id it is given (thirteenth production review B)."""
+    tool bound to a type takes no other type's object of the id it is given (D644)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "two.yaml", "text": TWO}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()
@@ -4090,7 +4090,7 @@ types:
 
 def test_an_erasure_redacts_every_proposal_on_its_object_alike(tee):
     """An erasure invalidates a pending proposal on its object and empties its inputs, and redacts the personal inputs
-    of one already decided, alike through both backends (thirteenth production review A)."""
+    of one already decided, alike through both backends (D643)."""
     assert tee.post("/sandbox/load", {"files": [{"name": "memo.yaml", "text": MEMO}]})["loaded"]
     tee.post("/sandbox/reset", {})
     tee.found.clear()

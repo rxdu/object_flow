@@ -1249,7 +1249,7 @@ fn heavy_reading<'s>(
 /// read of one object, what it offers or what a request of it would do,
 /// where what it computes of its type's rules grows with the store
 /// (`reads::grows_with_store`), since many such reads at once, in no pool,
-/// hold memory without bound (thirteenth production review C); never among
+/// hold memory without bound (D645); never among
 /// the analytics, so a person's `get` never waits behind per-person metrics
 /// (fourteenth production review); none for any other read, which never
 /// waits.
@@ -8290,7 +8290,7 @@ mod tests {
 
     /// A read of one object that computes rules growing with the store waits
     /// in the objects' pool, never the analytics', and one that computes none
-    /// answers at once (thirteenth production review C, fourteenth production
+    /// answers at once (D645, fourteenth production
     /// review).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[allow(clippy::panic)]

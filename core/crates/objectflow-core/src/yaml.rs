@@ -43,7 +43,7 @@ pub enum Node {
 
 /// A mapping's keys by their place among its entries, made once on the
 /// first lookup, since a search of the entries for each finding's line is
-/// quadratic in a large module's types (thirteenth production review D).
+/// quadratic in a large module's types (D646).
 /// It is a cache, so it takes no part in a node's equality.
 #[derive(Clone, Debug, Default)]
 pub struct KeyIndex(std::sync::OnceLock<std::collections::HashMap<String, usize>>);

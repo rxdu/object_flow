@@ -1018,7 +1018,7 @@ pub enum ObjectRead {
 /// store: a rule it computes, a derived attribute, a condition or an
 /// invariant as `what` reads them, reading a metric, a type scan or the
 /// objects referring to it, itself or through a derived attribute it reads
-/// by name. Such a read waits in a pool (thirteenth production review C);
+/// by name. Such a read waits in a pool (D645);
 /// and a `get` waits only where its derived attributes grow, not wherever
 /// its type has a guarded transition (fourteenth production review).
 pub fn grows_with_store(lib: &Library, type_: &str, what: ObjectRead) -> bool {

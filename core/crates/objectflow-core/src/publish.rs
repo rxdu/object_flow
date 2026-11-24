@@ -2877,7 +2877,7 @@ types:
         // and types the checks refuse, each with findings of its own, which
         // comparing each finding with every one before it, or finding its
         // line by searching every type's key, would make quadratic
-        // (thirteenth production review D)
+        // (D646)
         let refused = |n: usize| {
             let text = "module: m\ncategories: [live, closed]\ntypes:\n".to_string()
                 + &(0..n)

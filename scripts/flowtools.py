@@ -219,7 +219,7 @@ def transition_tool(tn, xn, t, x, enums, proposing=False):
     text = " ".join(p for p in (own or lead, PROPOSING if proposing else "", "" if creation else AVAILABILITY) if p)
     required = (["inputs"] if creation else ["inputs", "object_id"]) + (["propose"] if proposing else [])
     # the request a call is sent as, its type named beside the object it names, so a call takes no other type's
-    # object of the id it is given (thirteenth production review B)
+    # object of the id it is given (D644)
     return {"name": f"{snake(tn)}_{xn}", "description": text, "request": {"type": tn, "transition": xn},
             "input_schema": {"type": "object", "properties": props, "required": required,
                              "additionalProperties": False}}

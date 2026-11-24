@@ -1031,7 +1031,7 @@ fn decide_or_stop(
             None => return refused(Verdict::NotFound),
             // an object named beside a type is found only as one of that
             // type's family, so a tool bound to a type takes no other type's
-            // object of the id it is given (thirteenth production review B)
+            // object of the id it is given (D644)
             Some(o) if req.type_.as_deref().is_some_and(|t| !lib.is_a(&o.type_, t)) => {
                 return refused(Verdict::NotFound);
             }
@@ -4282,7 +4282,7 @@ fn file(
             None => return refused(Verdict::NotFound),
             // an object named beside a type is found only as one of that
             // type's family, so a tool bound to a type takes no other type's
-            // object of the id it is given (thirteenth production review B)
+            // object of the id it is given (D644)
             Some(o) if req.type_.as_deref().is_some_and(|t| !lib.is_a(&o.type_, t)) => {
                 return refused(Verdict::NotFound);
             }
@@ -20760,7 +20760,7 @@ types:
 
     /// A personal value passed to an evaluator is recorded as `(personal)`
     /// in what a guard consulted, on the event, a refusal's attempt and the
-    /// log's export (thirteenth production review A).
+    /// log's export (D643).
     #[test]
     fn a_personal_argument_is_consulted_as_personal() {
         let text = "\nmodule: crm\ncategories: [live]\nevaluators:\n  crm:\n    functions:\n      known: { arguments: { email: { type: string } } }\ntypes:\n  Customer:\n    attributes:\n      email: { type: string, personal: true }\n    states:\n      ON: { category: live }\n    conditions:\n      known: { expression: crm.known(email), remedy: dependent }\n    transitions:\n      make: { kind: initial, to: ON, required_inputs: [email] }\n      check: { kind: internal, from: [ON], guards: { known: deny } }\n";
@@ -20804,7 +20804,7 @@ types:
 
     /// An object named beside a type is found only as one of that type's
     /// family, so a tool bound to a type takes no other type's object of the
-    /// id it is given (thirteenth production review B).
+    /// id it is given (D644).
     #[test]
     fn an_object_named_beside_another_type_is_not_found() {
         let text = "\nmodule: two\ncategories: [live, closed]\ntypes:\n  Base:\n    abstract: true\n    attributes:\n      n: { type: int, optional: true }\n  Customer:\n    extends: Base\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      make: { kind: initial, to: ON }\n      revoke: { kind: external, from: [ON], to: OFF }\n  Pass:\n    states:\n      ON: { category: live }\n      OFF: { category: closed, final: true }\n    transitions:\n      make: { kind: initial, to: ON }\n      revoke: { kind: external, from: [ON], to: OFF }\n";

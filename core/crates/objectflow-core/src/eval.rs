@@ -2105,7 +2105,7 @@ pub(crate) fn reads_any(e: &Expr, names: &BTreeSet<String>) -> bool {
 /// library marks personal, which a consulted reference then writes as
 /// `(personal)`, since a key holding the value, `crm.known(an address)`,
 /// would be out of an erasure's reach and carried by the log's export,
-/// which leaves personal inputs out (thirteenth production review A).
+/// which leaves personal inputs out (D643).
 fn reads_personal(lib: &crate::model::Library, e: &Expr) -> bool {
     reads_any(e, &personal_names(lib))
         || (identities_personal(lib) && reads_any(e, &identity_names(lib)))

@@ -2701,7 +2701,7 @@ class Runner:
         if oid is not None and oid not in work.objects:
             raise Refused("not_found", remedy="unreachable_from_here")
         # an object named beside a type is found only as one of that type's family, so a tool bound to a type takes
-        # no other type's object of the id it is given (thirteenth production review B)
+        # no other type's object of the id it is given (D644)
         if oid is not None and named is not None and not work.is_a(work.type_of(oid), named):
             raise Refused("not_found", remedy="unreachable_from_here")
         # the operator's creation is taken only by creating the store, and its retirement by nothing, which would leave
@@ -3727,7 +3727,7 @@ class Runner:
                     proposal_event(work, key, "invalidate", "PENDING", "INVALIDATED", ctx.who["id"])
                     ctx.erased.setdefault(key, set()).update(names)
         # and every one decided on it keeps its inputs but those personal to the transition it proposed, one redact
-        # event each (thirteenth production review A)
+        # event each (D643)
         for key, proposal in work.proposals.items():
             if proposal["state"] == "pending" or proposal["object"] != o.id or key not in work.objects:
                 continue

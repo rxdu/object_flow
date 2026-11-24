@@ -358,7 +358,7 @@ class Sandbox:
         oid, tn = body.get("object_id"), body.get("type")
         if oid is None and tn is None:
             raise Fault(400, "a request names an object_id, a type to create one, or both")
-        # the type an object is named beside, which it must be of (thirteenth production review B)
+        # the type an object is named beside, which it must be of (D644)
         named = tn if oid is not None else None
         s = self.store
         if oid in s.proposals and named not in (None, "Proposal"):

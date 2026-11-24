@@ -433,7 +433,7 @@ fn transition_tool(
     }
     // the request a call is sent as, its type named beside the object it
     // names, so a call takes no other type's object of the id it is given
-    // (thirteenth production review B)
+    // (D644)
     json!({"name": format!("{}_{xn}", snake(tn)), "description": description,
            "request": {"type": tn, "transition": xn},
            "input_schema": {"type": "object", "properties": props, "required": required,
