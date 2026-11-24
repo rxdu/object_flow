@@ -1,9 +1,11 @@
 //! Format 1's corpus on the core (ADR-0180 decision 7): every bundle of the
 //! design's sample modules as they stood when format 1 was promised, frozen
 //! in `docs/design/flow-format/format-1/`, checks with no fatal finding, a
-//! failed example among them, and every example is run, as the core ran all
-//! 175 then. `scripts/check-compat.py` holds the digests and the reference
-//! runner to the same corpus.
+//! failed example among them, and no example reported not run. That the
+//! core runs an examples file's examples at all is held by the checker
+//! oracle, whose cases' failed examples the core must find
+//! (`checker_oracle.rs`). `scripts/check-compat.py` holds the digests and
+//! the reference runner to the same corpus, and counts its 175 examples.
 
 #![allow(clippy::expect_used)]
 

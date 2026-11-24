@@ -12881,7 +12881,12 @@ types:
                 }
             ]
         );
-        // what reads nothing written is not read
+        // what reads nothing written is not read: with the line's invariant
+        // broken under the store, a write to another order passes, and one
+        // to the order the line reads is refused naming it
+        s.connection()
+            .execute("UPDATE t_order SET cap = 0 WHERE id = ?1", [&a])
+            .unwrap();
         created(&req(
             &mut s,
             "resize",
@@ -12889,6 +12894,19 @@ types:
             (&b, false),
             json!({"cap": 3}),
         ));
+        assert_eq!(
+            failures(req(
+                &mut s,
+                "resize",
+                OPERATOR,
+                (&a, false),
+                json!({"cap": 0})
+            )),
+            vec![failure(&line, "Line", "order_takes_lines")]
+        );
+        s.connection()
+            .execute("UPDATE t_order SET cap = 2 WHERE id = ?1", [&a])
+            .unwrap();
         // a key one order leaves cures the conflict admitted on the other,
         // which is reached by the key the written order held before
         let c = place(&mut s, "Z", 1);

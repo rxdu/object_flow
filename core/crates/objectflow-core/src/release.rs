@@ -979,5 +979,25 @@ mod tests {
         assert_eq!(names(steps_from("c", &releases)), Some(vec![]));
         // a release none upgrades from, a later one's among them
         assert_eq!(names(steps_from("d", &releases)), None);
+        // a chain that turns back on itself, never reaching the last release,
+        // ends, answering none
+        let cycle = [
+            Release {
+                name: "x",
+                from: &["y"],
+                ..releases[0]
+            },
+            Release {
+                name: "y",
+                from: &["x"],
+                ..releases[0]
+            },
+            Release {
+                name: "z",
+                from: &["w"],
+                ..releases[0]
+            },
+        ];
+        assert_eq!(names(steps_from("x", &cycle)), None);
     }
 }

@@ -48,5 +48,5 @@ fn every_design_module_digests_as_the_flow_checker_digests_it() {
         assert_eq!(ours, theirs, "{name}");
         checked += 1;
     }
-    assert!(checked >= 10, "{checked} modules");
+    assert_eq!(checked, 13, "the design's thirteen modules");
 }
