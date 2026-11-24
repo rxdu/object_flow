@@ -23,6 +23,7 @@ cargo=${CARGO:-$HOME/.cargo/bin/cargo}
 (cd "$here/../../core" && "$cargo" build -q -p objectflow-service)
 
 exec "$here/server/.venv/bin/python" - "$here" "$@" <<'PY'
+import os
 import pathlib
 import re
 import subprocess
@@ -37,8 +38,10 @@ from replay import Wire, replay  # noqa: E402
 bundle = {"files": [{"name": m.name, "text": m.read_text()} for m in modules],
           "examples": {"name": examples.name, "text": examples.read_text()}}
 module = examples.name.replace(".examples.yaml", ".yaml")
+# where cargo built it: CARGO_TARGET_DIR where set, read from core/ as cargo reads it
+binary = here.parent.parent / "core" / os.environ.get("CARGO_TARGET_DIR", "target") / "debug/objectflow-service"
 service = subprocess.Popen(
-    [str(here.parent.parent / "core/target/debug/objectflow-service"), "--port", "0"],
+    [str(binary), "--port", "0"],
     stderr=subprocess.PIPE, text=True)
 try:
     line = service.stderr.readline()
