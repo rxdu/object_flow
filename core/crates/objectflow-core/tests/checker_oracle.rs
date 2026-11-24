@@ -1,12 +1,12 @@
 //! The core's checker held to the flow checker (ADR-0156 decision 4): every
 //! check `scripts/check-flows.py`'s run makes, over the design's modules and
 //! every plant of its self-test, exported to `tests/plants` with what it
-//! found, run again through the core and compared by file, line, code and
-//! message, for the codes `COVERED` and `COVERED_IN_EXAMPLES` list.
+//! found, run again through the core and compared by file, line, severity,
+//! code and message, for the codes `COVERED` and `COVERED_IN_EXAMPLES` list.
 
 #![allow(clippy::expect_used)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use objectflow_core::check::{Severity, checked_as};
@@ -51,6 +51,9 @@ const COVERED: &[&str] = &[
     "rule_changed",
     // an attribute a version no longer marks personal (ADR-0196)
     "personal_dropped",
+    // a member a type declares named like one an object answers by a path
+    // alone, which it hides on that type (ADR-0216)
+    "hides_member",
     // step 4 (C2)
     "check 2",
     "check 7",
@@ -65,7 +68,6 @@ const COVERED: &[&str] = &[
     "check 26",
     "check 29",
     "check 35",
-    "check 38",
     "check 41",
     "check 47",
     "check 53",
@@ -99,6 +101,16 @@ const COVERED_IN_EXAMPLES: &[&str] = &[
     "yaml", "schema", "names", "order", "coverage", "example", "notrun",
 ];
 
+/// The codes `COVERED` lists that no case makes, a plant or a design module,
+/// so the oracle compares none of them yet: each leaves the list once a
+/// plant makes it (`TODO.md`).
+const UNPLANTED: &[&str] = &[
+    "check 2", "check 16", "check 19", "check 21", "check 26", "check 29", "check 35", "check 42",
+    "check 43", "check 47", "check 55", "check 60",
+];
+/// The codes `COVERED_IN_EXAMPLES` lists that no case makes.
+const UNPLANTED_IN_EXAMPLES: &[&str] = &["yaml"];
+
 /// The codes compared without their messages: an example's failure, which
 /// the core's engine and the reference runner each explain in their own
 /// words, and what each does not yet run (ADR-0156 decision 4).
@@ -125,13 +137,58 @@ fn plants() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/plants")
 }
 
+/// The flow checker's cases, as `scripts/check-flows.py --export-plants`
+/// wrote them.
+fn cases() -> Vec<Value> {
+    serde_json::from_str(
+        &std::fs::read_to_string(plants().join("cases.json")).expect("the exported plants"),
+    )
+    .expect("cases.json")
+}
+
+/// Each code the oracle covers is made by some case, so the oracle compares
+/// it, or is named unplanted; a named one a case makes leaves the list, so it
+/// holds only what is not yet compared.
+#[test]
+fn every_covered_code_is_made_by_a_case_or_named_unplanted() {
+    let mut made = BTreeSet::new();
+    for case in &cases() {
+        for f in case["findings"].as_array().expect("findings") {
+            let file = f[0].as_str().unwrap_or_default();
+            let code = f[3].as_str().unwrap_or_default();
+            made.insert((file.ends_with(".examples.yaml"), code.to_string()));
+        }
+    }
+    let mut wrong = Vec::new();
+    for (examples, listed, unplanted) in [
+        (false, COVERED, UNPLANTED),
+        (true, COVERED_IN_EXAMPLES, UNPLANTED_IN_EXAMPLES),
+    ] {
+        for code in listed {
+            match (
+                made.contains(&(examples, code.to_string())),
+                unplanted.contains(code),
+            ) {
+                (true, true) => {
+                    wrong.push(format!("{code}: a case makes it, so it is not unplanted"))
+                }
+                (false, false) => wrong.push(format!("{code}: covered, and no case makes it")),
+                _ => {}
+            }
+        }
+        for code in unplanted {
+            if !listed.contains(code) {
+                wrong.push(format!("{code}: named unplanted, and not covered"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
 #[test]
 fn the_core_finds_what_the_flow_checker_finds() {
     let dir = plants();
-    let cases: Vec<Value> = serde_json::from_str(
-        &std::fs::read_to_string(dir.join("cases.json")).expect("the exported plants"),
-    )
-    .expect("cases.json");
+    let cases = cases();
     let blob = |key: &str| {
         std::fs::read_to_string(dir.join("blobs").join(format!("{key}.yaml"))).expect("a blob")
     };
