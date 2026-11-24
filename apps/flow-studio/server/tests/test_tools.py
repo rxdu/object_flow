@@ -19,6 +19,7 @@ import pytest
 from compare import Tee
 from flowstudio.catalogue import Catalogue
 from flowstudio.core import Core
+from replay import Failed
 from test_backends_agree import started
 from test_publishing import TAKEN, alike
 
@@ -173,6 +174,6 @@ def test_an_unknown_actor_kind_is_a_fault_alike(tee):
     tools(tee, FILES[0], "human")
     tee.found.clear()
     for body in ({"actor_kind": "robot"}, {}):
-        with pytest.raises(Exception):
+        with pytest.raises(Failed, match="answered 400: tools names an actor_kind"):
             tee.post("/v1/tools", body)
     alike(tee)
