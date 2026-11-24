@@ -712,6 +712,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D698](#d698) | The harness's oracle scanned the object written, so a booking overlapped itself there too | Resolved |
 | [D699](#d699) | A chain of `implies` counted as no level of nesting, so a long one exhausted the stack | Resolved |
 | [D700](#d700) | A tree past the depth bound was built whole, and its drop exhausted the stack | Resolved |
+| [D701](#d701) | The Flow Studio's page lacked the input reason `wrong_media_type`, so it named a file of the wrong type "undefined" | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4502,3 +4503,8 @@ Brought to the author the day it was found, with a recommendation (`TODO.md`, un
 **A tree past the depth bound was built whole, and its drop exhausted the stack.** The core's parser built a chain of `or`, `and`, `+`, `-`, `*`, `/` or member reads to its end, then refused it as deeper than 128 levels. Dropping the refused tree recursed once per level. On a sandbox, the debug build of `3f56ad38` aborted on a query filter of 200,000 `or`s, a 1 MB body, and refused one of 20,000. The reference parser was not affected, since it counts depth without recursion and Python frees a deep tuple without recursing. Found while reproducing D699.
 
 **Resolved** 2026-11-23: the parse counts each node's depth as it builds it. Where a node would pass 128, it builds a stand-in of one level, so no deeper tree is made (`expr.rs` `Parser::made`). The expression is refused at its end as before, and a syntax fault after it is still named first. Held by `a_chain_far_past_the_trees_bound_is_refused_unbuilt`, over seven operators at 129 and at 200,000 terms, which overflows its stack with the stand-in removed. A debug assertion also checks, on every parse the tests make, that the counted depth is the tree's.
+
+### D701
+**The Flow Studio's page lacked the input reason `wrong_media_type`, so it named a file of the wrong type "undefined".** ADR-0239 decision 2 added the reason, and both of the Studio's backends answer it (`apps/flow-studio/server/tests/test_media_types.py`). The page's union `InputReason` (`web/src/api/wire.ts`) and its table `REASON` (`web/src/session/explain.ts`) were not given it, so the sentence under such a verdict read "The input receipt is undefined". Found by the cleanup of 2026-11-22, read from the code.
+
+**Resolved** 2026-11-24: the union and the table hold `wrong_media_type`, in the core's order (`verdict.rs` `InputReason`), and the page says the input is "of a media type it does not take". Held by `explain.test.ts`'s case for the reason, which rendered "undefined" and failed the type check without the fix.

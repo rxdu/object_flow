@@ -140,6 +140,15 @@ describe("the sentence under a verdict", () => {
       [
         {
           kind: "invalid_input",
+          inputs: ["receipt"],
+          reasons: { receipt: "wrong_media_type" },
+          remedy: "self_serviceable",
+        },
+        "The input receipt is of a media type it does not take: supply or correct an input and try again.",
+      ],
+      [
+        {
+          kind: "invalid_input",
           inputs: ["amount", "receipt"],
           reasons: { amount: "missing", receipt: "missing" },
           remedy: "self_serviceable",

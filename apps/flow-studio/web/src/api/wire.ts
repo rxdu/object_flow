@@ -10,6 +10,7 @@ export type InputReason =
   | "wrong_type"
   | "malformed"
   | "wrong_currency"
+  | "wrong_media_type"
   | "no_such_object"
   | "out_of_range"
   | "not_allowed";

@@ -38,6 +38,7 @@ export const REASON: Record<InputReason, string> = {
   wrong_type: "of another type than it takes",
   malformed: "not written as its type is",
   wrong_currency: "in another currency",
+  wrong_media_type: "of a media type it does not take",
   no_such_object: "naming no object of its type",
   out_of_range: "more than its type holds",
   not_allowed: "not one this transition allows",
