@@ -10,6 +10,8 @@ import sys
 import json
 import pathlib
 
+import jsonschema
+
 DOC = pathlib.Path(__file__).resolve().parents[1] / "docs/design/renderers.md"
 
 
@@ -25,12 +27,6 @@ def main():
         except json.JSONDecodeError as e:
             print(f"{DOC.name}: block {i} is not JSON: {e}"); return 1
     print(f"{DOC.name}: {len(parsed)} JSON blocks parse")
-
-    try:
-        import jsonschema
-    except ImportError:
-        print("  jsonschema not installed; schema validity unchecked")
-        return 0
 
     validator = jsonschema.Draft7Validator
     checked = 0
