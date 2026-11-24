@@ -768,8 +768,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 
 ### An oracle holding the rule a decision replaced
 - **Pattern:** ADR-0205 decision 3 changed what a key answers after an erasure: refused, where it replayed. The core, its tests and the guides changed with it; the adversarial harness's key oracle did not, and failed the first full run, the core being right.
-- **Correction:** When a decision changes a promise, search every oracle that states it, the harness's checks and the reference runner included, and change them in the same commit as the code.
-- **Context:** `objectflow-harness`, ADR-0204 §3's promises; 2026-10-14.
+- **Correction:** When a decision changes a promise, search every oracle that states it, the harness's checks and the reference runner included, and change them in the same commit as the code. Before committing a change to what a request answers, run `cargo test -p objectflow-harness`, not only the tests named for the change.
+- **Context:** `objectflow-harness`, ADR-0204 §3's promises; 2026-10-14. It recurred on 2026-11-24: D702 refused a keyed retry by an actor that no longer acts, and the key oracle still expected `key_reused`, found four commits later.
 
 ### A start reordered, its announcement with it
 - **Pattern:** Binding the service's addresses before the store was opened, to keep a refused start from touching the store's files, moved the "listening on" line ahead of the store's opening. The deployment tests, like an operator's script, read that line as "it serves", and six of them raced the store's creation.
