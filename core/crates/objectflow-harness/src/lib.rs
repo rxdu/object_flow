@@ -674,6 +674,14 @@ impl Run {
                     && first.principal == r.principal
                     && first.context == r.context;
                 match v {
+                    // `DESIGN.md` §6 step 1 comes before the key: an actor or
+                    // a principal the store does not know, or that does not
+                    // act, is refused whatever its key holds (D702)
+                    Some(Verdict::Unsatisfied { clause, .. })
+                        if clause == "actor_active" || clause == "actor_known" =>
+                    {
+                        None
+                    }
                     None if spent => None,
                     Some(Verdict::Satisfied {
                         object_id,
