@@ -5,8 +5,8 @@
 # confirmed a line's nature is recorded, and must be a person, and the day of an expense is a date.
 #
 # Assumptions the business has not decided:
-# - A claim is recorded in Xero as a bill, and the bill is paid separately, so "paid" is a step of its own after
-#   the Xero record is read back.
+# - A claim is recorded in the ledger as a bill, and the bill is paid separately, so "paid" is a step of its own after
+#   the ledger record is read back.
 # - Which function reviews, records and pays is undecided. The flow names no person and no fixed function:
 #   approval is recorded against a BusinessFunction the approver names, and who may take each step is the
 #   application's (ADR-0114).
@@ -29,18 +29,18 @@ sequences:
     description: Numbers the company's reimbursement claims.
 
 evaluators:
-  xero:
-    description: Xero, the company's accounting system, which owns the bills claims are recorded as and their payment.
+  ledger:
+    description: The ledger, the company's accounting system, which owns the bills claims are recorded as and their payment.
     functions:
       bill_matches:
-        description: Whether Xero holds a bill with this id that carries this claim number as its reference and totals this amount.
+        description: Whether the ledger holds a bill with this id that carries this claim number as its reference and totals this amount.
         arguments:
           bill_id: { type: string }
           claim_number: { type: string }
           amount: { type: money(USD) }
         fresh: 10 min
       bill_paid:
-        description: Whether the bill with this id is paid in full in Xero.
+        description: Whether the bill with this id is paid in full in the ledger.
         arguments:
           bill_id: { type: string }
         fresh: 10 min
@@ -53,11 +53,11 @@ types:
     attributes:
       user_id: { type: identity, actor_kind: human, unique: true }
       name: { type: string, optional: true, personal: true }
-      xero_contact_id:
+      ledger_contact_id:
         type: string
-        external: xero
+        external: ledger
         optional: true
-        description: The Xero contact the employee's bills are raised against.
+        description: The ledger contact the employee's bills are raised against.
     states:
       ACTIVE:
         category: in_service
@@ -72,11 +72,11 @@ types:
         to: ACTIVE
         required_inputs: [user_id]
         optional_inputs: [name]
-      link_xero_contact:
+      link_ledger_contact:
         kind: internal
         from: ACTIVE
-        description: Records the Xero contact the employee's bills are raised against.
-        required_inputs: [xero_contact_id]
+        description: Records the ledger contact the employee's bills are raised against.
+        required_inputs: [ledger_contact_id]
       leave:
         kind: external
         from: ACTIVE
@@ -163,7 +163,7 @@ types:
         to: RETIRED
 
   Claim:
-    description: A staff reimbursement claim, one employee's request to be paid back for business spending, made of line items; it is recorded in Xero as a bill and paid separately.
+    description: A staff reimbursement claim, one employee's request to be paid back for business spending, made of line items; it is recorded in the ledger as a bill and paid separately.
     tracking: record
     # people and services take a claim's transitions, never the agent, which commits no financial write
     taken_by: [human, service]
@@ -194,11 +194,11 @@ types:
         optional: true
         description: The function under whose authority the claim was approved.
       approved_at: { type: timestamp, optional: true }
-      xero_bill_id:
+      ledger_bill_id:
         type: string
-        external: xero
+        external: ledger
         optional: true
-        description: The id of the bill the claim is recorded as in Xero.
+        description: The id of the bill the claim is recorded as in the ledger.
       recorded_at: { type: timestamp, optional: true }
       verified_at: { type: timestamp, optional: true }
       paid_at: { type: timestamp, optional: true }
@@ -221,21 +221,21 @@ types:
         required_attributes: [first_submitted_at, submitted_at]
       APPROVED:
         category: in_progress
-        description: Approved by a function, and waiting for a person to record it in Xero.
+        description: Approved by a function, and waiting for a person to record it in the ledger.
         required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at]
       RECORDED:
         category: in_progress
-        description: Recorded in Xero as a bill by a person, and waiting for the record to be read back.
-        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at]
+        description: Recorded in the ledger as a bill by a person, and waiting for the record to be read back.
+        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, ledger_bill_id, recorded_at]
       VERIFIED:
         category: in_progress
-        description: Its Xero bill read back and found to match, and waiting for payment.
-        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at, verified_at]
+        description: Its ledger bill read back and found to match, and waiting for payment.
+        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, ledger_bill_id, recorded_at, verified_at]
       PAID:
         category: closed
         final: true
         description: Paid to the claimant.
-        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, xero_bill_id, recorded_at, verified_at, paid_at]
+        required_attributes: [first_submitted_at, submitted_at, approving_function, approved_at, ledger_bill_id, recorded_at, verified_at, paid_at]
       REJECTED:
         category: closed
         final: true
@@ -275,13 +275,13 @@ types:
         description: The function named as approving the claim is active.
         expression: inputs.approving_function.state == BusinessFunction.ACTIVE
         remedy: self_serviceable
-      bill_matches_xero:
-        description: Xero holds a bill with the recorded id that carries the claim's number and totals the claim.
-        expression: xero.bill_matches(xero_bill_id, number, total)
+      bill_matches_ledger:
+        description: The ledger holds a bill with the recorded id that carries the claim's number and totals the claim.
+        expression: ledger.bill_matches(ledger_bill_id, number, total)
         remedy: delegable
-      bill_paid_in_xero:
-        description: Xero shows the claim's bill paid in full.
-        expression: xero.bill_paid(xero_bill_id)
+      bill_paid_in_ledger:
+        description: The ledger shows the claim's bill paid in full.
+        expression: ledger.bill_paid(ledger_bill_id)
         remedy: delegable
       payment_not_in_future:
         description: The payment date given is not in the future.
@@ -388,29 +388,29 @@ types:
         from: [DRAFT, SUBMITTED, RETURNED, REVIEWED]
         to: WITHDRAWN
         description: The claimant withdraws the claim before it is approved.
-      record_in_xero:
+      record_in_ledger:
         kind: external
         from: APPROVED
         to: RECORDED
-        description: A person records the claim in Xero as a bill and gives the bill's id.
-        required_inputs: [xero_bill_id]
+        description: A person records the claim in the ledger as a bill and gives the bill's id.
+        required_inputs: [ledger_bill_id]
         effect:
           - assign: { location: recorded_at, expr: now }
-      correct_xero_bill_id:
+      correct_ledger_bill_id:
         kind: internal
         from: RECORDED
-        description: Corrects the Xero bill id recorded, when the read-back shows it was wrong.
-        corrects: [xero_bill_id]
-        required_inputs: [xero_bill_id]
+        description: Corrects the ledger bill id recorded, when the read-back shows it was wrong.
+        corrects: [ledger_bill_id]
+        required_inputs: [ledger_bill_id]
         inputs:
           reason: { type: CorrectionReason }
-      verify_xero_record:
+      verify_ledger_record:
         kind: external
         from: RECORDED
         to: VERIFIED
-        description: Reads the Xero bill back and confirms it matches the claim.
+        description: Reads the ledger bill back and confirms it matches the claim.
         guards:
-          bill_matches_xero: deny
+          bill_matches_ledger: deny
         effect:
           - assign: { location: verified_at, expr: now }
       pay:
@@ -418,11 +418,11 @@ types:
         taken_by: [human, service]
         from: VERIFIED
         to: PAID
-        description: Records that the bill was paid to the claimant, as Xero shows.
+        description: Records that the bill was paid to the claimant, as the ledger shows.
         required_inputs: [paid_at]
         guards:
           payment_not_in_future: deny
-          bill_paid_in_xero: deny
+          bill_paid_in_ledger: deny
       erase_personal_data:
         kind: erasure
         taken_by: [human]

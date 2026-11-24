@@ -19857,21 +19857,21 @@ categories: [live, closed]
 types:
   Customer:
     attributes:
-      xero_id: { type: string, external: xero, optional: true }
+      ledger_id: { type: string, external: ledger, optional: true }
       nick: { type: string, external: crm, optional: true, personal: true }
     states:
       ACTIVE: { category: live }
     transitions:
-      add: { kind: initial, to: ACTIVE, optional_inputs: [xero_id, nick] }
-      relink: { kind: internal, from: [ACTIVE], required_inputs: [xero_id] }
+      add: { kind: initial, to: ACTIVE, optional_inputs: [ledger_id, nick] }
+      relink: { kind: internal, from: [ACTIVE], required_inputs: [ledger_id] }
       forget: { kind: erasure, inputs: { reason: { type: string } } }
   Vendor:
     attributes:
-      xero_ref: { type: string, external: xero, optional: true }
+      ledger_ref: { type: string, external: ledger, optional: true }
     states:
       ACTIVE: { category: live }
     transitions:
-      add: { kind: initial, to: ACTIVE, optional_inputs: [xero_ref] }
+      add: { kind: initial, to: ACTIVE, optional_inputs: [ledger_ref] }
 "#;
         let lib = Library::load(&[("books.yaml".into(), BOOKS.into())]).unwrap();
         let mut s = Store::sandbox(lib, 0).unwrap();
@@ -19897,9 +19897,9 @@ types:
             "add",
             OPERATOR,
             ("Customer", true),
-            json!({"xero_id": "X1", "nick": "dd"}),
+            json!({"ledger_id": "X1", "nick": "dd"}),
         ));
-        assert_eq!(found(&s, "xero", "X1"), Some(c1.clone()));
+        assert_eq!(found(&s, "ledger", "X1"), Some(c1.clone()));
         assert_eq!(found(&s, "crm", "dd"), Some(c1.clone()));
         // relinked, it is found by the new value and not the old
         created(&req(
@@ -19907,10 +19907,10 @@ types:
             "relink",
             OPERATOR,
             (&c1, false),
-            json!({"xero_id": "X2"}),
+            json!({"ledger_id": "X2"}),
         ));
-        assert_eq!(found(&s, "xero", "X1"), None);
-        assert_eq!(found(&s, "xero", "X2"), Some(c1.clone()));
+        assert_eq!(found(&s, "ledger", "X1"), None);
+        assert_eq!(found(&s, "ledger", "X2"), Some(c1.clone()));
         // unique per source, within the type and across types
         assert!(
             refused_as(req(
@@ -19918,9 +19918,9 @@ types:
                 "add",
                 OPERATOR,
                 ("Customer", true),
-                json!({"xero_id": "X2"})
+                json!({"ledger_id": "X2"})
             ))
-            .contains(&"Customer.xero_id_unique".to_string())
+            .contains(&"Customer.ledger_id_unique".to_string())
         );
         // each side of the collision named, the existing one first by id
         assert_eq!(
@@ -19929,9 +19929,9 @@ types:
                 "add",
                 OPERATOR,
                 ("Vendor", true),
-                json!({"xero_ref": "X2"})
+                json!({"ledger_ref": "X2"})
             )),
-            ["Customer.xero_id_unique", "Vendor.xero_ref_unique"]
+            ["Customer.ledger_id_unique", "Vendor.ledger_ref_unique"]
         );
         // the value given up is free
         let vendor = created(&req(
@@ -19939,9 +19939,9 @@ types:
             "add",
             OPERATOR,
             ("Vendor", true),
-            json!({"xero_ref": "X1"}),
+            json!({"ledger_ref": "X1"}),
         ));
-        assert_eq!(found(&s, "xero", "X1"), Some(vendor));
+        assert_eq!(found(&s, "ledger", "X1"), Some(vendor));
         // erased, the personal one is no longer found, the other still is
         created(&req(
             &mut s,
@@ -19951,7 +19951,7 @@ types:
             json!({"reason": "request"}),
         ));
         assert_eq!(found(&s, "crm", "dd"), None);
-        assert_eq!(found(&s, "xero", "X2"), Some(c1));
+        assert_eq!(found(&s, "ledger", "X2"), Some(c1));
     }
 
     /// A read of an object's one-to-many end holds that object's parts,

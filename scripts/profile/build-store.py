@@ -126,8 +126,8 @@ def claim_life(wire, rng, n, claimant, staff_id, categories, functions):
     count += 1
     if stop < 0.36:
         return count
-    took(wire, {"actor": OPERATOR, "object_id": claim, "transition": "record_in_xero",
-                "inputs": {"xero_bill_id": f"BILL{n:07d}"}})
+    took(wire, {"actor": OPERATOR, "object_id": claim, "transition": "record_in_ledger",
+                "inputs": {"ledger_bill_id": f"BILL{n:07d}"}})
     return count + 1
 
 

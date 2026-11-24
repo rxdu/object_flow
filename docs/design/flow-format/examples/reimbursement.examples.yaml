@@ -58,18 +58,18 @@ setups:
       - request: { object: claim, transition: approve, actor: rev, inputs: { approving_function: approvers } }
 
   recorded:
-    description: A person in finance recorded the claim in Xero as a bill.
+    description: A person in finance recorded the claim in the ledger as a bill.
     given: approved
     steps:
-      - request: { object: claim, transition: record_in_xero, actor: fin, inputs: { xero_bill_id: BILL-0042 } }
+      - request: { object: claim, transition: record_in_ledger, actor: fin, inputs: { ledger_bill_id: BILL-0042 } }
 
   verified:
-    description: The Xero bill was read back and matched the claim.
+    description: The ledger bill was read back and matched the claim.
     given: recorded
     evaluators:
-      xero.bill_matches: satisfied
+      ledger.bill_matches: satisfied
     steps:
-      - request: { object: claim, transition: verify_xero_record, actor: fin }
+      - request: { object: claim, transition: verify_ledger_record, actor: fin }
 
 examples:
   submit_claim:
@@ -236,40 +236,40 @@ examples:
     request: { object: claim, transition: approve, actor: rev, inputs: { approving_function: approvers } }
     expect: { verdict: unavailable }
 
-  refuse_mismatched_xero_record:
-    description: When the Xero bill read back does not match the claim, the claim is not verified, and whoever recorded it must fix it.
+  refuse_mismatched_ledger_record:
+    description: When the ledger bill read back does not match the claim, the claim is not verified, and whoever recorded it must fix it.
     given: recorded
     evaluators:
-      xero.bill_matches: unsatisfied
-    request: { object: claim, transition: verify_xero_record, actor: fin }
-    expect: { verdict: unsatisfied, clause: bill_matches_xero, remedy: delegable }
+      ledger.bill_matches: unsatisfied
+    request: { object: claim, transition: verify_ledger_record, actor: fin }
+    expect: { verdict: unsatisfied, clause: bill_matches_ledger, remedy: delegable }
 
-  an_unanswered_xero_can_be_asked_again:
-    description: When Xero does not answer, the claim is not verified, and the remedy is to try again, whatever the condition declares.
+  an_unanswered_ledger_can_be_asked_again:
+    description: When the ledger does not answer, the claim is not verified, and the remedy is to try again, whatever the condition declares.
     given: recorded
     evaluators:
-      xero.bill_matches: unanswered
-    request: { object: claim, transition: verify_xero_record, actor: fin }
-    expect: { verdict: unsatisfied, clause: bill_matches_xero, remedy: temporal }
+      ledger.bill_matches: unanswered
+    request: { object: claim, transition: verify_ledger_record, actor: fin }
+    expect: { verdict: unsatisfied, clause: bill_matches_ledger, remedy: temporal }
 
   correct_bill_id_then_verify:
     description: A wrong bill id is corrected, and the read-back then matches.
     given: recorded
     evaluators:
-      xero.bill_matches: satisfied
+      ledger.bill_matches: satisfied
     steps:
-      - request: { object: claim, transition: correct_xero_bill_id, actor: fin, inputs: { xero_bill_id: BILL-0043, reason: CorrectionReason.TYPING_ERROR } }
-    request: { object: claim, transition: verify_xero_record, actor: fin }
+      - request: { object: claim, transition: correct_ledger_bill_id, actor: fin, inputs: { ledger_bill_id: BILL-0043, reason: CorrectionReason.TYPING_ERROR } }
+    request: { object: claim, transition: verify_ledger_record, actor: fin }
     expect:
       verdict: applied
       state: VERIFIED
-      values: { xero_bill_id: BILL-0043 }
+      values: { ledger_bill_id: BILL-0043 }
 
   pay_verified_claim:
-    description: The end of the happy path; Xero shows the bill paid, the claim is paid and its lines close with it.
+    description: The end of the happy path; the ledger shows the bill paid, the claim is paid and its lines close with it.
     given: verified
     evaluators:
-      xero.bill_paid: satisfied
+      ledger.bill_paid: satisfied
     request: { object: claim, transition: pay, actor: fin, inputs: { paid_at: now } }
     expect:
       verdict: applied
@@ -277,12 +277,12 @@ examples:
       cascaded: [ClaimLine.close]
 
   refuse_payment_not_yet_made:
-    description: A claim is not marked paid until Xero shows the bill paid.
+    description: A claim is not marked paid until the ledger shows the bill paid.
     given: verified
     evaluators:
-      xero.bill_paid: unsatisfied
+      ledger.bill_paid: unsatisfied
     request: { object: claim, transition: pay, actor: fin, inputs: { paid_at: now } }
-    expect: { verdict: unsatisfied, clause: bill_paid_in_xero, remedy: delegable }
+    expect: { verdict: unsatisfied, clause: bill_paid_in_ledger, remedy: delegable }
 
   return_amend_resubmit:
     description: A claim sent back for a wrong amount is amended, which undoes the line's confirmed nature, and resubmitted.
@@ -320,7 +320,7 @@ examples:
     description: A paid claim's personal data, its title and its lines' purposes, is erased, and the claim stays paid.
     given: verified
     evaluators:
-      xero.bill_paid: satisfied
+      ledger.bill_paid: satisfied
     steps:
       - request: { object: claim, transition: pay, actor: fin, inputs: { paid_at: now } }
     request: { object: claim, transition: erase_personal_data, inputs: { reason: The former employee asked for erasure. } }

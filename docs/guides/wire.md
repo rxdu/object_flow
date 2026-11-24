@@ -269,7 +269,7 @@ POST /v1/upgrade
 A deployment posts each evaluator call to the endpoint `--evaluator <name>=<url>` names, with `Authorization: Bearer <token>` where `--evaluator-token` gives one:
 
 ```json
-{"evaluator": "xero", "function": "bill_paid", "arguments": ["BILL-0042"]}
+{"evaluator": "ledger", "function": "bill_paid", "arguments": ["BILL-0042"]}
 ```
 
 The arguments come in the order the function declares, in the notation above. Answer `200` with `{"verdict": "satisfied"}` or `{"verdict": "unsatisfied"}`. A check still pending answers `{"verdict": "unanswered"}`. Anything else, including no answer within `--evaluator-timeout`, makes the guard unknown, refused `temporal`, and the service logs why. An `unsatisfied` answer is refused with the condition's own remedy.

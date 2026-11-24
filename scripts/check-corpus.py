@@ -79,6 +79,17 @@ CITATION = re.compile(r"`?([A-Za-z][\w-]*\.md)`? (§\d+(?:\.\d+)*(?:(?:,? and |,
 # form its documents once used, and the path of its checkout.
 CONSUMER_FILES = re.compile(r"`wr:|RduWs/wr_")
 
+# The first consumer's accounting system is named only in the records of what
+# was decided or shipped (the author, 2026-11-24): a decision record, a review,
+# an audit, a draft a review read, the defect register, a case study's
+# iteration, a released section of the changelog, the frozen corpus and the
+# releases' fixtures. The check spells the name by its code points, so it does
+# not name it itself.
+CONSUMER_SYSTEM = re.compile("".join(map(chr, (120, 101, 114, 111))), re.I)
+RECORDS = re.compile(r"docs/adr/|docs/design/audit/|docs/design/[^/]*(review|cold-draft)[^/]*\.md$"
+                     r"|docs/design/case-study-crm\.md$|docs/design/defects\.md$|docs/design/flow-format/format-1/"
+                     r"|core/crates/objectflow-service/tests/fixtures/release-")
+
 
 def citable(path):
     """The section numbers a document can be cited by: its numbered headings, its numbered bold paragraphs such as
@@ -120,6 +131,27 @@ def check_consumer_files():
         for i, line in enumerate(p.read_text().split("\n"), 1):
             if CONSUMER_FILES.search(line):
                 findings.append(f"{p.relative_to(ROOT)}:{i}  names the first consumer's files; describe the case generically")
+
+
+def check_consumer_system():
+    """No tracked file outside the records names the first consumer's accounting system; the changelog is read from
+    its unreleased section alone."""
+    tracked = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, text=True, check=True)
+    for rel in filter(None, tracked.stdout.split("\0")):
+        if RECORDS.match(rel):
+            continue
+        try:
+            text = (ROOT / rel).read_text()
+        except (UnicodeDecodeError, OSError):
+            continue
+        heading = ""
+        for i, line in enumerate(text.split("\n"), 1):
+            if line.startswith("## "):
+                heading = line
+            if rel == "CHANGELOG.md" and heading not in ("", "## Unreleased"):
+                continue
+            if CONSUMER_SYSTEM.search(line):
+                findings.append(f"{rel}:{i}  names the first consumer's accounting system; name a generic one")
 
 
 def check_retired():
@@ -351,6 +383,7 @@ def main():
     check_references(nums, maxcheck)
     check_citations()
     check_consumer_files()
+    check_consumer_system()
     check_retired()
     check_adr_headers(nums)
     check_amendments()

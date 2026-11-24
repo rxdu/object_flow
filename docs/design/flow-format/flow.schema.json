@@ -1261,7 +1261,7 @@
         },
         "external": {
           "$ref": "#/definitions/memberName",
-          "description": "The system that owns this value, such as legacy or xero; its values are unique per source and may be absent."
+          "description": "The system that owns this value, such as legacy or ledger; its values are unique per source and may be absent."
         },
         "unique": {
           "description": "No two objects hold the same value: true across the type; in_scope, per the identifier's scope; with, together with the attributes listed; where, among the objects the expression holds for.",

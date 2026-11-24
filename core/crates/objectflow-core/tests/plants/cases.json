@@ -1143,7 +1143,7 @@
    ],
    [
     "customers.yaml",
-    "46591cc994e0c73c"
+    "e32c4d679e847ca3"
    ],
    [
     "customers.examples.yaml",
@@ -1164,7 +1164,7 @@
     18,
     "notice",
     "coverage",
-    "no example takes 8 transitions of customers, by its request, a step, a setup or a cascade it expects: Contact.add, Contact.discard, Customer.lapse, Customer.link_xero, Customer.merged_into, Order.cancel, Order.fulfil, Order.invoice"
+    "no example takes 8 transitions of customers, by its request, a step, a setup or a cascade it expects: Contact.add, Contact.discard, Customer.lapse, Customer.link_ledger, Customer.merged_into, Order.cancel, Order.fulfil, Order.invoice"
    ],
    [
     "customers.yaml",
@@ -1178,7 +1178,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {
@@ -1577,11 +1577,11 @@
    ],
    [
     "reimbursement.yaml",
-    "d013686e036294c7"
+    "af12291244782e68"
    ],
    [
     "reimbursement.examples.yaml",
-    "2cbd207f0577c791"
+    "fcf90a5aa460d53c"
    ]
   ],
   "previous": {},
@@ -1591,14 +1591,14 @@
     74,
     "notice",
     "coverage",
-    "no example requests 8 transitions of reimbursement as the request under test, which only a setup, a step or an expected cascade takes: AssistantAgent.register, BusinessFunction.establish, Claim.correct_xero_bill_id, Claim.draft, Claim.record_in_xero, Claim.return_for_changes, Employee.onboard, ExpenseCategory.define"
+    "no example requests 8 transitions of reimbursement as the request under test, which only a setup, a step or an expected cascade takes: AssistantAgent.register, BusinessFunction.establish, Claim.correct_ledger_bill_id, Claim.draft, Claim.record_in_ledger, Claim.return_for_changes, Employee.onboard, ExpenseCategory.define"
    ],
    [
     "reimbursement.examples.yaml",
     74,
     "notice",
     "coverage",
-    "no example takes 10 transitions of reimbursement, by its request, a step, a setup or a cascade it expects: AssistantAgent.retire, BusinessFunction.dissolve, ClaimLine.add, ClaimLine.discard, ClaimLine.erase, Employee.forget, Employee.leave, Employee.link_xero_contact, ExpenseCategory.change_policy_amount, ExpenseCategory.retire"
+    "no example takes 10 transitions of reimbursement, by its request, a step, a setup or a cascade it expects: AssistantAgent.retire, BusinessFunction.dissolve, ClaimLine.add, ClaimLine.discard, ClaimLine.erase, Employee.forget, Employee.leave, Employee.link_ledger_contact, ExpenseCategory.change_policy_amount, ExpenseCategory.retire"
    ],
    [
     "reimbursement.yaml",
@@ -1670,18 +1670,18 @@
    "Claim.add_line_taken_by": "local",
    "Claim.approve_taken_by": "local",
    "Claim.complete_review_taken_by": "local",
-   "Claim.correct_xero_bill_id_taken_by": "local",
+   "Claim.correct_ledger_bill_id_taken_by": "local",
    "Claim.draft_taken_by": "local",
    "Claim.erase_personal_data_taken_by": "local",
    "Claim.has_title": "local",
    "Claim.lines_within_reach": "traversal",
    "Claim.pay_taken_by": "local",
-   "Claim.record_in_xero_taken_by": "local",
+   "Claim.record_in_ledger_taken_by": "local",
    "Claim.reject_taken_by": "local",
    "Claim.resubmit_taken_by": "local",
    "Claim.return_for_changes_taken_by": "local",
    "Claim.submit_taken_by": "local",
-   "Claim.verify_xero_record_taken_by": "local",
+   "Claim.verify_ledger_record_taken_by": "local",
    "Claim.withdraw_taken_by": "local",
    "ClaimLine.add_taken_by": "local",
    "ClaimLine.amend_taken_by": "local",
@@ -1694,7 +1694,7 @@
    "ClaimLine.suggest_nature_taken_by": "local",
    "Employee.forget_taken_by": "local",
    "Employee.leave_taken_by": "local",
-   "Employee.link_xero_contact_taken_by": "local",
+   "Employee.link_ledger_contact_taken_by": "local",
    "Employee.onboard_taken_by": "local",
    "ExpenseCategory.change_policy_amount_taken_by": "local",
    "ExpenseCategory.define_taken_by": "local",
@@ -1739,8 +1739,8 @@
     "Claim.complete_review",
     "Claim.draft"
    ],
-   "Claim.correct_xero_bill_id_taken_by": [
-    "Claim.correct_xero_bill_id",
+   "Claim.correct_ledger_bill_id_taken_by": [
+    "Claim.correct_ledger_bill_id",
     "Claim.draft"
    ],
    "Claim.draft_taken_by": [
@@ -1762,9 +1762,9 @@
     "Claim.draft",
     "Claim.pay"
    ],
-   "Claim.record_in_xero_taken_by": [
+   "Claim.record_in_ledger_taken_by": [
     "Claim.draft",
-    "Claim.record_in_xero"
+    "Claim.record_in_ledger"
    ],
    "Claim.reject_taken_by": [
     "Claim.draft",
@@ -1782,9 +1782,9 @@
     "Claim.draft",
     "Claim.submit"
    ],
-   "Claim.verify_xero_record_taken_by": [
+   "Claim.verify_ledger_record_taken_by": [
     "Claim.draft",
-    "Claim.verify_xero_record"
+    "Claim.verify_ledger_record"
    ],
    "Claim.withdraw_taken_by": [
     "Claim.draft",
@@ -1834,8 +1834,8 @@
     "Employee.leave",
     "Employee.onboard"
    ],
-   "Employee.link_xero_contact_taken_by": [
-    "Employee.link_xero_contact",
+   "Employee.link_ledger_contact_taken_by": [
+    "Employee.link_ledger_contact",
     "Employee.onboard"
    ],
    "Employee.onboard_taken_by": [
@@ -5879,7 +5879,7 @@
    ],
    [
     "customers.yaml",
-    "cce7979d25126239"
+    "5755d814771af465"
    ]
   ],
   "previous": {},
@@ -5903,7 +5903,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -5968,7 +5968,7 @@
    ],
    [
     "customers.yaml",
-    "fb12a9568f2923ce"
+    "dfce5608bbd0a60d"
    ]
   ],
   "previous": {},
@@ -5992,7 +5992,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -6057,7 +6057,7 @@
    ],
    [
     "customers.yaml",
-    "8e2f167997ee6ccc"
+    "c59560b05332d649"
    ]
   ],
   "previous": {},
@@ -6081,7 +6081,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -6146,7 +6146,7 @@
    ],
    [
     "customers.yaml",
-    "db0a9e0c3bfb70a1"
+    "ab3c2248900de6f4"
    ]
   ],
   "previous": {},
@@ -6170,7 +6170,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -6235,7 +6235,7 @@
    ],
    [
     "customers.yaml",
-    "c5353ea8acdf2fd4"
+    "df32afaba2c77c2f"
    ]
   ],
   "previous": {},
@@ -6259,7 +6259,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -6324,7 +6324,7 @@
    ],
    [
     "customers.yaml",
-    "523a9b90debef803"
+    "635c542435a2fd99"
    ]
   ],
   "previous": {},
@@ -6483,7 +6483,7 @@
    ],
    [
     "customers.yaml",
-    "9a9aaccd749d0991"
+    "7f056f8635de756f"
    ]
   ],
   "previous": {},
@@ -8753,7 +8753,7 @@
    ],
    [
     "customers.yaml",
-    "ce5c53d287afc2f7"
+    "b4ea99e6caaa4389"
    ]
   ],
   "previous": {},
@@ -8770,14 +8770,14 @@
     79,
     "fatal",
     "names",
-    "condition contact_in_xero calls xero.contact_known, which xero does not declare"
+    "condition contact_in_ledger calls ledger.contact_known, which ledger does not declare"
    ],
    [
     "customers.yaml",
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -8842,7 +8842,7 @@
    ],
    [
     "customers.yaml",
-    "cde756e27bb01db4"
+    "c763b1d9c8b76337"
    ]
   ],
   "previous": {},
@@ -8859,14 +8859,14 @@
     79,
     "fatal",
     "names",
-    "condition contact_in_xero calls an evaluator inside a larger expression; a verdict is the whole condition or its negation (check 24)"
+    "condition contact_in_ledger calls an evaluator inside a larger expression; a verdict is the whole condition or its negation (check 24)"
    ],
    [
     "customers.yaml",
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -8931,7 +8931,7 @@
    ],
    [
     "customers.yaml",
-    "a8290b042707a2cc"
+    "c5c27ece6afb3428"
    ]
   ],
   "previous": {},
@@ -8955,14 +8955,14 @@
     79,
     "fatal",
     "names",
-    "in_xero calls xero.contact_exists; only a guard asks an evaluator"
+    "in_ledger calls ledger.contact_exists; only a guard asks an evaluator"
    ],
    [
     "customers.yaml",
     264,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9027,7 +9027,7 @@
    ],
    [
     "customers.yaml",
-    "b369d26f0e84fc7b"
+    "d183857ee008ff18"
    ]
   ],
   "previous": {},
@@ -9051,7 +9051,7 @@
     257,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9116,7 +9116,7 @@
    ],
    [
     "customers.yaml",
-    "a20266d8d1e40015"
+    "9786600b05aea2dd"
    ]
   ],
   "previous": {},
@@ -9140,7 +9140,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9205,7 +9205,7 @@
    ],
    [
     "customers.yaml",
-    "a763c586544a3e4d"
+    "32f15c4d4396c3a8"
    ]
   ],
   "previous": {},
@@ -9229,7 +9229,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9294,7 +9294,7 @@
    ],
    [
     "customers.yaml",
-    "8a586ff3fc58f68a"
+    "34306b033583a1ca"
    ]
   ],
   "previous": {},
@@ -9318,7 +9318,7 @@
     262,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9383,7 +9383,7 @@
    ],
    [
     "customers.yaml",
-    "c3a5acdd21d43895"
+    "08d5585479b978ad"
    ]
   ],
   "previous": {},
@@ -9414,7 +9414,7 @@
     260,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9479,7 +9479,7 @@
    ],
    [
     "customers.yaml",
-    "c1d44ac70a1f8b0c"
+    "ccf065cac3ab37f2"
    ]
   ],
   "previous": {},
@@ -9503,7 +9503,7 @@
     262,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9646,7 +9646,7 @@
    ],
    [
     "customers.yaml",
-    "5e954d7326e0c090"
+    "8c9f1448812b7fb4"
    ]
   ],
   "previous": {},
@@ -9670,7 +9670,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9735,7 +9735,7 @@
    ],
    [
     "customers.yaml",
-    "2d688101f444072c"
+    "043d600a5e09e9da"
    ]
   ],
   "previous": {},
@@ -9759,7 +9759,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9824,7 +9824,7 @@
    ],
    [
     "customers.yaml",
-    "9d80733fab9d5174"
+    "26a0b9c4bec6427a"
    ]
   ],
   "previous": {},
@@ -9848,7 +9848,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -9913,7 +9913,7 @@
    ],
    [
     "customers.yaml",
-    "a22d96ac81d9c841"
+    "ac8c2d87c1ab1bc0"
    ]
   ],
   "previous": {},
@@ -9944,7 +9944,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -10009,7 +10009,7 @@
    ],
    [
     "customers.yaml",
-    "a9b26868eb68015c"
+    "10268b2d76539082"
    ]
   ],
   "previous": {},
@@ -10033,7 +10033,7 @@
     260,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -10098,7 +10098,7 @@
    ],
    [
     "customers.yaml",
-    "1891a176a0839dd2"
+    "d068fcd3430f2082"
    ]
   ],
   "previous": {},
@@ -10129,7 +10129,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -10194,7 +10194,7 @@
    ],
    [
     "customers.yaml",
-    "56fed131a0140cd6"
+    "a07cd0a529796bde"
    ]
   ],
   "previous": {},
@@ -10218,7 +10218,7 @@
     263,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -10283,7 +10283,7 @@
    ],
    [
     "customers.yaml",
-    "983227cfb54ce713"
+    "7009a299d9e0a92d"
    ]
   ],
   "previous": {},
@@ -10307,7 +10307,7 @@
     260,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -12010,7 +12010,7 @@
    ],
    [
     "customers.yaml",
-    "5ec5558d9d255b7e"
+    "50f3c36240a0ea77"
    ]
   ],
   "previous": {},
@@ -12034,7 +12034,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -12099,7 +12099,7 @@
    ],
    [
     "customers.yaml",
-    "e7b10c1d22bffa9e"
+    "44fcc8a892d74a31"
    ]
   ],
   "previous": {},
@@ -12123,7 +12123,7 @@
     260,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -19696,7 +19696,7 @@
    ],
    [
     "module.yaml",
-    "46591cc994e0c73c"
+    "e32c4d679e847ca3"
    ],
    [
     "module.examples.yaml",
@@ -19717,7 +19717,7 @@
     18,
     "notice",
     "coverage",
-    "no example takes 8 transitions of customers, by its request, a step, a setup or a cascade it expects: Contact.add, Contact.discard, Customer.lapse, Customer.link_xero, Customer.merged_into, Order.cancel, Order.fulfil, Order.invoice"
+    "no example takes 8 transitions of customers, by its request, a step, a setup or a cascade it expects: Contact.add, Contact.discard, Customer.lapse, Customer.link_ledger, Customer.merged_into, Order.cancel, Order.fulfil, Order.invoice"
    ],
    [
     "module.examples.yaml",
@@ -19738,7 +19738,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {
@@ -21031,7 +21031,7 @@
    ],
    [
     "customers.yaml",
-    "46591cc994e0c73c"
+    "e32c4d679e847ca3"
    ],
    [
     "customers.examples.yaml",
@@ -21059,7 +21059,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -27579,7 +27579,7 @@
    ],
    [
     "customers.yaml",
-    "26a1d2513c8db8b2"
+    "8126affdff284a42"
    ],
    [
     "customers.examples.yaml",
@@ -27600,7 +27600,7 @@
     18,
     "notice",
     "coverage",
-    "no example takes 7 transitions of customers, by its request, a step, a setup or a cascade it expects: Contact.add, Contact.discard, Customer.lapse, Customer.link_xero, Order.cancel, Order.fulfil, Order.invoice"
+    "no example takes 7 transitions of customers, by its request, a step, a setup or a cascade it expects: Contact.add, Contact.discard, Customer.lapse, Customer.link_ledger, Order.cancel, Order.fulfil, Order.invoice"
    ],
    [
     "customers.yaml",
@@ -27614,7 +27614,7 @@
     258,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {
@@ -28170,11 +28170,11 @@
    ],
    [
     "reimbursement.yaml",
-    "d013686e036294c7"
+    "af12291244782e68"
    ],
    [
     "reimbursement.examples.yaml",
-    "7432c36983d45308"
+    "41ad08136f3d82ee"
    ]
   ],
   "previous": {},
@@ -28219,18 +28219,18 @@
    "Claim.add_line_taken_by": "local",
    "Claim.approve_taken_by": "local",
    "Claim.complete_review_taken_by": "local",
-   "Claim.correct_xero_bill_id_taken_by": "local",
+   "Claim.correct_ledger_bill_id_taken_by": "local",
    "Claim.draft_taken_by": "local",
    "Claim.erase_personal_data_taken_by": "local",
    "Claim.has_title": "local",
    "Claim.lines_within_reach": "traversal",
    "Claim.pay_taken_by": "local",
-   "Claim.record_in_xero_taken_by": "local",
+   "Claim.record_in_ledger_taken_by": "local",
    "Claim.reject_taken_by": "local",
    "Claim.resubmit_taken_by": "local",
    "Claim.return_for_changes_taken_by": "local",
    "Claim.submit_taken_by": "local",
-   "Claim.verify_xero_record_taken_by": "local",
+   "Claim.verify_ledger_record_taken_by": "local",
    "Claim.withdraw_taken_by": "local",
    "ClaimLine.add_taken_by": "local",
    "ClaimLine.amend_taken_by": "local",
@@ -28243,7 +28243,7 @@
    "ClaimLine.suggest_nature_taken_by": "local",
    "Employee.forget_taken_by": "local",
    "Employee.leave_taken_by": "local",
-   "Employee.link_xero_contact_taken_by": "local",
+   "Employee.link_ledger_contact_taken_by": "local",
    "Employee.onboard_taken_by": "local",
    "ExpenseCategory.change_policy_amount_taken_by": "local",
    "ExpenseCategory.define_taken_by": "local",
@@ -28288,8 +28288,8 @@
     "Claim.complete_review",
     "Claim.draft"
    ],
-   "Claim.correct_xero_bill_id_taken_by": [
-    "Claim.correct_xero_bill_id",
+   "Claim.correct_ledger_bill_id_taken_by": [
+    "Claim.correct_ledger_bill_id",
     "Claim.draft"
    ],
    "Claim.draft_taken_by": [
@@ -28311,9 +28311,9 @@
     "Claim.draft",
     "Claim.pay"
    ],
-   "Claim.record_in_xero_taken_by": [
+   "Claim.record_in_ledger_taken_by": [
     "Claim.draft",
-    "Claim.record_in_xero"
+    "Claim.record_in_ledger"
    ],
    "Claim.reject_taken_by": [
     "Claim.draft",
@@ -28331,9 +28331,9 @@
     "Claim.draft",
     "Claim.submit"
    ],
-   "Claim.verify_xero_record_taken_by": [
+   "Claim.verify_ledger_record_taken_by": [
     "Claim.draft",
-    "Claim.verify_xero_record"
+    "Claim.verify_ledger_record"
    ],
    "Claim.withdraw_taken_by": [
     "Claim.draft",
@@ -28383,8 +28383,8 @@
     "Employee.leave",
     "Employee.onboard"
    ],
-   "Employee.link_xero_contact_taken_by": [
-    "Employee.link_xero_contact",
+   "Employee.link_ledger_contact_taken_by": [
+    "Employee.link_ledger_contact",
     "Employee.onboard"
    ],
    "Employee.onboard_taken_by": [
@@ -28638,7 +28638,7 @@
    ],
    [
     "customers.yaml",
-    "ad249c4fd369e7b9"
+    "3195aa4d30e4656d"
    ]
   ],
   "previous": {},
@@ -28676,7 +28676,7 @@
     260,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -28741,7 +28741,7 @@
    ],
    [
     "customers.yaml",
-    "7f1270dba9a88bc9"
+    "88de6079e5328267"
    ]
   ],
   "previous": {},
@@ -28779,7 +28779,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -28844,7 +28844,7 @@
    ],
    [
     "customers.yaml",
-    "e09278a1c45eb7ba"
+    "e32ff2468314268b"
    ]
   ],
   "previous": {},
@@ -28882,7 +28882,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -29236,7 +29236,7 @@
    ],
    [
     "customers.yaml",
-    "eab2394f692591d3"
+    "7bf3c8b6d7067204"
    ]
   ],
   "previous": {},
@@ -29253,7 +29253,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ],
    [
     "customers.yaml",
@@ -41633,7 +41633,7 @@
    ],
    [
     "customers.yaml",
-    "6cb33c00c6ab47e9"
+    "b64eb1d4141dd9dc"
    ]
   ],
   "previous": {},
@@ -41671,7 +41671,7 @@
     262,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -41736,7 +41736,7 @@
    ],
    [
     "customers.yaml",
-    "bc4c08ec9e4acd15"
+    "ec03a0dea3f0040d"
    ]
   ],
   "previous": {},
@@ -41767,7 +41767,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -41870,7 +41870,7 @@
    ],
    [
     "customers.yaml",
-    "432b5fe114b85b93"
+    "be891c8f80557894"
    ]
   ],
   "previous": {},
@@ -41908,7 +41908,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},
@@ -43073,7 +43073,7 @@
    ],
    [
     "customers.yaml",
-    "67971d9ba0e9a736"
+    "1e0612fd0f4e1bd5"
    ]
   ],
   "previous": {},
@@ -43090,7 +43090,7 @@
     260,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {
@@ -43180,7 +43180,7 @@
    ],
    [
     "customers.yaml",
-    "9acf32ee5941aed6"
+    "6cea751752a20ef1"
    ]
   ],
   "previous": {},
@@ -43204,7 +43204,7 @@
     259,
     "notice",
     "unknown",
-    "invoice_valid_in_xero can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
+    "invoice_valid_in_ledger can be unknown when fulfil is requested, through invoice_number (Order.invoice_number is optional), which it never tests with `is null`; a deny guard that is unknown refuses"
    ]
   ],
   "analysed": {},

@@ -14,15 +14,15 @@ sequences:
     description: Numbers customers, in one series.
 
 evaluators:
-  xero:
-    description: Xero, which owns the business's contacts and invoices.
+  ledger:
+    description: The ledger, which owns the business's contacts and invoices.
     functions:
       contact_exists:
-        description: Whether Xero holds a contact with this id.
+        description: Whether the ledger holds a contact with this id.
         arguments:
           id: { type: string }
       invoice_valid:
-        description: Whether an invoice with this number exists in Xero and is valid.
+        description: Whether an invoice with this number exists in the ledger and is valid.
         arguments:
           invoice_number: { type: string }
         fresh: 30 min
@@ -39,11 +39,11 @@ types:
         unique: true
       name:  { type: string, optional: true, personal: true }
       email: { type: string, optional: true, personal: true }
-      xero_contact_id:
+      ledger_contact_id:
         type: string
         optional: true
-        external: xero
-        description: The customer's contact in Xero, which owns it.
+        external: ledger
+        description: The customer's contact in the ledger, which owns it.
       contacts:
         reference: "Contact[]"
         aggregation: composite
@@ -74,9 +74,9 @@ types:
     invariants:
       contacts_within_reach: { description: A customer holds at most the 50 contacts its cascade and its erasure take, expression: "count(c in contacts) <= 50" }
     conditions:
-      contact_in_xero:
-        description: The Xero contact being linked exists in Xero.
-        expression: xero.contact_exists(inputs.xero_contact_id)
+      contact_in_ledger:
+        description: The ledger contact being linked exists in the ledger.
+        expression: ledger.contact_exists(inputs.ledger_contact_id)
         remedy: dependent
       no_open_orders:
         description: No object that refers to the customer, an order, is still open.
@@ -132,13 +132,13 @@ types:
           phone: { type: string, optional: true, personal: true }
         effect:
           - create: { type: Contact, transition: add, inputs: { customer: this, role: inputs.role, phone: inputs.phone } }
-      link_xero:
+      link_ledger:
         kind: internal
         from: [PROSPECT, ACTIVE, DORMANT]
-        description: Records the customer's Xero contact, as the sync with Xero requests.
-        required_inputs: [xero_contact_id]
+        description: Records the customer's ledger contact, as the sync with the ledger requests.
+        required_inputs: [ledger_contact_id]
         guards:
-          contact_in_xero: deny
+          contact_in_ledger: deny
       correct_email:
         kind: internal
         from: [PROSPECT, ACTIVE, DORMANT]
@@ -236,9 +236,9 @@ types:
         description: The order has an invoice number.
         expression: invoice_number is not null
         remedy: unreachable_from_here
-      invoice_valid_in_xero:
-        description: The order's invoice is valid in Xero, by an answer no older than half an hour, as Xero reports it.
-        expression: xero.invoice_valid(invoice_number)
+      invoice_valid_in_ledger:
+        description: The order's invoice is valid in the ledger, by an answer no older than half an hour, as the ledger reports it.
+        expression: ledger.invoice_valid(invoice_number)
         remedy: dependent
 
     transitions:
@@ -256,7 +256,7 @@ types:
         to: FULFILLED
         guards:
           invoiced: deny
-          invoice_valid_in_xero: deny
+          invoice_valid_in_ledger: deny
       cancel:
         kind: external
         from: OPEN

@@ -139,12 +139,12 @@ A rule can ask an outside system through an **evaluator**. A deployment posts ea
 
 ```json
 POST <your endpoint>
-{"evaluator": "xero", "function": "bill_paid", "arguments": ["BILL-0042"]}
+{"evaluator": "ledger", "function": "bill_paid", "arguments": ["BILL-0042"]}
 ```
 
 Answer `200` with `{"verdict": "satisfied"}` or `{"verdict": "unsatisfied"}`. If the answer isn't known yet, answer `{"verdict": "unanswered"}`: the guard is then unknown and refused `temporal`, so the caller retries later. Anything else, an error, or no answer within the timeout (5 s by default) is treated the same way. With `--evaluator-token`, each call carries `Authorization: Bearer <token>`.
 
-In a sandbox, set the answers instead: `POST /sandbox/evaluators {"answers": {"xero.bill_paid": "satisfied"}}`.
+In a sandbox, set the answers instead: `POST /sandbox/evaluators {"answers": {"ledger.bill_paid": "satisfied"}}`.
 
 ## Metrics and reports
 

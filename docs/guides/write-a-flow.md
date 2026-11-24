@@ -150,7 +150,7 @@ The "Checked with" column gives each sample's files in the order the checker tak
 
 **A guard's input.** A guard runs before the transition writes anything, so on a creation it reads the value sent, `inputs.days`, not the attribute `days`, which has no value yet. The checker's `before` notice catches this.
 
-**An outside system's check.** Declare it under `evaluators:` and read it from a guard. An example gives its answer with `evaluators: { xero.bill_matches: satisfied }`; a sandbox with `/sandbox/evaluators`.
+**An outside system's check.** Declare it under `evaluators:` and read it from a guard. An example gives its answer with `evaluators: { ledger.bill_matches: satisfied }`; a sandbox with `/sandbox/evaluators`.
 
 **A metric's regression test.** An example's `expect` may state what a metric reads after its request: `metrics: { ServiceJob.transition_counts: 3 }` for its whole value, or its rows by every dimension, `ServiceJob.work_in_progress: [{ state: WORKING, value: 1 }]` (`service.examples.yaml`).
 

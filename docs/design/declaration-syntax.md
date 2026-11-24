@@ -54,7 +54,7 @@ category   inbound, live, closed
 
 enum      RetirementReason version 1 { FAILED, DAMAGED, OBSOLETE, LOST }
 sequence  unit_serial version 1
-evaluator xero version 1 { … }
+evaluator ledger version 1 { … }
 machine   UnitLifecycle version 2 { … }
 type      Robot version 3 { … }
 observation InspectionResult version 1 on ServiceJob { … }
@@ -721,7 +721,7 @@ The successor is a required input or a name bound by a `create` earlier at the t
 ### 6.2 External evaluators
 
 ```text
-evaluator xero version 1 {
+evaluator ledger version 1 {
   fn invoice_valid(order_id : string) fresh 30 min
   fn contact_exists(id : string)
 }
@@ -730,7 +730,7 @@ evaluator xero version 1 {
 A guard calls one as `<evaluator>.<fn>(<arg>, …)`, the one call to something outside the store; the other calls an expression may make — `metric(…)`, the time functions of §8.3 and the time buckets of §6.9 — read the store's own data:
 
 ```text
-require invoiced: xero.invoice_valid(order_id) because dependent
+require invoiced: ledger.invoice_valid(order_id) because dependent
 ```
 
 A function declares its argument types and how stale a verdict may be. Every evaluator returns a **verdict and never a value**, so no return type is written, and a guard may be a `verdict` as well as a `bool`. The consequence is worth stating where it is met rather than leaving it to be discovered: where an external system *decides* something — a randomisation service choosing a treatment arm, a pricing service quoting — the caller supplies the value as an input and the evaluator can only be asked whether it is consistent. The store records such a value as governed data it did not verify. Open question 8 is whether that boundary should move.
@@ -1594,7 +1594,7 @@ All thirteen were ruled on by the author on 2026-09-08, after a survey of the fi
 | 7 | Whether a `cascade on` clause should carry arguments | **Changed.** It may. The first-consumer walkthrough already wrote one, and the production cascades carry behaviour for the same reason | ADR-0066 |
 | 12 | Whether `serial` and `quantity` are the right two tracking modes | **Changed.** A third, `record`. Three of the first consumer's entities are serial-identified, twelve or more are not physical things, and none is quantity-tracked with counters. *(Corrected 2026-09-24: its bulk accessories are a stock level counted down by service, which the design models as a `quantity` lot with a counter (question 10, D279, D336).)* | ADR-0067 |
 | 9 | Whether `money` should carry its currency at runtime | **Refused.** The currency stays in the declaration, so a mismatch is a publish error rather than a production one, and a multi-currency model declares an account per currency as ledgers do anyway | ADR-0068 |
-| 8 | Whether an evaluator should return a value | **Refused.** A verdict only. An external system that assigns is an externally owned type *(the term ADR-0080 gave what this answer first called a mirror; a `mirror` is now only the cutover marking)*, which is what the first consumer's own Xero design intent already proposes | ADR-0069 |
+| 8 | Whether an evaluator should return a value | **Refused.** A verdict only. An external system that assigns is an externally owned type *(the term ADR-0080 gave what this answer first called a mirror; a `mirror` is now only the cutover marking)*, which is what the first consumer's own design intent for its accounting system already proposes | ADR-0069 |
 | 1 | Whether `only via` should be mandatory into a closed state | **Refused, and reframed.** Two of the first consumer's own transitions into closed states must stay requestable. Its real authority boundary is the undo of a committed decision. Reported, not mandated | ADR-0070 |
 | 4 | Whether mandatory `limit` and guard names earn their friction | **Kept, and the report changed.** Both stay; the worst-case product across nested loops goes, replaced by each loop's own bound and the observed maximum over live objects | ADR-0071 |
 | 2 | Whether `referrers` should be filterable by type | **Changed, smallest version.** An element gains a comparable `.type` | ADR-0072 |

@@ -208,7 +208,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 | `optional` | `true` if it may be without a value | 4.3 |
 | `default` | a literal, a qualified value or `now`, given at creation when not an input | 4.17 |
 | `identifier` | minted at creation: `sequence`, `format` (`{n}`, `{n:5}`, `{<attribute>}`, `[ … ]` around an optional segment) and `scope` | 4.12 |
-| `external` | the system owning the value, such as `xero`; unique per source, may be absent | 4.15 |
+| `external` | the system owning the value, such as `ledger`; unique per source, may be absent | 4.15 |
 | `unique` | one of four forms: `true`, `in_scope`, `{ with: [<attribute>] }` or `{ where: <expression> }`; `with` and `where` do not combine, and "one live per" is an invariant | 4.12 |
 | `indexed` | queries may filter and order on it | 4.3 |
 | `personal` | erased by the type's `erasure`; so `optional` | 4.13 |
@@ -275,7 +275,7 @@ Exactly one of `type` and `reference`; `[]` after either makes a set, never opti
 | Key | Takes |
 |---|---|
 | `examples_for` | the module |
-| `setups` | named starting states: `description`, `given` (a setup it starts from), `evaluators` (each answer, `xero.bill_matches: satisfied`), `steps` |
+| `setups` | named starting states: `description`, `given` (a setup it starts from), `evaluators` (each answer, `ledger.bill_matches: satisfied`), `steps` |
 | `examples` | each a `description`, `given`, `before` (`source`, the files of the version it starts at), `evaluators`, `steps`, a `request` or an `approve`, and its `expect` |
 | a step | one of `request`, `propose`, `approve`, `reject`, `withdraw`, `import`, `publish` |
 | `request`, `propose` | `type` (to create) or `object` (an alias), `transition`, `as` (the new object's alias), `creates`, `actor`, `after`, `occurred_at`, `inputs`; a proposal's `proposal` alias |

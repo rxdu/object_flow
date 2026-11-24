@@ -5490,28 +5490,28 @@ def self_test():
         got = (e.verdict, e.clause)
     check("a metric guard on caused transitions, read as the request found the store", got, ["Line.pack", "Line.pack", "Line.pack"])
     k = copy.deepcopy(kinds)
-    k["Order"]["conditions"] = {"paid": {"expression": "xero.invoice_paid(id)", "remedy": "dependent"}}
+    k["Order"]["conditions"] = {"paid": {"expression": "ledger.invoice_paid(id)", "remedy": "dependent"}}
     k["Order"]["transitions"]["settle"] = {"kind": "internal", "from": ["OPEN"], "guards": {"paid": "deny"}}
     for answer, want in (("satisfied", "applied"), ("unsatisfied", ("unsatisfied", "dependent")),
                          ("unanswered", ("unsatisfied", "temporal"))):
         r, s = Runner(k, {}), Store(k, {})
         order = r.attempt(s, "Order", "open", None, OPERATOR, {}, {}, {})[1]
         try:
-            got = r.attempt(s, "Order", "settle", order, OPERATOR, {}, {}, {"xero.invoice_paid": answer})[0]
+            got = r.attempt(s, "Order", "settle", order, OPERATOR, {}, {}, {"ledger.invoice_paid": answer})[0]
         except Refused as e:
             got = (e.verdict, e.remedy)
         check(f"an evaluator that answers {answer}", got, want)
     # an argument that is absent makes no call: the guard is unknown, refused with the condition's own remedy (ADR-0146)
-    k["Order"]["conditions"]["paid"]["expression"] = "xero.invoice_paid(note)"
+    k["Order"]["conditions"]["paid"]["expression"] = "ledger.invoice_paid(note)"
     r, s = Runner(k, {}), Store(k, {})
     order = r.attempt(s, "Order", "open", None, OPERATOR, {}, {}, {})[1]
     try:
-        got = r.attempt(s, "Order", "settle", order, OPERATOR, {}, {}, {"xero.invoice_paid": "satisfied"})[0]
+        got = r.attempt(s, "Order", "settle", order, OPERATOR, {}, {}, {"ledger.invoice_paid": "satisfied"})[0]
     except Refused as e:
         got = (e.verdict, e.remedy)
     check("an evaluator asked nothing where its argument is absent", got, ("unsatisfied", "dependent"))
     # an offer asks no evaluator: the guard that would ask one is listed as unevaluated, and refuses nothing (ADR-0152)
-    k["Order"]["conditions"]["paid"]["expression"] = "xero.invoice_paid(id)"
+    k["Order"]["conditions"]["paid"]["expression"] = "ledger.invoice_paid(id)"
     r, s = Runner(k, {}), Store(k, {})
     order = r.attempt(s, "Order", "open", None, OPERATOR, {}, {}, {})[1]
     settle = next(x for x in r.availability(s, OPERATOR, order) if x[0] == "settle")
@@ -6070,7 +6070,7 @@ def offered_self_test(operator):
                   "states": {"NAMED": {"category": "live"}},
                   "conditions": {"open": {"expression": "inputs.slot.state == Slot.OPEN and inputs.slot.tier == Tier.A",
                                           "remedy": "dependent"},
-                                 "paid": {"expression": "xero.invoice_paid(inputs.slot)", "remedy": "dependent"},
+                                 "paid": {"expression": "ledger.invoice_paid(inputs.slot)", "remedy": "dependent"},
                                  "noted": {"expression": "note is not null", "remedy": "self_serviceable"},
                                  "by_now": {"expression": "now > now - 1 h", "remedy": "temporal"}},
                   "transitions": {

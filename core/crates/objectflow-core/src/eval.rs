@@ -3129,20 +3129,20 @@ types:
         ))
         .unwrap();
         let t = w.lib.type_("Job");
-        let call = parse("xero.bill_paid(title)").unwrap();
+        let call = parse("ledger.bill_paid(title)").unwrap();
         let answers: BTreeMap<String, String> =
-            [("xero.bill_paid".to_string(), "satisfied".to_string())].into();
+            [("ledger.bill_paid".to_string(), "satisfied".to_string())].into();
         let asking = Evaluator::new(&w, t, Some("job-1")).with_answers(&answers);
         assert_eq!(asking.eval(&call), Ok(Value::Bool(true)));
         assert!(!asking.unanswered.get());
         // unanswered leaves it unknown, and says so
         let answers: BTreeMap<String, String> =
-            [("xero.bill_paid".to_string(), "unanswered".to_string())].into();
+            [("ledger.bill_paid".to_string(), "unanswered".to_string())].into();
         let asking = Evaluator::new(&w, t, Some("job-1")).with_answers(&answers);
         assert_eq!(asking.eval(&call), Ok(Value::Absent));
         assert!(asking.unanswered.get());
         // an absent argument asks nothing: unknown, but not unanswered (ADR-0146)
-        let absent = parse("xero.bill_paid(hours)").unwrap();
+        let absent = parse("ledger.bill_paid(hours)").unwrap();
         let asking = Evaluator::new(&w, t, Some("job-1")).with_answers(&answers);
         assert_eq!(asking.eval(&absent), Ok(Value::Absent));
         assert!(!asking.unanswered.get());
@@ -3158,7 +3158,7 @@ types:
                 .eval(&call)
                 .unwrap_err()
                 .what()
-                .contains("xero.bill_paid")
+                .contains("ledger.bill_paid")
         );
     }
 

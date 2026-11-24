@@ -42,7 +42,7 @@ Status: **decided 2026-10-11** by the author, every question as recommended ("go
 ### ADR-0175: the evaluators' HTTP transport
 
 - **Decides**: `ureq` 3 with rustls and the platform's trust store, the dependency the author approved; a request learning its calls by attempting, asking each endpoint outside the transaction; the endpoint's JSON call and answer; `--evaluator <name>=<url>` and a timeout; `check` consulting as a request does.
-- **Held by**: deployment tests against a stub endpoint, an unanswering endpoint answered unknown, and the second integrator's Xero bridge.
+- **Held by**: deployment tests against a stub endpoint, an unanswering endpoint answered unknown, and the second integrator's accounting bridge.
 - **Hard to change once promised**: the endpoint's JSON, which every evaluator an application writes answers; ADR-0180 decision 2 promises it with the wire.
 - **Question 5**: accept as built? **Recommendation: yes.**
 

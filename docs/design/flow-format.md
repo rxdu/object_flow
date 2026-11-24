@@ -105,7 +105,7 @@ Each attribute is a mapping with exactly one of `type` and `reference`. (step 2,
 | `optional` | `true` if the attribute may be without a value; otherwise it always has one. A set, of values or of references, is never absent: a creation that does not take it as an input creates it empty (ADR-0122). On a set, `optional` lets `clear` empty it (step 4, `check 17`), and on an observation kind's field it lets a recording leave the set out, recorded empty (§4.4, ADR-0275) |
 | `default` | the value a creation that does not take the attribute as an input gives it (§4.17) |
 | `identifier` | the value is minted from a sequence when the object is created (§4.12) |
-| `external` | the system that owns the value, such as `xero`: its values are unique for each source, a legacy key the import keeps under `legacy` among them, and it MAY be optional, as an object not yet matched to that system has none (§4.15) |
+| `external` | the system that owns the value, such as `ledger`: its values are unique for each source, a legacy key the import keeps under `legacy` among them, and it MAY be optional, as an object not yet matched to that system has none (§4.15) |
 | `unique` | `true` if no two objects of the type may hold the same value; `in_scope`, `with` and `where` restrict it (§4.12) |
 | `indexed`, `personal` | as `declaration-syntax.md` §3.1 defines them |
 | `not_blank` | on one `string`: `true` if a text empty once trimmed, as `trim` reads white space, is never written. An input taking it by its name is refused `invalid_input`, `malformed`, and every write is held by the invariant `<attribute>_not_blank`, `<attribute> is null or trim(<attribute>) != ""`, which the engine generates after the type's own, so `may_admit` and `admit` name it and a publish over objects holding a blank text decides each (ADR-0146). The text written is as sent. It marks no set, no value's field and no observation's field, and a machine's required attribute takes none (step 3, `names`; ADR-0257) |
@@ -485,7 +485,7 @@ types:
 
 ### 4.15 Mirror types and external identifiers
 
-**An external identifier** is an attribute whose value another system gives, marked `external: <source>`, such as a customer's contact in Xero: its values are unique for each source and it MAY be optional, as an object not yet matched to that system has none (`declaration-syntax.md` §3.1). It is a value, never a reference (step 3, `names`). A type that holds one is still this store's, and its transitions, such as `link_xero` in the customers example, are requested by the sync with that system.
+**An external identifier** is an attribute whose value another system gives, marked `external: <source>`, such as a customer's contact in the ledger: its values are unique for each source and it MAY be optional, as an object not yet matched to that system has none (`declaration-syntax.md` §3.1). It is a value, never a reference (step 3, `names`). A type that holds one is still this store's, and its transitions, such as `link_ledger` in the customers example, are requested by the sync with that system.
 
 **A mirror** is a type another system owns: this store holds it, and only the import writes it, beside its erasure and a publish's migration, which moves its objects into the new version's states and members (ADR-0147) (`declaration-syntax.md` §2, ADR-0075). It is marked `mirror: true`, declares its attributes, its states and its external identifier, which a lookup resolves, while the import matches objects by the legacy key it keeps under source `legacy`, which is not personal and survives erasure (ADR-0147) (step 3, `names`), and MAY declare invariants, which the import checks and its disposition file may admit (ADR-0146), and binds no machine (step 2, `schema`).
 
@@ -600,17 +600,17 @@ An **evaluator** is a system outside the store that a guard may ask, such as the
 
 ```yaml
 evaluators:
-  xero:
-    description: Xero, which owns the business's contacts and invoices.
+  ledger:
+    description: The ledger, which owns the business's contacts and invoices.
     functions:
       invoice_valid:
-        description: Whether an invoice with this number exists in Xero and is valid.
+        description: Whether an invoice with this number exists in the ledger and is valid.
         arguments:
           invoice_number: { type: string }
         fresh: 30 min
 ```
 
-A condition asks one as `<evaluator>.<function>(<argument>, …)`. An evaluator returns a **verdict and never a value**, so the call is the whole condition or its negation, `not xero.invoice_valid(invoice_number)`, never part of a larger expression, where a verdict would hide which part failed (step 3, `names`; the model's check 24). The call names a declared function and passes as many arguments as it takes (step 3, `names`; the model's check 19). Only a guard asks an evaluator: an invariant, a derived attribute or an effect that calls one is refused (step 3, `names`). Which evaluator guards a request consults, and when, is `DESIGN.md` §6's, a function no consultation reaches needing no stub in an example; an argument that reads a value an outcome applied earlier in the same request writes is refused at publish, as `declaration-syntax.md` §6.2 states it (step 4, `check 61`; ADR-0147, ADR-0148).
+A condition asks one as `<evaluator>.<function>(<argument>, …)`. An evaluator returns a **verdict and never a value**, so the call is the whole condition or its negation, `not ledger.invoice_valid(invoice_number)`, never part of a larger expression, where a verdict would hide which part failed (step 3, `names`; the model's check 24). The call names a declared function and passes as many arguments as it takes (step 3, `names`; the model's check 19). Only a guard asks an evaluator: an invariant, a derived attribute or an effect that calls one is refused (step 3, `names`). Which evaluator guards a request consults, and when, is `DESIGN.md` §6's, a function no consultation reaches needing no stub in an example; an argument that reads a value an outcome applied earlier in the same request writes is refused at publish, as `declaration-syntax.md` §6.2 states it (step 4, `check 61`; ADR-0147, ADR-0148).
 
 A condition that asks an evaluator is consulted when its transition is requested, before the transaction, and by no read: `availability`, `available` and `check` each name the guards they did not evaluate (`DESIGN.md` §10). It carries no marking of when. *(Changed 2026-09-28, ADR-0133: the marking `evaluation: eager` or `deferred` is withdrawn. `eager` promised a consultation whenever availability was computed, which no read performs, so it behaved as `deferred`.)*
 
