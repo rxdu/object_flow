@@ -5534,7 +5534,10 @@ pub fn group_walks() -> u64 {
 
 /// Whether an invariant fails on an object because this request erased what
 /// it reads: the object's own attribute, or, one hop away, an object a
-/// reference it reads names (§4.13, ADR-0147).
+/// reference it reads names (§4.13, ADR-0147). `Ctx::erased` also holds the
+/// labels and proposals an erasure redacted, which no reference names: a
+/// reference names a type a module declares or imports (`flow-format.md`
+/// §4.3), and no module declares the built-in `Proposal`.
 fn erasure_broke(ctx: &Ctx<'_>, obj: &Object, n: &str) -> bool {
     let Some(t) = ctx.work.lib.type_(&obj.type_) else {
         return false;
