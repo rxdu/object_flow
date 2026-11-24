@@ -832,7 +832,7 @@ fn probed(shared: &Shared) -> Result<(i64, i64), Fault> {
         let left = since + HEALTH_WAIT_MS - wall_millis();
         if left <= 0 {
             return Err(Fault::Unavailable(format!(
-                "store_stalled: the store has not answered /health's read in {} s; a database that stops answering holds every request waiting on it (operate.md, PostgreSQL)",
+                "store_stalled: the store has not answered /health's read in {} s; a database that stops answering holds every request waiting on it (operate.md, A store on PostgreSQL)",
                 (wall_millis() - since).max(0) / 1000
             )));
         }
