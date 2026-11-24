@@ -4,6 +4,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 ## Unreleased
 
+### Changed, and may refuse what 0.32.1 accepted
+
+- A retry under an idempotency key, of a request or a batch, whose actor or named principal is now in a state it does not act in is refused `actor_active`, as the request without its key is; 0.32.1 answered it the first verdict again. A retry naming a principal the store does not know is refused `actor_known`, where 0.32.1 answered it as a reused key (D702).
+
 ### Fixed
 
 - The Flow Studio's page named an input refused for its media type "undefined", since it lacked the reason `wrong_media_type` that both of its backends answer (D701).

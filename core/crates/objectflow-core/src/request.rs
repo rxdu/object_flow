@@ -718,6 +718,28 @@ fn request_who(world: &World<'_>, req: &Request) -> Result<Who, Stop> {
     Ok(who)
 }
 
+/// The actor and the principal a request names, each by its id, where both
+/// pass `DESIGN.md` §6 step 1: none where either is one the store does not
+/// know, or in a state it does not act in, which [`request_who`] refuses.
+/// Only a request that passes step 1 replays (step 2, ADR-0182 decision 6).
+fn acting(
+    world: &World<'_>,
+    actor: &str,
+    principal: Option<&str>,
+) -> Result<Option<(String, Option<String>)>, NotRun> {
+    let Ok(who) = active(resolve_actor(world, actor)?) else {
+        return Ok(None);
+    };
+    let principal = match principal {
+        Some(p) => match active(resolve_actor(world, p)?) {
+            Ok(w) => Some(w.id),
+            Err(_) => return Ok(None),
+        },
+        None => None,
+    };
+    Ok(Some((who.id, principal)))
+}
+
 /// The optimistic check of ADR-0023: a request naming the version of its
 /// object that its caller read is refused as `stale` where the object has
 /// moved since, after its transition is found and before anything else of it
@@ -7822,15 +7844,15 @@ pub fn request_told(
     let decided = store.transact(|world, alloc| {
         // `DESIGN.md` §6 step 2: a key its actor applied before replays that
         // request's verdict, whatever version the retry names, and a different
-        // request under it is a fault (ADR-0041, ADR-0076, ADR-0077); an actor
-        // the store does not know has applied nothing, and is refused next
-        let keyed = match &req.idempotency_key {
-            Some(key) => resolve_actor(world, &req.actor)?.map(|who| (who.id, key.clone())),
-            None => None,
-        };
-        let principal = match (&keyed, &req.principal) {
-            (Some(_), Some(p)) => resolve_actor(world, p)?.map(|w| w.id),
-            _ => None,
+        // request under it is a fault (ADR-0041, ADR-0076, ADR-0077); step 1
+        // comes first, so an actor or a principal that fails it replays
+        // nothing and is refused next (`acting`)
+        let (keyed, principal) = match &req.idempotency_key {
+            Some(key) => match acting(world, &req.actor, req.principal.as_deref())? {
+                Some((actor, principal)) => (Some((actor, key.clone())), principal),
+                None => (None, None),
+            },
+            None => (None, None),
         };
         let digest = request_digest(
             world.lib,
@@ -8525,8 +8547,8 @@ pub fn batch_named(
     let unread = |e: NotRun| crate::store::StoreError(e.to_string());
     // the batch's key, its actor's: one the actor applied before replays
     // that batch, and a different one under it is a fault (ADR-0228
-    // decision 8); an actor the store does not know has applied nothing,
-    // and its requests are refused next
+    // decision 8); an actor or a principal that fails `DESIGN.md` §6 step 1
+    // replays nothing, and its requests are refused next (`acting`)
     let keyed = {
         let world = store.snapshot()?;
         for (index, req) in reqs.iter().enumerate() {
@@ -8549,15 +8571,11 @@ pub fn batch_named(
                     .into(),
             }));
         }
-        match resolve_actor(&world, actor).map_err(unread)? {
-            Some(who) => {
-                let principal = match principal {
-                    Some(p) => resolve_actor(&world, p).map_err(unread)?.map(|w| w.id),
-                    None => None,
-                };
-                let digest = batch_digest(world.lib, reqs, names, &who.id, principal.as_deref());
+        match acting(&world, actor, principal.as_deref()).map_err(unread)? {
+            Some((who, principal)) => {
+                let digest = batch_digest(world.lib, reqs, names, &who, principal.as_deref());
                 if let Some((applied, recorded)) =
-                    world.idempotency_of(&who.id, key).map_err(unread)?
+                    world.idempotency_of(&who, key).map_err(unread)?
                 {
                     let replayed = if replays(&applied, &digest) {
                         replayed_batch(&world, reqs, &recorded).map_err(unread)?
@@ -8571,7 +8589,7 @@ pub fn batch_named(
                         }),
                     });
                 }
-                Some((who.id, key.to_string(), digest))
+                Some((who, key.to_string(), digest))
             }
             None => None,
         }
@@ -21308,6 +21326,137 @@ types:
         created(&req(&mut s, "leave", OPERATOR, (&ana, false), json!({})));
         let v = write(&mut s);
         assert!(refused(&v), "{v:?}");
+    }
+
+    /// `DESIGN.md` §6 step 1 comes before step 2: a key its actor applied
+    /// replays nothing once the actor, or the principal the request names,
+    /// is in a state it does not act in. The retry is refused `actor_active`
+    /// and writes nothing, as the request without its key is. A principal
+    /// the store does not know is refused `actor_known`, not answered as a
+    /// reused key. Back in a state it acts in, the same retry replays. A
+    /// batch's key holds the same (ADR-0182 decision 6, ADR-0228 decision 8).
+    #[test]
+    fn a_key_replays_nothing_to_an_actor_or_a_principal_that_does_not_act() {
+        let text = r#"
+module: staff
+categories: [live, closed]
+types:
+  User:
+    attributes:
+      login: { type: identity, actor_kind: human, unique: true }
+    states:
+      ACTIVE: { category: live }
+      AWAY: { category: closed, acts: false }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [login] }
+      away: { kind: external, from: ACTIVE, to: AWAY }
+      back: { kind: external, from: AWAY, to: ACTIVE }
+  Note:
+    attributes:
+      text: { type: string }
+    states:
+      KEPT: { category: live }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text] }
+"#;
+        let lib = Library::load(&[("staff.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let ana = created(&req(
+            &mut s,
+            "add",
+            OPERATOR,
+            ("User", true),
+            json!({"login": "ana"}),
+        ));
+        let write = |actor: &str, principal: Option<&str>, text: &str, key: Option<&str>| Request {
+            transition: "write".into(),
+            actor: actor.into(),
+            object_id: None,
+            type_: Some("Note".into()),
+            inputs: [("text".to_string(), json!(text))].into_iter().collect(),
+            occurred_at: None,
+            propose: false,
+            expires_at: None,
+            expected_version: None,
+            target_version: None,
+            principal: principal.map(str::to_string),
+            idempotency_key: key.map(str::to_string),
+            context: None,
+        };
+        let refused = |v: &Verdict, why: &str| {
+            assert!(
+                matches!(v, Verdict::Unsatisfied { clause, remedy: Some(Remedy::Dependent), .. }
+                    if clause == why),
+                "{v:?}"
+            );
+        };
+        let replayed = |v: &Verdict, note: &str| {
+            assert!(
+                matches!(v, Verdict::Satisfied { object_id, replayed: true, .. } if object_id == note),
+                "{v:?}"
+            );
+        };
+        let away = |s: &mut Store| created(&req(s, "away", OPERATOR, (&ana, false), json!({})));
+        let back = |s: &mut Store| created(&req(s, "back", OPERATOR, (&ana, false), json!({})));
+        // the actor's own key
+        let own = write("ana", None, "a", Some("k1"));
+        let note = created(&request(&mut s, &own).unwrap().unwrap());
+        away(&mut s);
+        let before = rows(&s);
+        refused(&request(&mut s, &own).unwrap().unwrap(), "actor_active");
+        assert_eq!(rows(&s), before, "a refused retry wrote");
+        back(&mut s);
+        replayed(&request(&mut s, &own).unwrap().unwrap(), &note);
+        // a key applied for a principal
+        let for_ana = write(OPERATOR, Some("ana"), "b", Some("k2"));
+        let note = created(&request(&mut s, &for_ana).unwrap().unwrap());
+        away(&mut s);
+        let before = rows(&s);
+        refused(&request(&mut s, &for_ana).unwrap().unwrap(), "actor_active");
+        assert_eq!(rows(&s), before, "a refused retry wrote");
+        back(&mut s);
+        let unknown = write(OPERATOR, Some("nobody"), "b", Some("k2"));
+        refused(&request(&mut s, &unknown).unwrap().unwrap(), "actor_known");
+        replayed(&request(&mut s, &for_ana).unwrap().unwrap(), &note);
+        // a batch's key, its actor's and its principal's
+        for (actor, principal, key) in [("ana", None, "b1"), (OPERATOR, Some("ana"), "b2")] {
+            let reqs = [
+                write(actor, principal, "c", None),
+                write(actor, principal, "d", None),
+            ];
+            let Batched::Applied(first) = batch(&mut s, &reqs, Some(key)).unwrap().unwrap() else {
+                panic!("refused")
+            };
+            away(&mut s);
+            let before = rows(&s);
+            let Batched::Refused { index: 0, answer } =
+                batch(&mut s, &reqs, Some(key)).unwrap().unwrap()
+            else {
+                panic!("the batch replayed to an actor or principal away")
+            };
+            match *answer {
+                Ok((v, _)) => refused(&v, "actor_active"),
+                Err(e) => panic!("{e:?}"),
+            }
+            assert_eq!(rows(&s), before, "a refused batch wrote");
+            back(&mut s);
+            let Batched::Replayed(again) = batch(&mut s, &reqs, Some(key)).unwrap().unwrap() else {
+                panic!("the batch ran again under its key")
+            };
+            for ((v, _), (w, _)) in first.iter().zip(&again) {
+                replayed(w, &created(v));
+            }
+        }
+        let reqs = [write(OPERATOR, Some("nobody"), "c", None)];
+        let Batched::Refused { index: 0, answer } =
+            batch(&mut s, &reqs, Some("b2")).unwrap().unwrap()
+        else {
+            panic!("a batch naming an unknown principal was not refused")
+        };
+        match *answer {
+            Ok((v, _)) => refused(&v, "actor_known"),
+            Err(e) => panic!("{e:?}"),
+        }
     }
 
     /// An actor named by its identity is read from every actor type's
