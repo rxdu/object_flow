@@ -117,7 +117,8 @@ if wants check-all; then
   stage check-all
   check_db && (cd "$ROOT" && OBJECTFLOW_CHECK_POSTGRES="$CHECK_PG" scripts/check-all) > "$WORK/check-all.log" 2>&1
   rc=$?
-  grep -E "^(FAIL|fail|timeout)|every gate passed|gate failed" "$WORK/check-all.log" | sed 's/^/   /'
+  # each failed lane, and check-all's verdict, whatever it says
+  grep -E "^FAILED |^check-all: " "$WORK/check-all.log" | sed 's/^/   /'
   said check-all $rc
 fi
 docker stop objectflow-check-db >/dev/null 2>&1
