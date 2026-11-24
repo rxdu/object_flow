@@ -17,39 +17,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::{Map, Value as Json, json};
 
 use crate::expr::{BinOp, Expr};
+use crate::metric::{ASSIGNMENT_NAMES, STANDARD_NAMES};
 use crate::model::{Declared, Kind, Library, Step, Transition, Type};
 
 /// The kinds of actor a tool is rendered for.
 pub const ACTOR_KINDS: [&str; 3] = ["human", "agent", "service"];
 
-/// The standard metrics every type has, and those each assignee reference
-/// adds (`declaration-syntax.md` §6.11).
-const STANDARD: [&str; 11] = [
-    "time_in_state",
-    "time_in_state_p80",
-    "throughput",
-    "work_in_progress",
-    "oldest_open",
-    "transition_counts",
-    "refusals",
-    "flags_raised",
-    "refusal_rate",
-    "override_counts",
-    "rework",
-];
-const ASSIGNMENT: [&str; 11] = [
-    "open_work",
-    "time_unassigned",
-    "time_to_first_assignment",
-    "time_with_assignee",
-    "cycle_time_by_assignee",
-    "time_in_state_by_holder",
-    "handoffs",
-    "reassigned_back",
-    "acted_by_non_assignee",
-    "handoffs_by_object",
-    "returns_by_object",
-];
 const AVAILABILITY: &str = "Call object_availability first: it evaluates the real guards against the real data, and says whether this transition is available now, which rule refuses it if not, and what can be done about it.";
 /// A proposable transition a rule over who acted refuses this kind of actor:
 /// it may only propose it (ADR-0176 decision 1).
@@ -600,10 +573,10 @@ pub fn tools(lib: &Library, actor_kind: &str) -> Vec<Json> {
         if t.abstract_ {
             continue;
         }
-        names.extend(STANDARD.iter().map(|m| format!("{tn}.{m}")));
+        names.extend(STANDARD_NAMES.iter().map(|m| format!("{tn}.{m}")));
         for (r, a) in &t.attributes {
             if a.assignee {
-                names.extend(ASSIGNMENT.iter().map(|m| format!("{tn}.{m}.{r}")));
+                names.extend(ASSIGNMENT_NAMES.iter().map(|m| format!("{tn}.{m}.{r}")));
             }
         }
     }

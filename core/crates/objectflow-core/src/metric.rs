@@ -2958,7 +2958,7 @@ pub(crate) const STANDARD_NAMES: [&str; 11] = [
 
 /// The standard assignment metrics, each over a type and one of its
 /// assignee references, as §6.11's second table gives them.
-const ASSIGNMENT_NAMES: [&str; 11] = [
+pub(crate) const ASSIGNMENT_NAMES: [&str; 11] = [
     "open_work",
     "time_unassigned",
     "time_to_first_assignment",
