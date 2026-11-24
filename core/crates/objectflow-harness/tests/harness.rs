@@ -77,6 +77,13 @@ fn runs(runner: fn(&Fixture, u64, usize) -> Result<Outcome, String>, default_see
         assert!(satisfied > 0, "{}: no request was satisfied", fx.name);
     }
     eprintln!("the harness: {total:?}");
+    // what the engine did not run, on flows both checkers accept, is a
+    // broken K of ADR-0204 §3, an evaluator the run left unanswered excepted
+    assert!(
+        total.not_run_reasons.is_empty(),
+        "not run: {:?}",
+        total.not_run_reasons
+    );
     total
 }
 
