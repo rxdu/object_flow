@@ -7199,7 +7199,10 @@ fn failing_invariants_reading(
     {
         out.push(format!("{}_invariant", o.state.to_lowercase()));
     }
-    for (a, spec) in &t.attributes {
+    // each attribute's uniqueness, a declared one's or an external
+    // identifier's, named by attribute in declaration order (`DESIGN.md` §5.5)
+    let mut unique_failing: Vec<(usize, String)> = Vec::new();
+    for (i, (a, spec)) in t.attributes.iter().enumerate() {
         let unique = effective_unique(world.lib, spec);
         let Some((with, filter)) = unique_key(a, spec, &unique) else {
             continue;
@@ -7240,19 +7243,19 @@ fn failing_invariants_reading(
         let rule = format!("{a}_unique");
         record_scan(reading, &rule, scope, &matched);
         if !matched.is_empty() {
-            out.push(rule);
+            unique_failing.push((i, rule));
         }
     }
     // an external identifier is unique per source, across every type that
     // holds one of that source, an absent value excepted
     // (declaration-syntax.md §4)
-    for (a, spec) in &t.attributes {
+    for (i, (a, spec)) in t.attributes.iter().enumerate() {
         let Some(source) = &spec.external else {
             continue;
         };
         let mine = o.attr(a);
         let name = format!("{a}_unique");
-        if mine.is_absent() || out.contains(&name) {
+        if mine.is_absent() || unique_failing.iter().any(|(_, r)| *r == name) {
             continue;
         }
         // the objects holding the same identifier, read from the types that
@@ -7305,9 +7308,11 @@ fn failing_invariants_reading(
             record_scan(reading, &name, &h.type_, &[h]);
         }
         if !holders.is_empty() {
-            out.push(name);
+            unique_failing.push((i, name));
         }
     }
+    unique_failing.sort_by_key(|(i, _)| *i);
+    out.extend(unique_failing.into_iter().map(|(_, r)| r));
     // an actor's identity names one actor, across every type whose objects
     // are actors (fifth production review IDENTITY, ADR-0190 decision 4)
     if let Some((a, _)) = t.actor_identity()
@@ -17846,6 +17851,49 @@ types:
             request(&mut s, &stranger).unwrap().unwrap(),
             Verdict::Unsatisfied { ref clause, .. } if clause == "actor_known"
         ));
+    }
+
+    /// An object's uniqueness failures come by attribute in declaration
+    /// order, an external identifier's among the declared ones, as
+    /// `DESIGN.md` §5.5 orders them: an identifier declared first is named
+    /// first, and the refusal's remedy is the first named invariant's.
+    #[test]
+    fn uniqueness_failures_come_by_attribute_an_identifier_among_them() {
+        let text = r#"
+module: parts
+categories: [live]
+types:
+  Part:
+    attributes:
+      ref: { type: string, external: ledger }
+      code: { type: string, unique: true }
+    states:
+      KEPT: { category: live }
+    transitions:
+      add: { kind: initial, to: KEPT, required_inputs: [ref, code] }
+"#;
+        let lib = Library::load(&[("parts.yaml".into(), text.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let add = |s: &mut Store| {
+            req(
+                s,
+                "add",
+                OPERATOR,
+                ("Part", true),
+                json!({"ref": "L-1", "code": "c1"}),
+            )
+        };
+        created(&add(&mut s));
+        let v = add(&mut s);
+        let Verdict::InvariantViolated { failures, .. } = &v else {
+            panic!("{v:?}")
+        };
+        let named: Vec<&str> = failures
+            .iter()
+            .filter(|f| f.object_id.is_none())
+            .map(|f| f.invariant.as_str())
+            .collect();
+        assert_eq!(named, ["ref_unique", "code_unique"], "{v:?}");
     }
 
     /// An event records every input its transition took, declared ones

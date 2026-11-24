@@ -714,6 +714,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D700](#d700) | A tree past the depth bound was built whole, and its drop exhausted the stack | Resolved |
 | [D701](#d701) | The Flow Studio's page lacked the input reason `wrong_media_type`, so it named a file of the wrong type "undefined" | Resolved |
 | [D702](#d702) | A key replayed a request to an actor or a principal that no longer acts, before refusing it | Resolved |
+| [D703](#d703) | An external identifier's uniqueness was named after every declared one, against declaration order | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4514,3 +4515,8 @@ Brought to the author the day it was found, with a recommendation (`TODO.md`, un
 **A key replayed a request to an actor or a principal that no longer acts, before refusing it.** `DESIGN.md` §6 refuses an actor or a principal the store does not know, or one in a state it does not act in, at step 1, and replays a key at step 2; ADR-0182 decision 6 puts `actor_active` before every other verdict. `request_told` found the key's actor by `resolve_actor`, which returns an actor whatever its state, and replayed before `request_who` could refuse it, so an actor gone away, or a request naming a principal gone away, was answered the request's first verdict again. A principal the store did not know made the retry's digest differ, so it was answered as a reused key, not refused `actor_known`. A batch's key did the same (ADR-0228 decision 8). Found by the cleanup of 2026-11-22, read from the code; reproduced on a sandbox of `488bc270`, where an actor away was answered its note's creation again, marked as a replay.
 
 **Resolved** 2026-11-24: a request and a batch take their key's actor and principal from `acting`, which applies step 1 to both: one that fails it replays nothing, and is refused next, `actor_active` or `actor_known`, writing nothing, as without its key. Back in a state it acts in, the actor's retry replays. Held by `a_key_replays_nothing_to_an_actor_or_a_principal_that_does_not_act`, on both backends, for a request's own key, a key applied for a principal, and a batch's of each, which failed without the fix.
+
+### D703
+**An external identifier's uniqueness was named after every declared one, against declaration order.** `DESIGN.md` §5.5 names an object's failing invariants with every `<attribute>_unique` by attribute in declaration order, and the refusal's remedy is the first named invariant's. `failing_invariants_reading` checked each attribute's declared uniqueness first, then each external identifier's `<attribute>_unique` in a second pass, so an identifier declared before a unique attribute was named after it, in `InvariantViolated.failures` on the wire. The reference runner does not model an external identifier's uniqueness, so no comparison could see it. Found by the cleanup of 2026-11-22, read from the code; reproduced by its test on `38fb069a`, where a part breaking both was refused naming `code_unique` before `ref_unique`.
+
+**Resolved** 2026-11-24: both passes collect each failure with its attribute's place, and the failures are named in that order, before `identity_taken`. Held by `uniqueness_failures_come_by_attribute_an_identifier_among_them`, on both backends, which failed without the fix.
