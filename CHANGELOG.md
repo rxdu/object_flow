@@ -11,6 +11,7 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 ### Fixed
 
 - An object breaking an external identifier's uniqueness and a declared uniqueness was refused naming the identifier's `<attribute>_unique` after every declared one, whatever the order the type declares them in. The failures now come by attribute in declaration order, as `DESIGN.md` §5.5 says, and the refusal's remedy is the first named one's (D703).
+- The Flow Studio's sandbox on the reference runner refused a set of references given as a request's input, reading each id as a set, where the core took it (D704).
 - The Flow Studio's page named an input refused for its media type "undefined", since it lacked the reason `wrong_media_type` that both of its backends answer (D701).
 
 ## 0.32.1, 2026-11-23

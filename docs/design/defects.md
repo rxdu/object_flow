@@ -715,6 +715,7 @@ Findings from every review of this design. It began as the implementation-readin
 | [D701](#d701) | The Flow Studio's page lacked the input reason `wrong_media_type`, so it named a file of the wrong type "undefined" | Resolved |
 | [D702](#d702) | A key replayed a request to an actor or a principal that no longer acts, before refusing it | Resolved |
 | [D703](#d703) | An external identifier's uniqueness was named after every declared one, against declaration order | Resolved |
+| [D704](#d704) | The Flow Studio's sandbox on the reference runner refused a set of references given as an input | Resolved |
 ---
 
 ## Severity 1: breaks the model or a running system
@@ -4520,3 +4521,8 @@ Brought to the author the day it was found, with a recommendation (`TODO.md`, un
 **An external identifier's uniqueness was named after every declared one, against declaration order.** `DESIGN.md` §5.5 names an object's failing invariants with every `<attribute>_unique` by attribute in declaration order, and the refusal's remedy is the first named invariant's. `failing_invariants_reading` checked each attribute's declared uniqueness first, then each external identifier's `<attribute>_unique` in a second pass, so an identifier declared before a unique attribute was named after it, in `InvariantViolated.failures` on the wire. The reference runner does not model an external identifier's uniqueness, so no comparison could see it. Found by the cleanup of 2026-11-22, read from the code; reproduced by its test on `38fb069a`, where a part breaking both was refused naming `code_unique` before `ref_unique`.
 
 **Resolved** 2026-11-24: both passes collect each failure with its attribute's place, and the failures are named in that order, before `identity_taken`. Held by `uniqueness_failures_come_by_attribute_an_identifier_among_them`, on both backends, which failed without the fix.
+
+### D704
+**The Flow Studio's sandbox on the reference runner refused a set of references given as an input.** `values.py` `decode_input` read a set's elements by stripping `[]` from the spec's `type`, but a set of references is spelt on `reference` (`flow-format.md` §4.3, `reference: "Item[]"`), which it left as it was. Each element, an id, was then read as a set again and refused as the wrong kind, so the request was refused `invalid_input` on the runner where the core took it. Found by the cleanup of 2026-11-22, read from the code; reproduced 2026-11-24 on `2d4e9a96`, a request giving an `Item[]` input of one id refused `no_such_object` by the runner and taken by the core.
+
+**Resolved** 2026-11-24: a set's elements are read with `[]` taken from its `type` or its `reference`. Held by `test_a_set_of_references_on_the_wire_is_read_as_its_ids`, which reads one id taken and a number refused, and `test_a_set_of_references_is_taken_alike_through_the_sandbox`, which sends the request to both backends; each failed without the fix.

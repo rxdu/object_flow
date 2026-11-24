@@ -183,9 +183,10 @@ def decode_input(v: Any, spec: dict | None, enums: dict) -> Any:
             # a null is no element, as the core refuses it (the differential
             # battery)
             return flowrun.WrongKind(v)
-        inner = dict(spec or {})
-        if "type" in inner:
-            inner["type"] = inner["type"][:-2]
+        # each element read as the set's element type: `X[]` read as `X`,
+        # a set of references as a set of values is
+        inner = {k: x.removesuffix("[]") if k in ("type", "reference") else x
+                 for k, x in (spec or {}).items()}
         return [decode_input(x, inner, enums) for x in v]
     # a value of another JSON kind than its type takes, which the runner
     # refuses wrong_type where the core does (ADR-0173 decision 9)

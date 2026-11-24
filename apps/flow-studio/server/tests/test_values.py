@@ -7,6 +7,9 @@ import pytest
 from flowstudio import values
 from flowstudio.scripts import flowrun
 
+from compare import raw
+from test_publishing import tee  # noqa: F401
+
 
 def test_absence_and_json_natives():
     assert values.encode(flowrun.ABSENT, ("text",)) is None
@@ -74,6 +77,52 @@ def test_a_member_on_the_wire_is_qualified_for_the_runner():
         == "Priority.HIGH"
     assert values.decode_input(["LOW"], {"type": "Priority[]"}, enums) \
         == ["Priority.LOW"]
+
+
+def test_a_set_of_references_on_the_wire_is_read_as_its_ids():
+    """A set of references is read element by element as references, as a
+    set of members is: an id is taken, and a value of another kind refused
+    (D704)."""
+    spec = {"reference": "User[]"}
+    assert values.decode_input(["u-1", "u-2"], spec, {}) == ["u-1", "u-2"]
+    assert isinstance(values.decode_input([1], spec, {})[0], flowrun.WrongKind)
+
+
+WATCHED = """module: watch
+categories: [live, closed]
+types:
+  Item:
+    description: An item others are linked to.
+    tracking: record
+    attributes:
+      linked: { type: int, optional: true }
+    states:
+      OPEN: { category: live }
+      DONE: { category: closed, final: true }
+    transitions:
+      open: { kind: initial, to: OPEN }
+      link: { kind: internal, from: [OPEN], inputs: { others: { reference: "Item[]" } }, effect: [ { assign: { location: linked, expr: "count(x in inputs.others: true)" } } ] }
+      close: { kind: external, from: [OPEN], to: DONE }
+"""
+
+
+def test_a_set_of_references_is_taken_alike_through_the_sandbox(tee):
+    """A request giving a set of references as an input is taken, each id
+    read as a reference, on the reference runner as on the core (D704)."""
+    op = {"id": "operator"}
+    for name, w in (("core", tee.core), ("runner", tee.runner)):
+        assert raw(w, "POST", "/sandbox/load", {"files": [
+            {"name": "watch.yaml", "text": WATCHED}]})[1]["loaded"]
+        raw(w, "POST", "/sandbox/reset", {})
+        opened = [raw(w, "POST", "/v1/request", {
+            "actor": op, "type": "Item", "transition": "open", "inputs": {}}
+        )[1]["object_id"] for _ in range(2)]
+        status, v = raw(w, "POST", "/v1/request", {
+            "actor": op, "object_id": opened[1], "transition": "link",
+            "inputs": {"others": [opened[0]]}})
+        assert (status, v.get("kind")) == (200, "satisfied"), (name, v)
+        held = raw(w, "POST", "/v1/get", {"id": opened[1]})[1]["attributes"]
+        assert held["linked"] == 1, (name, held)
 
 
 def test_a_value_is_written_as_its_type_holds_it():
