@@ -2242,6 +2242,21 @@ def each_rename_errors(v, library, renamed):
     return out
 
 
+def version_types(files):
+    """Every type a module of a version declares, so a type gone from one module that another declares is not gone from
+    the version (ADR-0229 decision 7)."""
+    out = set()
+    for _f, text in files:
+        try:
+            shallow(text)
+            doc = load(text)
+        except Exception:
+            continue
+        if isinstance(doc, dict) and "module" in doc and "examples_for" not in doc:
+            out |= set(doc.get("types") or {})
+    return out
+
+
 def version_enumerations(files):
     """Each module of a version and the enumerations it declares, as (file, module, names)."""
     out = []
@@ -2279,15 +2294,30 @@ def renamed_enumeration_errors(f, renames, declared):
 
 
 def previous_enumerations(previous):
-    """Every enumeration a module of the version before declares."""
-    out = set()
+    """Every enumeration a module of the version before declares, with its members."""
+    out = {}
     for _name, text in sorted((previous or {}).items()):
         try:
             doc = load(text)
         except Exception:
             continue
         if isinstance(doc, dict) and "module" in doc and "examples_for" not in doc:
-            out |= set(doc.get("enumerations") or {})
+            out.update((n, set(x) if isinstance(x, list) else set()) for n, x in (doc.get("enumerations") or {}).items())
+    return out
+
+
+def previous_homes(previous):
+    """Each type and enumeration of the version before, with the file of the module that declared it. A module that now
+    declares one another module declared moved it under its own name, and is checked against it there (ADR-0229
+    decision 7)."""
+    out = {}
+    for name, text in sorted((previous or {}).items()):
+        try:
+            doc = load(text)
+        except Exception:
+            continue
+        if isinstance(doc, dict) and "module" in doc and "examples_for" not in doc:
+            out.update((n, name) for n in [*(doc.get("types") or {}), *(doc.get("enumerations") or {})])
     return out
 
 
@@ -2606,7 +2636,7 @@ def history_pair_errors(old, new, m):
 
 
 def migration_pair_errors(prev, doc, library, before=None, installed=False, moved=None, enum_renames=None,
-                          enums_before=None):
+                          enums_before=None, declared=None):
     """This version against the one before it: every state it removes from a
     type is mapped, every mapping names what the previous version had, and a
     field added to an observation kind is optional (the model's checks 22 and
@@ -2614,24 +2644,34 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
     a new required attribute without a backfill, a removed member without a
     mapping, an attribute dropped where one of its type is added. `before`
     holds the version before's types in its other modules, where a type this
-    version moves is read when this module's previous text lacks it. Where
+    version moves is read when this module's previous text lacks it, and so is a
+    type this module declares that another module declared, which moved under
+    its own name and is the same type (ADR-0229 decision 7). Where
     `prev` is a store's installed version, `installed`, a mapping naming a
     state, a member or an attribute it lacks is left to the publish, which
     notices it (ADR-0230 decision 2), a move's state map's included (ADR-0252). `moved` is every type a module of the
     version moves (`moved_types`), this module's own where it is not given;
     `enum_renames` maps each enumeration a module of the version renames to its
     new name, this module's own where it is not given, and `enums_before` holds
-    every enumeration of the version before (ADR-0247 decision 1)."""
+    every enumeration of the version before with its members (ADR-0247
+    decision 1), one this module now declares read there when this module's
+    previous text lacks it. `declared` is every type a module checked declares
+    (`version_types`): one gone from this module that another declares is not
+    gone from the version."""
     before = before or {}
     pv, _ = view(prev, library)
     v, _ = view(doc, library)
     machines = set(doc.get("machines") or {}) | set(prev.get("machines") or {})
     old, new = dict(types(pv)), dict(types(v))
+    # a type another module declared, moved here under its own name: the same type, checked against what it was there
+    # (ADR-0229 decision 7)
+    old.update((tn, before[tn]) for tn in new if tn not in old and tn not in machines and tn in before)
     m = doc.get("migration") or {}
     moved = set(m.get("moved_types") or {}) if moved is None else moved
     own = {o: str(n) for o, n in (m.get("renamed_enumerations") or {}).items()}
     enum_renames = own if enum_renames is None else enum_renames
-    enums_before = set(prev.get("enumerations") or {}) if enums_before is None else enums_before
+    enums_before = {n: set(x) for n, x in (prev.get("enumerations") or {}).items()} if enums_before is None else enums_before
+    declared = declared or set()
     fatal, notes = [], []
     fatal += value_pair_errors(prev, doc, old, new)
     fatal += history_pair_errors(old, new, m)
@@ -2726,7 +2766,7 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
     every_moved = moved
     # a type the version removes: moved, retired, or noticed (ADR-0229)
     moved, retired = m.get("moved_types") or {}, m.get("retired_types") or {}
-    for tn in sorted(set(old) - set(new) - machines):
+    for tn in sorted(set(old) - set(new) - machines - declared):
         if tn not in moved and tn not in retired and not old[tn].get("abstract"):
             notes.append((("types",), "migration", f"{tn} is gone from this module: unless another module declares it, a publish over "
                                                    "its objects not in a final state needs moved_types or retired_types for it (ADR-0229)"))
@@ -2831,6 +2871,10 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
     for o, n in sorted(own.items()):
         if o in old_enums and n not in old_enums:
             old_enums[n] = old_enums[o]
+    # an enumeration another module declared, moved here under its own name (ADR-0229 decision 7)
+    for en in new_enums:
+        if en not in old_enums and en in enums_before:
+            old_enums[en] = set(enums_before[en])
     for en, members in new_enums.items():
         if en not in old_enums:
             continue
@@ -7508,6 +7552,10 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
     attribute_renames = renamed_attributes(files)
     enum_modules = version_enumerations(files)
     enums_before = previous_enumerations(previous)
+    # every type a module checked declares, and each type and enumeration of the version before by its module's file:
+    # one that changes module under its own name is the same, neither gone from the module it left nor new in the one
+    # it reached (ADR-0229 decision 7)
+    version_declared, homes = version_types(files), previous_homes(previous)
     for f, text in files:
         # a source shows what it says: a bidirectional control or an invisible formatting character can make it read
         # otherwise than it shows (fifth production review, ADR-0190 decision 9)
@@ -7654,12 +7702,15 @@ def check(files, previous=None, analysed=None, examples=None, read=None, forms=N
         seen = set()
         pair, pair_notes = [], []
         # a type the version moves read in the module of the version before that declared it, this module's own or
-        # another's, so a move is checked alike from any module, a module new in the version among them (ADR-0229)
+        # another's, so a move is checked alike from any module, a module new in the version among them (ADR-0229); and
+        # so is a type or an enumeration this module declares that another module declared, moved here under its own
+        # name (ADR-0229 decision 7)
         moving = ((doc.get("migration") or {}).get("moved_types") or {}) and previous
-        if (previous or {}).get(f) or moving:
-            before = previous_types(previous, f, library) if moving else {}
+        arriving = any(homes.get(n, f) != f for n in [*(doc.get("types") or {}), *(doc.get("enumerations") or {})])
+        if (previous or {}).get(f) or moving or arriving:
+            before = previous_types(previous, f, library) if moving or arriving else {}
             pair, pair_notes = migration_pair_errors(load(previous[f]) if previous.get(f) else {}, doc, library, before,
-                                                     installed, moved, enum_renames, enums_before)
+                                                     installed, moved, enum_renames, enums_before, version_declared)
         notes += [(f, line_of(idx, p), "notice", c, m) for p, c, m in pair_notes + final_admission_notes(doc, v)]
         for p, c, m in (order_errors(doc) + family_errors(doc, library) + machine_errors(doc, dict(types(v))) + acts_errors(doc, dict(types(v))) + decimal_errors(doc) + type_name_errors(doc) + declared_value_errors(doc) + not_blank_errors(doc)
                         + name_errors(v, library, ordered=False) + taken_by_errors(v) + column_errors(v) + rest_errors(v)
@@ -12600,6 +12651,72 @@ def renamed_enumeration_plants():
     return ok
 
 
+def moved_module_plants():
+    """A type and its enumeration moved to another module under their own names, which is no move (ADR-0229 decision
+    7): the whole version clean, the module they reach new in it or not; the module they left, checked alone, noticing
+    the type gone, since the module that declares it is not among the files checked (issue #114); and each checked as
+    the same type and enumeration in the module they reach: a state dropped with no mapping refused, and mapped there
+    clean, a changed attribute type and a dropped member noticed, as each is in place."""
+    def p(text, old, new):
+        assert text.count(old) == 1, old
+        return text.replace(old, new)
+    ticket = ("  Ticket:\n    description: A ticket.\n    tracking: record\n    attributes:\n"
+              "      title: { type: string }\n      priority: { type: Priority }\n    states:\n"
+              "      OPEN: { description: Open., category: live }\n"
+              "      SHUT: { description: Shut., category: closed, final: true }\n    transitions:\n"
+              "      raise: { kind: initial, to: OPEN, required_inputs: [title, priority] }\n"
+              "      shut: { kind: external, from: OPEN, to: SHUT }\n")
+    note = ("  Note:\n    description: A note.\n    tracking: record\n    attributes:\n      text: { type: string }\n"
+            "    states:\n      KEPT: { description: Kept., category: live }\n"
+            "      BINNED: { description: Binned., category: closed, final: true }\n    transitions:\n"
+            "      write: { kind: initial, to: KEPT, required_inputs: [text] }\n"
+            "      bin: { kind: external, from: KEPT, to: BINNED }\n")
+    priority = "enumerations:\n  Priority: [LOW, HIGH, URGENT]\n"
+    head = "categories: [live, closed]\n"
+    intake_v1 = "module: intake\n" + head + priority + "types:\n" + ticket + note
+    intake = "module: intake\n" + head + "types:\n" + note
+    board = p(p(note, "  Note:\n    description: A note.\n", "  Board:\n    description: A board.\n"),
+              "write: { kind: initial", "pin: { kind: initial")
+    triage_v1 = "module: triage\n" + head + "types:\n" + board
+    triage = "module: triage\n" + head + priority + "types:\n" + board + ticket
+    renamed_state = p(p(triage, "      SHUT: { description: Shut.,", "      CLOSED: { description: Closed.,"),
+                      "to: SHUT }", "to: CLOSED }")
+    gone = ("Ticket is gone from this module: unless another module declares it, a publish over its objects not in a "
+            "final state needs moved_types or retired_types for it (ADR-0229)")
+    cases = [
+        ("into a module new in the version", [("intake.yaml", intake), ("triage.yaml", triage)],
+         {"intake.yaml": intake_v1}, []),
+        ("into a module the version before had", [("intake.yaml", intake), ("triage.yaml", triage)],
+         {"intake.yaml": intake_v1, "triage.yaml": triage_v1}, []),
+        ("the module they left, checked alone", [("intake.yaml", intake)], {"intake.yaml": intake_v1}, [gone]),
+        ("a state dropped as it moves", [("intake.yaml", intake), ("triage.yaml", renamed_state)],
+         {"intake.yaml": intake_v1, "triage.yaml": triage_v1},
+         ["Ticket no longer has the state SHUT, and the migration maps it nowhere; its objects need a state to move to"]),
+        ("a state dropped as it moves, mapped where it moved",
+         [("intake.yaml", intake), ("triage.yaml", renamed_state + "migration:\n  description: Shut is closed.\n"
+                                    "  removed_states:\n    Ticket: { SHUT: CLOSED }\n")],
+         {"intake.yaml": intake_v1, "triage.yaml": triage_v1}, []),
+        ("an attribute's type changed as it moves",
+         [("intake.yaml", intake), ("triage.yaml", p(triage, "title: { type: string }", "title: { type: int }"))],
+         {"intake.yaml": intake_v1},
+         ["Ticket.title changed its type: that is a drop and an add of the same name, every object's value starting "
+          "absent (ADR-0147)"]),
+        ("a member dropped as its enumeration moves",
+         [("intake.yaml", intake), ("triage.yaml", p(triage, "[LOW, HIGH, URGENT]", "[LOW, HIGH]"))],
+         {"intake.yaml": intake_v1},
+         ["Priority.URGENT is gone: a publish needs a mapping for it if live objects hold it, and is refused if an "
+          "observation does"]),
+    ]
+    ok = True
+    for name, files, previous, want in cases:
+        found, notes = check(files, previous)
+        got = sorted(x[4] for x in found + notes)
+        hit = got == sorted(want)
+        ok &= hit
+        print(f"  a type moved to another module, {name}: {'as expected' if hit else 'NOT: ' + str(got)}")
+    return ok
+
+
 def actor_move_plants():
     """An actor's type renamed by a move: the plain rename passes, and a split, a merge, a renamed identity, a change of
     kind, an identity not unique, a given identity, and a move between an actor's type and another each refuse, naming
@@ -15029,6 +15146,7 @@ def main():
     ok &= abstract_summary_plant(people)
     ok &= migration_plants(people)
     ok &= moved_type_plants()
+    ok &= moved_module_plants()
     ok &= renamed_enumeration_plants()
     ok &= moved_state_plants()
     ok &= moved_attribute_plants()

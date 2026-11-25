@@ -7,9 +7,11 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 ### Changed, and may refuse what 0.32.1 accepted
 
 - A retry under an idempotency key, of a request or a batch, whose actor or named principal is now in a state it does not act in is refused `actor_active`, as the request without its key is; 0.32.1 answered it the first verdict again. A retry naming a principal the store does not know is refused `actor_known`, where 0.32.1 answered it as a reused key (D702).
+- A type or an enumeration a module declares that another module declared in the version before, moved under its own name, is checked against what it was there, as one changed in place is. A state it drops with no mapping is refused, and an attribute whose type changed, a member gone or a rule rewritten is noticed. 0.32.1 compared it with nothing (D705).
 
 ### Fixed
 
+- A type moved to another module under its own name was noted `migration`, gone from the module it left, though a module of the version declares it. It is now noted only where no module checked declares it, so a module checked alone with `--previous` still notes it (issue #114, D705).
 - An object breaking an external identifier's uniqueness and a declared uniqueness was refused naming the identifier's `<attribute>_unique` after every declared one, whatever the order the type declares them in. The failures now come by attribute in declaration order, as `DESIGN.md` §5.5 says, and the refusal's remedy is the first named one's (D703).
 - The Flow Studio's sandbox on the reference runner refused a set of references given as a request's input, reading each id as a set, where the core took it (D704).
 - The Flow Studio's page named an input refused for its media type "undefined", since it lacked the reason `wrong_media_type` that both of its backends answer (D701).

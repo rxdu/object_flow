@@ -1,0 +1,14 @@
+module: triage
+categories: [live, closed]
+types:
+  Board:
+    description: A board.
+    tracking: record
+    attributes:
+      text: { type: string }
+    states:
+      KEPT: { description: Kept., category: live }
+      BINNED: { description: Binned., category: closed, final: true }
+    transitions:
+      pin: { kind: initial, to: KEPT, required_inputs: [text] }
+      bin: { kind: external, from: KEPT, to: BINNED }

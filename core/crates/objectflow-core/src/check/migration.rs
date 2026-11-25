@@ -121,6 +121,15 @@ pub fn renamed_attributes(files: &[(String, String)]) -> Vec<(String, String, St
         .collect()
 }
 
+/// Every type a module of a version declares, so a type gone from one module
+/// that another declares is not gone from the version (ADR-0229 decision 7).
+pub fn version_types(files: &[(String, String)]) -> BTreeSet<String> {
+    modules_of(files)
+        .into_iter()
+        .flat_map(|(_, doc)| keys(&doc, "types"))
+        .collect()
+}
+
 /// Each module of a version and the enumerations it declares, as (file,
 /// module, names).
 pub fn version_enumerations(files: &[(String, String)]) -> Vec<(String, String, BTreeSet<String>)> {
@@ -179,9 +188,12 @@ pub fn renamed_enumeration_errors(
     out
 }
 
-/// Every enumeration a module of the version before declares.
-pub fn previous_enumerations(previous: &BTreeMap<String, String>) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
+/// Every enumeration a module of the version before declares, with its
+/// members.
+pub fn previous_enumerations(
+    previous: &BTreeMap<String, String>,
+) -> BTreeMap<String, BTreeSet<String>> {
+    let mut out = BTreeMap::new();
     for text in previous.values() {
         let Ok(doc) = crate::yaml::load(text) else {
             continue;
@@ -190,7 +202,31 @@ pub fn previous_enumerations(previous: &BTreeMap<String, String>) -> BTreeSet<St
         if doc.get("module").is_none() || doc.get("examples_for").is_some() {
             continue;
         }
-        out.extend(keys(&doc, "enumerations"));
+        out.extend(enums_of(&doc));
+    }
+    out
+}
+
+/// Each type and enumeration of the version before, with the file of the
+/// module that declared it. A module that now declares one another module
+/// declared moved it under its own name, and is checked against it there
+/// (ADR-0229 decision 7).
+pub fn previous_homes(previous: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    for (file, text) in previous {
+        let Ok(doc) = crate::yaml::load(text) else {
+            continue;
+        };
+        let doc = super::schema::typed(&doc);
+        if doc.get("module").is_none() || doc.get("examples_for").is_some() {
+            continue;
+        }
+        for name in keys(&doc, "types")
+            .into_iter()
+            .chain(keys(&doc, "enumerations"))
+        {
+            out.insert(name, file.clone());
+        }
     }
     out
 }
@@ -767,6 +803,17 @@ fn route(kinds: &Obj, tn: &str, field: &str, st: &str) -> BTreeSet<String> {
     out
 }
 
+/// The types this module declares that its previous text lacks and another
+/// module of the version before declared: each moved here under its own
+/// name, the same type, so it is checked against what it was there
+/// (ADR-0229 decision 7).
+fn before_here(old: &Obj, new: &Obj, before: &Obj, machines: &BTreeSet<String>) -> Obj {
+    new.keys()
+        .filter(|tn| !old.contains_key(*tn) && !machines.contains(*tn))
+        .filter_map(|tn| before.get(tn).map(|t| (tn.clone(), t.clone())))
+        .collect()
+}
+
 /// The types of the version before in every module but `file`'s, as each
 /// module's view gave them, its machines left out: a move of a type another
 /// module declared is checked against it there (`check-flows.py`'s
@@ -905,14 +952,20 @@ fn history_pair_errors(old: &Obj, new: &Obj, m: &Value) -> Found {
 /// This version against the one before it (the model's checks 22 and 23),
 /// as fatal findings and notices. `before` holds the version before's types
 /// in its other modules, where a type this version moves is read when this
-/// module's previous text lacks it. Where `prev` is a store's installed
+/// module's previous text lacks it, and so is a type this module declares
+/// that another module declared, which moved under its own name and is the
+/// same type (ADR-0229 decision 7). Where `prev` is a store's installed
 /// version, `installed`, a mapping naming a state, a member or an attribute
 /// it lacks is left to the publish, which notices it (ADR-0230 decision 2),
 /// a move's state map's included (ADR-0252).
 /// `moved` is every type a module of the version moves ([`moved_types`]);
-/// `renamed` maps each enumeration a module of the version renames to its new
-/// name ([`renamed_enumerations`]), and `enums_before` holds every
-/// enumeration of the version before (ADR-0247 decision 1).
+/// `enum_renames` maps each enumeration a module of the version renames to
+/// its new name ([`renamed_enumerations`]), and `enums_before` holds every
+/// enumeration of the version before with its members (ADR-0247 decision 1),
+/// one this module now declares read there when this module's previous text
+/// lacks it. `declared` is every type a module checked declares
+/// ([`version_types`]): one gone from this module that another declares is
+/// not gone from the version.
 #[allow(clippy::too_many_arguments)]
 pub fn migration_pair_errors(
     prev: &Value,
@@ -922,7 +975,8 @@ pub fn migration_pair_errors(
     installed: bool,
     moved: &BTreeSet<String>,
     enum_renames: &BTreeMap<String, String>,
-    enums_before: &BTreeSet<String>,
+    enums_before: &BTreeMap<String, BTreeSet<String>>,
+    declared: &BTreeSet<String>,
 ) -> (Found, Found) {
     let pv = View::new(prev, library);
     let v = View::new(doc, library);
@@ -930,8 +984,11 @@ pub fn migration_pair_errors(
         .into_iter()
         .chain(keys(prev, "machines"))
         .collect();
-    let old = obj(&pv.doc, "types").clone();
+    let mut old = obj(&pv.doc, "types").clone();
     let new = obj(&v.doc, "types").clone();
+    for (tn, t) in &before_here(&old, &new, before, &machines) {
+        old.insert(tn.clone(), t.clone());
+    }
     let m = doc.get("migration").cloned().unwrap_or(Value::Null);
     let (mut fatal, mut notes) = (Found::new(), Found::new());
     fatal.extend(value_pair_errors(prev, doc, &old, &new));
@@ -944,7 +1001,7 @@ pub fn migration_pair_errors(
     // not, since a rename does not merge two enumerations (ADR-0247 decision 1)
     for (old, new) in &own {
         let here = segs!["migration", "renamed_enumerations", old];
-        if !enums_before.contains(old) {
+        if !enums_before.contains_key(old) {
             if !installed {
                 fatal.push(finding(
                     here,
@@ -952,7 +1009,7 @@ pub fn migration_pair_errors(
                     format!("the migration renames the enumeration {old}, which the previous version did not have"),
                 ));
             }
-        } else if enums_before.contains(new) {
+        } else if enums_before.contains_key(new) {
             fatal.push(finding(
                 here,
                 "names",
@@ -1199,7 +1256,11 @@ pub fn migration_pair_errors(
         .collect();
     gone.sort();
     for tn in gone {
-        if !moved.contains_key(tn) && !retired.contains_key(tn) && !flag(&old[tn], "abstract") {
+        if !moved.contains_key(tn)
+            && !retired.contains_key(tn)
+            && !declared.contains(tn)
+            && !flag(&old[tn], "abstract")
+        {
             notes.push(finding(
                 segs!["types"],
                 "migration",
@@ -1457,6 +1518,15 @@ pub fn migration_pair_errors(
             && !old_enums.contains_key(n)
         {
             old_enums.insert(n.clone(), members);
+        }
+    }
+    // an enumeration another module declared, moved here under its own name
+    // (ADR-0229 decision 7)
+    for en in new_enums.keys() {
+        if !old_enums.contains_key(en)
+            && let Some(members) = enums_before.get(en)
+        {
+            old_enums.insert(en.clone(), members.clone());
         }
     }
     for (en, members) in &new_enums {

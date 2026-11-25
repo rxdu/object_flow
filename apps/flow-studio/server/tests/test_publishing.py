@@ -4833,6 +4833,64 @@ def test_a_reference_to_a_type_another_module_moves_follows_it(tee):
     alike(tee)
 
 
+TICKET = """  Ticket:
+    description: A ticket.
+    tracking: record
+    attributes:
+      title: { type: string }
+      priority: { type: Priority }
+    states:
+      OPEN: { description: Open., category: live }
+      SHUT: { description: Shut., category: closed, final: true }
+    transitions:
+      raise: { kind: initial, to: OPEN, required_inputs: [title, priority], description: Raises a ticket. }
+      shut: { kind: external, from: OPEN, to: SHUT, description: Shuts it. }
+"""
+NOTE = """  Note:
+    description: A note.
+    tracking: record
+    attributes:
+      text: { type: string }
+    states:
+      KEPT: { description: Kept., category: live }
+      BINNED: { description: Binned., category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text], description: Writes a note. }
+      bin: { kind: external, from: KEPT, to: BINNED, description: Bins it. }
+"""
+PRIORITY = "enumerations:\n  Priority: [LOW, HIGH]\n"
+
+
+def test_a_type_moved_to_another_module_under_its_name_is_the_same_type(tee):
+    """A type and its enumeration that another module of the version
+    declares under their own names moved there, which is no move: the dry
+    run gives no `check:migration` notice that the type is gone, and the
+    approval keeps its objects, which take its transitions. A state it drops
+    as it moves is refused, as one dropped in place is, though no object is
+    in it (ADR-0229 decision 7, issue #114). Both backends alike."""
+    head = "categories: [live, closed]\n"
+    assert tee.post("/sandbox/load", {"files": [
+        {"name": "intake.yaml",
+         "text": "module: intake\n" + head + PRIORITY + "types:\n" + TICKET + NOTE}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    ticket = made(tee, "Ticket", "raise", title="Leak", priority="HIGH")
+    tee.found.clear()
+    intake = "module: intake\n" + head + "types:\n" + NOTE
+    triage = "module: triage\n" + head + PRIORITY + "types:\n" + TICKET
+    dropped = triage
+    for old, new in [("      SHUT: { description: Shut.,", "      CLOSED: { description: Closed.,"),
+                     ("to: SHUT,", "to: CLOSED,")]:
+        assert dropped.count(old) == 1, old
+        dropped = dropped.replace(old, new)
+    _c, codes = dry_run(tee, {"intake": intake, "triage": dropped})
+    assert "check:names" in codes, codes
+    c, codes = dry_run(tee, {"intake": intake, "triage": triage})
+    assert "check:migration" not in codes, codes
+    approved(tee, c)
+    took(tee, ticket, "shut")
+    alike(tee)
+
+
 FORMAT_SHELF = """module: shelf
 categories: [live]
 enumerations:

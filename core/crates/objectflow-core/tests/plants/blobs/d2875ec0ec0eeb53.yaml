@@ -1,0 +1,28 @@
+module: intake
+categories: [live, closed]
+enumerations:
+  Priority: [LOW, HIGH, URGENT]
+types:
+  Ticket:
+    description: A ticket.
+    tracking: record
+    attributes:
+      title: { type: string }
+      priority: { type: Priority }
+    states:
+      OPEN: { description: Open., category: live }
+      SHUT: { description: Shut., category: closed, final: true }
+    transitions:
+      raise: { kind: initial, to: OPEN, required_inputs: [title, priority] }
+      shut: { kind: external, from: OPEN, to: SHUT }
+  Note:
+    description: A note.
+    tracking: record
+    attributes:
+      text: { type: string }
+    states:
+      KEPT: { description: Kept., category: live }
+      BINNED: { description: Binned., category: closed, final: true }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text] }
+      bin: { kind: external, from: KEPT, to: BINNED }

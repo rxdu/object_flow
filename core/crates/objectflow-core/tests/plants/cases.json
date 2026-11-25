@@ -29934,6 +29934,247 @@
   "could_violate": {}
  },
  {
+  "label": "moved_module_plants: into a module new in the version",
+  "files": [
+   [
+    "intake.yaml",
+    "b1ff4a32c250f036"
+   ],
+   [
+    "triage.yaml",
+    "3ebdf13341821ee2"
+   ]
+  ],
+  "previous": {
+   "intake.yaml": "d2875ec0ec0eeb53"
+  },
+  "findings": [],
+  "analysed": {
+   "Board": [
+    0,
+    0
+   ],
+   "Note": [
+    0,
+    0
+   ],
+   "Ticket": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_module_plants: into a module the version before had",
+  "files": [
+   [
+    "intake.yaml",
+    "b1ff4a32c250f036"
+   ],
+   [
+    "triage.yaml",
+    "3ebdf13341821ee2"
+   ]
+  ],
+  "previous": {
+   "intake.yaml": "d2875ec0ec0eeb53",
+   "triage.yaml": "94742b9baf767109"
+  },
+  "findings": [],
+  "analysed": {
+   "Board": [
+    0,
+    0
+   ],
+   "Note": [
+    0,
+    0
+   ],
+   "Ticket": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_module_plants: the module they left, checked alone",
+  "files": [
+   [
+    "intake.yaml",
+    "b1ff4a32c250f036"
+   ]
+  ],
+  "previous": {
+   "intake.yaml": "d2875ec0ec0eeb53"
+  },
+  "findings": [
+   [
+    "intake.yaml",
+    3,
+    "notice",
+    "migration",
+    "Ticket is gone from this module: unless another module declares it, a publish over its objects not in a final state needs moved_types or retired_types for it (ADR-0229)"
+   ]
+  ],
+  "analysed": {
+   "Note": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_module_plants: a state dropped as it moves",
+  "files": [
+   [
+    "intake.yaml",
+    "b1ff4a32c250f036"
+   ],
+   [
+    "triage.yaml",
+    "1df553a3d26d2e28"
+   ]
+  ],
+  "previous": {
+   "intake.yaml": "d2875ec0ec0eeb53",
+   "triage.yaml": "94742b9baf767109"
+  },
+  "findings": [
+   [
+    "triage.yaml",
+    17,
+    "fatal",
+    "names",
+    "Ticket no longer has the state SHUT, and the migration maps it nowhere; its objects need a state to move to"
+   ]
+  ],
+  "analysed": {},
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_module_plants: a state dropped as it moves, mapped where it moved",
+  "files": [
+   [
+    "intake.yaml",
+    "b1ff4a32c250f036"
+   ],
+   [
+    "triage.yaml",
+    "5097805c821d5d07"
+   ]
+  ],
+  "previous": {
+   "intake.yaml": "d2875ec0ec0eeb53",
+   "triage.yaml": "94742b9baf767109"
+  },
+  "findings": [],
+  "analysed": {
+   "Board": [
+    0,
+    0
+   ],
+   "Note": [
+    0,
+    0
+   ],
+   "Ticket": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_module_plants: an attribute's type changed as it moves",
+  "files": [
+   [
+    "intake.yaml",
+    "b1ff4a32c250f036"
+   ],
+   [
+    "triage.yaml",
+    "b0ecf994128fd92a"
+   ]
+  ],
+  "previous": {
+   "intake.yaml": "d2875ec0ec0eeb53"
+  },
+  "findings": [
+   [
+    "triage.yaml",
+    21,
+    "notice",
+    "migration",
+    "Ticket.title changed its type: that is a drop and an add of the same name, every object's value starting absent (ADR-0147)"
+   ]
+  ],
+  "analysed": {
+   "Board": [
+    0,
+    0
+   ],
+   "Note": [
+    0,
+    0
+   ],
+   "Ticket": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_module_plants: a member dropped as its enumeration moves",
+  "files": [
+   [
+    "intake.yaml",
+    "b1ff4a32c250f036"
+   ],
+   [
+    "triage.yaml",
+    "5b13a4da7f0ab96e"
+   ]
+  ],
+  "previous": {
+   "intake.yaml": "d2875ec0ec0eeb53"
+  },
+  "findings": [
+   [
+    "triage.yaml",
+    4,
+    "notice",
+    "migration",
+    "Priority.URGENT is gone: a publish needs a mapping for it if live objects hold it, and is refused if an observation does"
+   ]
+  ],
+  "analysed": {
+   "Board": [
+    0,
+    0
+   ],
+   "Note": [
+    0,
+    0
+   ],
+   "Ticket": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "renamed_enumeration_plants: an enumeration renamed",
   "files": [
    [

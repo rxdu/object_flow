@@ -297,6 +297,12 @@ pub fn checked_as(
         .collect();
     let enum_modules = migration::version_enumerations(files);
     let enums_before = migration::previous_enumerations(previous);
+    // every type a module checked declares, and each type and enumeration of
+    // the version before by its module's file: one that changes module under
+    // its own name is the same, neither gone from the module it left nor new
+    // in the one it reached (ADR-0229 decision 7)
+    let version_types = migration::version_types(files);
+    let homes = migration::previous_homes(previous);
     // every attribute a module of the version renames, which an each in any
     // module may derive (ADR-0290)
     let attribute_renames = migration::renamed_attributes(files);
@@ -684,10 +690,16 @@ pub fn checked_as(
         // a type the version moves read in the module of the version before
         // that declared it, this module's own or another's, so a move is
         // checked alike from any module, a module new in the version among
-        // them (ADR-0229)
+        // them (ADR-0229); and so is a type or an enumeration this module
+        // declares that another module declared, moved here under its own
+        // name (ADR-0229 decision 7)
         let moving = !previous.is_empty()
             && !doc::obj(doc.get("migration").unwrap_or(&Value::Null), "moved_types").is_empty();
-        let before = if moving {
+        let arriving = doc::keys(&doc, "types")
+            .into_iter()
+            .chain(doc::keys(&doc, "enumerations"))
+            .any(|n| homes.get(&n).is_some_and(|f| f != file));
+        let before = if moving || arriving {
             migration::previous_types(previous, file, &library)
         } else {
             doc::Obj::new()
@@ -702,8 +714,9 @@ pub fn checked_as(
                 &moved,
                 &enum_renames,
                 &enums_before,
+                &version_types,
             ),
-            None if moving => migration::migration_pair_errors(
+            None if moving || arriving => migration::migration_pair_errors(
                 &Value::Object(doc::Obj::new()),
                 &doc,
                 &library,
@@ -712,6 +725,7 @@ pub fn checked_as(
                 &moved,
                 &enum_renames,
                 &enums_before,
+                &version_types,
             ),
             None => (Vec::new(), Vec::new()),
         };
