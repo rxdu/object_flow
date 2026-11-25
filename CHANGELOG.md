@@ -2,7 +2,9 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
-## Unreleased
+## 0.32.2, 2026-11-25
+
+A release before 1.0.0, as 0.32.1 was (ADR-0214), and a patch. It fixes a keyed retry by an actor that no longer acts, the order an object's uniqueness failures are named in, two faults of the Flow Studio, and the checks of a type moved to another module under its own name (issue #114, D701 to D705). It refuses two things 0.32.1 accepted, each listed below: a keyed retry by an actor or a principal that no longer acts, and a version dropping a moved type's state with no mapping. It changes neither the store's own tables nor its built-ins, so its step from 0.32.1 records the release alone.
 
 ### Changed, and may refuse what 0.32.1 accepted
 
