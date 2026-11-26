@@ -3769,7 +3769,7 @@ impl Store {
             if let Some(was) = store.library_at(v)? {
                 for (tn, t) in &was.types {
                     if !lib.types.contains_key(tn) && !crate::publish::builtin(tn) {
-                        lib.types.insert(tn.clone(), crate::publish::retired(t));
+                        lib.hold_retired(tn.clone(), crate::publish::retired(t));
                     }
                 }
                 earlier.insert(v, was);

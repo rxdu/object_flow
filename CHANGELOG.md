@@ -8,6 +8,10 @@ What each release of ObjectFlow's engine changed, for whoever runs it or builds 
 
 - A creation an `each` made for an entry, refused by a guard of the transition it creates by, now names in its `call_refused`'s `verdict.inputs` each field of the entry that guard reads, so a form marks the field in that entry. It never names an input the step gives. 0.32.2 named none there (issue #115, ADR-0294).
 
+### Performance
+
+- Each request judged afresh which names the library marks personal, and from 0.32.0 each judgment read every type for each composite part. A dry run on a library of 61 types with composite parts took 10.0 s of CPU at 0.32.2, against 4.6 s at 0.30.0. A library now judges them once, and the same dry run takes 3.6 s (issue #116, D706).
+
 ## 0.32.2, 2026-11-25
 
 A release before 1.0.0, as 0.32.1 was (ADR-0214), and a patch. It fixes a keyed retry by an actor that no longer acts, the order an object's uniqueness failures are named in, two faults of the Flow Studio, and the checks of a type moved to another module under its own name (issue #114, D701 to D705). It refuses two things 0.32.1 accepted, each listed below: a keyed retry by an actor or a principal that no longer acts, and a version dropping a moved type's state with no mapping. It changes neither the store's own tables nor its built-ins, so its step from 0.32.1 records the release alone.

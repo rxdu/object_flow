@@ -3858,15 +3858,19 @@ fn hops_pass(
             if !end.composite {
                 return false;
             }
-            let family: Vec<&Type> = lib
-                .types
-                .values()
-                .filter(|tt| lib.is_a(&tt.name, part))
-                .collect();
+            // the family read only for a clause on this transition, since
+            // it walks every type (issue #116)
             end.cascade
                 .iter()
                 .filter(|c| c.on.iter().any(|o| o == xn))
-                .any(|c| clause_passes(&family, &c.transition, &c.inputs, name, judge))
+                .any(|c| {
+                    let family: Vec<&Type> = lib
+                        .types
+                        .values()
+                        .filter(|tt| lib.is_a(&tt.name, part))
+                        .collect();
+                    clause_passes(&family, &c.transition, &c.inputs, name, judge)
+                })
         })
     };
     let followed = || {
@@ -22580,6 +22584,63 @@ types:
             "{v:?}"
         );
         assert_eq!(t.inputs, names(&[]));
+    }
+
+    /// A library is walked once for the names it marks personal, however
+    /// many requests read them, each request's digest among them, and its
+    /// clones share the walk; a type held retired afterwards starts the walk
+    /// again, so its personal attribute is masked as any other (issue #116).
+    #[test]
+    fn a_library_is_walked_for_its_personal_names_once() {
+        const CONTACTS: &str = r#"
+module: contacts
+categories: [live, closed]
+types:
+  Contact:
+    attributes:
+      name: { type: string }
+      email: { type: string, personal: true }
+    states:
+      ACTIVE: { category: live }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [name, email] }
+      forget: { kind: erasure, inputs: { reason: { type: string } } }
+"#;
+        const TEAMS: &str = r#"
+module: contacts
+categories: [live, closed]
+types:
+  Team:
+    attributes:
+      title: { type: string }
+    states:
+      ACTIVE: { category: live }
+    transitions:
+      add: { kind: initial, to: ACTIVE, required_inputs: [title] }
+"#;
+        let lib = Library::load(&[("contacts.yaml".into(), CONTACTS.into())]).unwrap();
+        let mut s = Store::sandbox(lib.clone(), 0).unwrap();
+        let walks = crate::eval::personal_walks();
+        for n in 0..5 {
+            let v = req(
+                &mut s,
+                "add",
+                OPERATOR,
+                ("Contact", true),
+                json!({"name": format!("c{n}"), "email": "c@example.com"}),
+            );
+            assert!(matches!(v, Verdict::Satisfied { .. }), "{v:?}");
+        }
+        assert_eq!(crate::eval::personal_walks() - walks, 1);
+        // the clone the store holds walked it for the library it came from
+        assert!(crate::eval::personal_names(&lib).contains("email"));
+        assert_eq!(crate::eval::personal_walks() - walks, 1);
+        // a version dropping the type, read before it holds the type retired
+        let mut next = Library::load(&[("contacts.yaml".into(), TEAMS.into())]).unwrap();
+        assert!(!crate::eval::personal_names(&next).contains("email"));
+        let contact = lib.type_("Contact").unwrap();
+        next.hold_retired("Contact".into(), crate::publish::retired(contact));
+        assert!(crate::eval::personal_names(&next).contains("email"));
     }
 
     #[test]

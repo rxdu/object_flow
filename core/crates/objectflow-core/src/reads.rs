@@ -1112,7 +1112,7 @@ fn growing_derived(lib: &Library) -> BTreeSet<String> {
 /// identity personal, every member of type `identity`, a copy of an
 /// identity being the identity (ADR-0206 decision 1).
 pub fn personal_members(lib: &Library) -> BTreeSet<String> {
-    let mut out = crate::eval::personal_names(lib);
+    let mut out = crate::eval::personal_names(lib).clone();
     if crate::eval::identities_personal(lib) {
         out.extend(crate::eval::identity_names(lib));
     }

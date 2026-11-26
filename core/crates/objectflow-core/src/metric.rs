@@ -2591,7 +2591,7 @@ impl<'w> Reader<'w> {
             }
             Ok(false)
         }
-        walk(self, filter, &env, &personal, identities)
+        walk(self, filter, &env, personal, identities)
     }
 
     /// A page's order between two keys: by each kept dimension ascending, an

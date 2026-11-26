@@ -2053,8 +2053,29 @@ pub(crate) const PERSONAL: &str = "(personal)";
 
 /// The names the library marks personal, by name in any type: an attribute
 /// marked so, an input marked so or written into a personal attribute, and
-/// a derived attribute that reads one, to a fixpoint.
-pub(crate) fn personal_names(lib: &crate::model::Library) -> BTreeSet<String> {
+/// a derived attribute that reads one, to a fixpoint. Computed once a
+/// library, which its clones share (`model::PersonalMemo`, issue #116).
+pub(crate) fn personal_names(lib: &crate::model::Library) -> &BTreeSet<String> {
+    lib.personal.0.get_or_init(|| personal_names_of(lib))
+}
+
+thread_local! {
+    /// How many times this thread has walked a library for the names it
+    /// marks personal: what a test of a cost held to once a library reads
+    /// (issue #116).
+    static PERSONAL_WALKS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times this thread has walked a library for the names it marks
+/// personal.
+#[cfg(test)]
+pub(crate) fn personal_walks() -> u64 {
+    PERSONAL_WALKS.with(std::cell::Cell::get)
+}
+
+/// `personal_names`, walked over the library.
+fn personal_names_of(lib: &crate::model::Library) -> BTreeSet<String> {
+    PERSONAL_WALKS.with(|n| n.set(n.get() + 1));
     let mut out = BTreeSet::new();
     for t in lib.types.values() {
         out.extend(
@@ -2107,7 +2128,7 @@ pub(crate) fn reads_any(e: &Expr, names: &BTreeSet<String>) -> bool {
 /// would be out of an erasure's reach and carried by the log's export,
 /// which leaves personal inputs out (D643).
 fn reads_personal(lib: &crate::model::Library, e: &Expr) -> bool {
-    reads_any(e, &personal_names(lib))
+    reads_any(e, personal_names(lib))
         || (identities_personal(lib) && reads_any(e, &identity_names(lib)))
 }
 

@@ -430,6 +430,15 @@ pub struct IdentityHeld {
 }
 
 impl Library {
+    /// Holds `t`, a type an earlier version declared and this one drops,
+    /// retired (`storage-schema.md` §10). Its personal attributes and its
+    /// erasure's inputs are the library's to mask, so the memo of what it
+    /// marks personal starts again.
+    pub(crate) fn hold_retired(&mut self, name: String, t: Type) {
+        self.types.insert(name, t);
+        self.personal = PersonalMemo::default();
+    }
+
     /// Where a value of type `identity` is held, by type: a single
     /// attribute, a set, and an input a transition takes, its own or an
     /// attribute's, which an erasure of an actor whose identity is personal
@@ -1672,6 +1681,24 @@ pub struct Library {
     /// decision 7): read here once, so a transition no clause names looks up
     /// its type's name and nothing more.
     pub followed: BTreeMap<String, BTreeMap<String, Vec<Followed>>>,
+    /// The names it marks personal, computed on first use
+    /// (`eval::personal_names`), which every request's digest reads.
+    pub(crate) personal: PersonalMemo,
+}
+
+/// What a library marks personal, computed once and shared by its clones,
+/// so a request reads it rather than walking the library (issue #116). A
+/// library changed after its load takes a new one: `hold_retired` does for
+/// a retired type, the one change a library takes then outside tests.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PersonalMemo(pub(crate) std::sync::Arc<std::sync::OnceLock<BTreeSet<String>>>);
+
+/// Libraries compare by what they declare, never by whether their memo is
+/// computed yet.
+impl PartialEq for PersonalMemo {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
 }
 
 /// The line a name is declared on in a module's text, a key indented once

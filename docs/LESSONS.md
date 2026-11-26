@@ -1102,3 +1102,8 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** On 2026-11-24, the full gate before 0.32.1's release record was pushed ran right after `scripts/release/verify`. Verify stops `objectflow-check-db` as it ends (`scripts/release/verify:64`), as the release gate does (`scripts/release/gate:123`), and stopping removes the container. The gate's PostgreSQL lane failed 373 tests in 47 s against no database.
 - **Correction:** After `scripts/release/gate` or `scripts/release/verify`, run `scripts/setup/postgres-check-db` before the next `scripts/check-all`. Read a PostgreSQL lane that fails hundreds of tests in seconds as a missing database first.
 - **Context:** ObjectFlow's release procedure, `core/README.md`'s *Releases*.
+
+### A judgment of the whole library, made again for every request
+- **Pattern:** Each request's digest read the names the library marks personal from `personal_names`, which judges every input of every transition. 0.32.0's #103 fixes added a hop to each judgment that tested every type for each composite part, so each request paid about fifteen times what it had. A dry run, which runs every example's requests, took twice as long on a library with composite parts (D706, issue #116). The fixes were tested for what they judged, and nobody counted how often the judgment ran.
+- **Correction:** Before making a function of the library dearer, count its callers' calls on a dry run (callgrind's caller tree gives them). Compute what depends on the library alone once a library, as `PersonalMemo` does, and start it again where the library changes after its load.
+- **Context:** The core's functions taking `&Library` on the request path; any judgment over a declaration that a hot path calls.

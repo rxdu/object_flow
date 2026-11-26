@@ -1138,7 +1138,7 @@ fn impact(
     // readable, and nothing creates or changes one (storage-schema.md §10)
     for (tn, t) in &old.types {
         if !new.types.contains_key(tn) {
-            new.types.insert(tn.clone(), retired(t));
+            new.hold_retired(tn.clone(), retired(t));
         }
     }
     // a type's history before a freeze opens no later than the publish that
