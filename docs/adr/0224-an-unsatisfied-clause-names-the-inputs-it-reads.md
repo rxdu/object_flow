@@ -2,6 +2,7 @@
 
 - **Status:** **Decided** 2026-10-20 under the author's direction ("go with your recommendation", on taking issue #28's proposed design into 0.5.0, a field named `inputs` in the transition's declared order).
 - **Date:** 2026-10-20
+- **Refined by:** ADR-0294 — a creation refused for an entry names the entry's fields its rule reads, which decision 2 named none of.
 - **Relates to:** issue #28; ADR-0173 decision 9 (an `invalid_input` names each input and its reason); `library-api.md` §4, `Unsatisfied`; `errors.md`; `integrate.md`, Refusals
 
 ## Context

@@ -154,6 +154,9 @@ class Refused(Exception):
         # call's entry, where the creation was one an each made for it; and an `over_limit` of an each's list, its
         # loop and bound (ADR-0290)
         self.entries, self.entry, self.loop, self.bound = entries, entry, loop, bound
+        # for a refused creation an each made: the type and transition it creates by, and the fields its entry holds
+        # (ADR-0294)
+        self.entry_target, self.entry_fields = None, ()
 
 
 class OutOfRange(Refused):
@@ -3530,7 +3533,8 @@ class Runner:
                     try:
                         self.take(ctx, spec["type"], spec["transition"], None, dict(values, **entry), depth + 1)
                     except Refused as r:
-                        raise self.call_refused(r, f"create {spec['type']}.{spec['transition']}", spec["type"], None, entry=n)
+                        raise self.call_refused(r, f"create {spec['type']}.{spec['transition']}", spec["type"], None, entry=n,
+                                                fields=(spec["transition"], spec.get(EACH_FIELDS) or ()))
                 reached = True
             elif kind == "create":
                 values = arguments(spec)
@@ -3581,13 +3585,18 @@ class Runner:
         return reached
 
     @staticmethod
-    def call_refused(r, step, target_type, target, entry=None):
+    def call_refused(r, step, target_type, target, entry=None, fields=None):
         """A refused call or creation refuses the request, naming the step, the object it targeted and its own
-        refusal (ADR-0122 decision 35), and the entry a creation an each made was for (ADR-0290); an expectation reads
-        that refusal's clause and remedy."""
+        refusal (ADR-0122 decision 35), and the entry a creation an each made was for (ADR-0290), with the transition
+        it creates by and the fields the entry holds, from which the Flow Studio tells the fields its clause reads
+        (ADR-0294); an expectation reads that refusal's clause and remedy."""
         inner_clause = r.clause if r.verdict == "call_refused" else qualified(r.clause, target_type)
-        return Refused("call_refused", inner_clause, r.remedy, detail=f"{step} on {target or 'a new object'}: {r.verdict}",
-                       object_id=target, step=step, inner=r, entry=entry)
+        refused = Refused("call_refused", inner_clause, r.remedy, detail=f"{step} on {target or 'a new object'}: {r.verdict}",
+                          object_id=target, step=step, inner=r, entry=entry)
+        if fields is not None:
+            refused.entry_target = (target_type, fields[0])
+            refused.entry_fields = tuple(fields[1])
+        return refused
 
     def cascades(self, ctx, t, tn, xn, o, inputs, depth):
         """The parts each composite end drives on this transition, in ascending id order, those already in a

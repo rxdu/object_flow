@@ -1323,9 +1323,19 @@ class Sandbox:
             if "proposable" in called:
                 called["proposable"] = False
             out.update(step=r.step, object_id=r.object_id, verdict=called)
-            # the entry a creation an each made was for (ADR-0290)
+            # the entry a creation an each made was for (ADR-0290), and the
+            # entry's fields a guard of the transition it creates by reads,
+            # never one the step names (ADR-0294)
             if r.entry is not None:
                 out["entry"] = r.entry
+                if inner is not None and inner.verdict == "unsatisfied" \
+                        and r.entry_target is not None:
+                    ttn, txn = r.entry_target
+                    tx = ((self.runner.kinds.get(ttn) or {})
+                          .get("transitions") or {}).get(txn)
+                    called["inputs"] = [
+                        n for n in self.clause_inputs(ttn, tx, inner.clause)
+                        if n in r.entry_fields]
             if "not_computed" in called:
                 out["not_computed"] = list(called["not_computed"])
         elif v == "stale":

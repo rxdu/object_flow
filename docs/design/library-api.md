@@ -183,7 +183,8 @@ class Unsatisfied:
     inputs: Sequence[str] = ()            # each input the clause reads, a form's fields to
                                           # mark, in the order its transition declares them;
                                           # none for a clause over no input, the engine's own
-                                          # or another object's (ADR-0224)
+                                          # or another object's (ADR-0224), but the fields of
+                                          # the entry a CallRefused names (ADR-0294)
     consulted: Mapping[str, Any] = field(default_factory=dict)
                                           # the metric values and evaluator verdicts
                                           # the clause was decided on (ADR-0096)
@@ -276,6 +277,8 @@ class CallRefused:
                                           # None for a creation that was refused
     verdict: "Verdict"                    # that call's or creation's refusal
     remedy: Remedy                        # that refusal's (ADR-0122)
+    entry: int | None = None              # the entry, from 0, a creation an `each` made was
+                                          # for (ADR-0290)
 
 
 Verdict = (

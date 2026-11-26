@@ -404,6 +404,10 @@ pub struct Refusal {
     /// generated guard's stated ones, or an invariant violation's
     /// conflicting objects, in ascending id order (`DESIGN.md` §5.5).
     pub objects: Vec<String>,
+    /// For a creation an `each` made, refused by a guard of the transition
+    /// it creates by: the entry's fields that guard reads, which its
+    /// `call_refused` tells (ADR-0294).
+    pub entry_inputs: Vec<String>,
 }
 
 /// Why a request stops before it applies: a refusal, or what the core did
@@ -804,6 +808,36 @@ fn entry_refused(
                 },
                 r,
             )
+        }
+        other => other,
+    }
+}
+
+/// A refusal of a creation an `each` made for an entry, with the entry's
+/// fields its clause reads where a guard of the transition it creates by
+/// refused it, a form's fields to mark in that entry (ADR-0294): each input
+/// `clause_inputs` names that the entry holds, never one the step names.
+/// Any other refusal, a deeper object's guard among them, names none, as
+/// ADR-0224 decision 2 says of a call's.
+fn entry_inputs_read(
+    lib: &Library,
+    stop: Stop,
+    type_: &str,
+    transition: &str,
+    step_inputs: &[(String, Expr)],
+) -> Stop {
+    match stop {
+        Stop::Refused(v, mut r) => {
+            if let Verdict::Unsatisfied { clause, .. } = &v
+                && let Some(k) = lib.type_(type_)
+                && let Some(y) = k.transition(transition)
+            {
+                r.entry_inputs = clause_inputs(k, y, clause)
+                    .into_iter()
+                    .filter(|j| crate::model::entry_holds(k, step_inputs, j))
+                    .collect();
+            }
+            Stop::Refused(v, r)
         }
         other => other,
     }
@@ -5917,9 +5951,10 @@ fn effects(
                     ctx.entry = Some(n);
                     let made = take(ctx, alloc, type_, transition, None, taken, depth + 1);
                     ctx.entry = None;
+                    let lib = ctx.work.lib;
                     made.map_err(|s| {
                         entry_refused(
-                            s,
+                            entry_inputs_read(lib, s, type_, transition, binds),
                             format!("create {type_}.{transition}"),
                             type_,
                             None,
@@ -7757,8 +7792,9 @@ pub fn request(
 /// What a refusal tells its caller beside its verdict (`library-api.md`
 /// §4): its clause unknown or false, the objects its remedy points at,
 /// whether the transition requested would take a proposal, which a
-/// refusal of a guard of its own, a generated one included, may, and what
-/// the clause consulted.
+/// refusal of a guard of its own, a generated one included, may, what
+/// the clause consulted, and the caller's inputs it reads (ADR-0224,
+/// ADR-0294).
 fn told(lib: &Library, world: &World<'_>, req: &Request, v: &Verdict, r: &Refusal) -> Told {
     let requested = match (&req.object_id, &req.type_) {
         (Some(id), _) => world.get(id).ok().flatten().map(|o| o.type_.clone()),
@@ -7791,6 +7827,9 @@ fn told(lib: &Library, world: &World<'_>, req: &Request, v: &Verdict, r: &Refusa
                     .map(|x| clause_inputs(t, x, clause))
             })
             .unwrap_or_default(),
+        // a creation refused for an entry: the entry's fields its clause
+        // reads, which its call's verdict tells (ADR-0294)
+        Verdict::CallRefused { entry: Some(_), .. } => r.entry_inputs.clone(),
         _ => Vec::new(),
     };
     Told {
@@ -7812,7 +7851,8 @@ fn told(lib: &Library, world: &World<'_>, req: &Request, v: &Verdict, r: &Refusa
 /// attribute's input; for any other clause, none, whether the engine's own
 /// over the actor, the object or the store, or a guard of an object the
 /// request reached beyond the one it names, whose inputs are no field of
-/// the caller's. It is the declaration's, the same for every request.
+/// the caller's, an entry's creation's aside (`entry_inputs_read`). It is
+/// the declaration's, the same for every request.
 pub(crate) fn clause_inputs(t: &Type, x: &Transition, clause: &str) -> Vec<String> {
     let mut read = BTreeSet::new();
     let condition = x
@@ -22353,6 +22393,193 @@ types:
             clause_inputs(t, t.transition("extend").unwrap(), "first_day_provided"),
             Vec::<String>::new()
         );
+    }
+
+    /// An item admitted with its units, each entry a unit's lot and
+    /// quantity, the step naming its item and cap (issue #115, ADR-0294).
+    const STOCKING: &str = r#"
+module: stocking
+categories: [live, closed]
+types:
+  Item:
+    attributes:
+      code: { type: string }
+      cap: { type: int }
+    states:
+      LISTED: { category: live }
+    transitions:
+      admit:
+        kind: initial
+        to: LISTED
+        required_inputs: [code, cap]
+        effect:
+          - create: { type: Unit, transition: add, inputs: { item: this, cap: inputs.cap }, each: units, limit: 5 }
+          - create: { type: Note, transition: write, inputs: { text: inputs.code } }
+  Unit:
+    attributes:
+      item: { reference: Item }
+      qty: { type: int }
+      lot: { type: string }
+      cap: { type: int }
+    conditions:
+      item_holds_any: { expression: inputs.cap > 0, remedy: self_serviceable }
+      lot_or_none: { expression: inputs.lot != "none" or inputs.qty == 0, remedy: self_serviceable }
+      within_cap: { expression: inputs.qty <= inputs.cap, remedy: self_serviceable }
+    states:
+      OPEN: { category: live }
+    transitions:
+      add:
+        kind: initial
+        to: OPEN
+        required_inputs: [item, qty, lot, cap]
+        guards: { item_holds_any: deny, lot_or_none: deny, within_cap: deny }
+        effect:
+          - create: { type: Note, transition: write, inputs: { text: inputs.lot } }
+  Note:
+    attributes:
+      text: { type: string }
+    conditions:
+      legible: { expression: inputs.text != "smudged", remedy: self_serviceable }
+    states:
+      KEPT: { category: live }
+    transitions:
+      write: { kind: initial, to: KEPT, required_inputs: [text], guards: { legible: deny } }
+"#;
+
+    /// A creation refused for an entry by a guard of the transition it
+    /// creates by names the entry's fields that guard reads, in the order
+    /// the target declares them, so a form marks them in that entry (issue
+    /// #115, ADR-0294): a rule over two of the entry's fields names both,
+    /// as a request of the target names them; one over a field and an input
+    /// the step names names the field alone; one over the step's alone
+    /// names none. A guard deeper than the entry's object, and one of a
+    /// creation no `each` made, name none (ADR-0224 decision 2). `check`
+    /// answers as the request does.
+    #[test]
+    fn a_creation_refused_for_an_entry_names_the_fields_its_rule_reads() {
+        let lib = Library::load(&[("stocking.yaml".into(), STOCKING.into())]).unwrap();
+        let mut s = Store::sandbox(lib, 0).unwrap();
+        let admit = |cap: i64, units: Json| {
+            asked(
+                "admit",
+                ("Item", true),
+                json!({"code": "A-1", "cap": cap, "units": units}),
+            )
+        };
+        let unit = |lot: &str, qty: i64| json!({"lot": lot, "qty": qty});
+        // the entry, the leaf's clause and what it tells, on request and
+        // on check alike
+        let entry_told = |s: &mut Store, r: &Request| {
+            let checked = check(s, r).unwrap().unwrap();
+            let (v, t) = request_told(s, r).unwrap().unwrap();
+            assert_eq!((&checked.verdict, &checked.told), (&v, &t), "{r:?}");
+            let Verdict::CallRefused { entry, verdict, .. } = &v else {
+                panic!("{v:?}")
+            };
+            let leaf = match &**verdict {
+                Verdict::Unsatisfied { clause, .. } => clause.clone(),
+                Verdict::CallRefused { clause, .. } => clause.clone().unwrap_or_default(),
+                other => panic!("{other:?}"),
+            };
+            (*entry, leaf, t.inputs)
+        };
+        let names = |ns: &[&str]| ns.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        // two of the entry's fields, in the target's declared order, not
+        // the expression's nor their names'
+        assert_eq!(
+            entry_told(&mut s, &admit(5, json!([unit("L1", 1), unit("none", 2)]))),
+            (Some(1), "lot_or_none".into(), names(&["qty", "lot"]))
+        );
+        // a field beside an input the step names: the field alone
+        assert_eq!(
+            entry_told(&mut s, &admit(5, json!([unit("L1", 9)]))),
+            (Some(0), "within_cap".into(), names(&["qty"]))
+        );
+        // an input the step names alone: none
+        assert_eq!(
+            entry_told(&mut s, &admit(0, json!([unit("L1", 1)]))),
+            (Some(0), "item_holds_any".into(), names(&[]))
+        );
+        // a guard of an object the entry's creation made in turn: none
+        assert_eq!(
+            entry_told(&mut s, &admit(5, json!([unit("smudged", 1)]))),
+            (Some(0), "Note.legible".into(), names(&[]))
+        );
+        // a batch's refused request tells it as the request alone does
+        let refused = admit(5, json!([unit("L1", 1), unit("none", 2)]));
+        let Ok(Batched::Refused { index, answer }) = batch(
+            &mut s,
+            &[
+                asked("admit", ("Item", true), json!({"code": "A-0", "cap": 5})),
+                refused,
+            ],
+            None,
+        )
+        .unwrap() else {
+            panic!("the batch applied")
+        };
+        let (v, t) = (*answer).unwrap();
+        assert!(
+            matches!(&v, Verdict::CallRefused { entry: Some(1), .. }),
+            "{v:?}"
+        );
+        assert_eq!((index, t.inputs), (1, names(&["qty", "lot"])));
+        // the target requested itself names both the entry's fields, and
+        // the step's input too, which is the caller's there (ADR-0224)
+        let item = created(&req(
+            &mut s,
+            "admit",
+            OPERATOR,
+            ("Item", true),
+            json!({"code": "A-2", "cap": 5}),
+        ));
+        let (v, t) = request_told(
+            &mut s,
+            &asked(
+                "add",
+                ("Unit", true),
+                json!({"item": item, "lot": "none", "qty": 9, "cap": 5}),
+            ),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(
+            matches!(&v, Verdict::Unsatisfied { clause, .. } if clause == "lot_or_none"),
+            "{v:?}"
+        );
+        assert_eq!(t.inputs, names(&["qty", "lot"]));
+        let (v, t) = request_told(
+            &mut s,
+            &asked(
+                "add",
+                ("Unit", true),
+                json!({"item": item, "lot": "L1", "qty": 9, "cap": 5}),
+            ),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(
+            matches!(&v, Verdict::Unsatisfied { clause, .. } if clause == "within_cap"),
+            "{v:?}"
+        );
+        assert_eq!(t.inputs, names(&["qty", "cap"]));
+        // a creation no each made names none, its guard reading an input
+        // of the step's
+        let (v, t) = request_told(
+            &mut s,
+            &asked(
+                "admit",
+                ("Item", true),
+                json!({"code": "smudged", "cap": 5}),
+            ),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(
+            matches!(&v, Verdict::CallRefused { entry: None, clause, .. } if clause.as_deref() == Some("Note.legible")),
+            "{v:?}"
+        );
+        assert_eq!(t.inputs, names(&[]));
     }
 
     #[test]

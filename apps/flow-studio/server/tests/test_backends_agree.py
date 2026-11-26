@@ -661,6 +661,88 @@ def test_entries_are_taken_and_refused_alike(tee):
     assert tee.found[before:] == [], tee.found[before:]
 
 
+STOCKING = """module: stocking
+categories: [live, closed]
+types:
+  Item:
+    description: An item admitted with its units.
+    tracking: record
+    attributes:
+      code: { type: string, description: Its code. }
+      cap: { type: int, description: The most units a lot may hold. }
+    states:
+      LISTED: { description: Listed., category: live }
+      RETIRED: { description: Retired., category: closed, final: true }
+    transitions:
+      admit:
+        kind: initial
+        to: LISTED
+        required_inputs: [code, cap]
+        description: Admits it with its units.
+        effect:
+          - create: { type: Unit, transition: add, inputs: { item: this, cap: inputs.cap }, each: units, limit: 5 }
+      retire: { kind: external, from: [LISTED], to: RETIRED, description: Retires it. }
+  Unit:
+    description: Units of an item from one lot.
+    tracking: record
+    attributes:
+      item: { reference: Item, description: Its item. }
+      qty: { type: int, description: How many. }
+      lot: { type: string, description: Its lot. }
+      cap: { type: int, description: Its item's cap. }
+    states:
+      OPEN: { description: Open., category: live }
+      CLOSED: { description: Closed., category: closed, final: true }
+    conditions:
+      item_holds_any: { description: The item holds some., expression: inputs.cap > 0, remedy: self_serviceable }
+      lot_or_none: { description: A lot unless none., expression: inputs.lot != "none" or inputs.qty == 0, remedy: self_serviceable }
+      within_cap: { description: No more than the cap., expression: inputs.qty <= inputs.cap, remedy: self_serviceable }
+    transitions:
+      add:
+        kind: initial
+        to: OPEN
+        required_inputs: [item, qty, lot, cap]
+        description: Adds units.
+        guards: { item_holds_any: deny, lot_or_none: deny, within_cap: deny }
+      close: { kind: external, from: [OPEN], to: CLOSED, description: Closes it. }
+"""
+
+
+def test_a_refused_entry_names_the_fields_its_rule_reads_alike(tee):
+    """A creation refused for an entry by a guard of the transition it
+    creates by names the entry's fields that guard reads, in the order the
+    target declares them, by both backends, and on a check by the core,
+    which alone serves it (issue #115, ADR-0294): a rule over two of the
+    entry's fields names both; one
+    over a field and an input the step names, the field alone; one over the
+    step's input alone, none."""
+    tee.module = "stocking (entries refused)"
+    before = len(tee.found)
+    op = {"id": "operator"}
+    loaded = tee.post("/sandbox/load", {"files": [{"name": "stocking.yaml",
+                                                   "text": STOCKING}]})
+    assert loaded["loaded"], loaded
+    tee.post("/sandbox/reset", {})
+
+    def admit(cap, units):
+        return {"actor": op, "type": "Item", "transition": "admit",
+                "inputs": {"code": "A-1", "cap": cap, "units": units}}
+
+    for cap, units, entry, clause, inputs in [
+            (5, [{"lot": "L1", "qty": 1}, {"lot": "none", "qty": 2}], 1, "Unit.lot_or_none", ["qty", "lot"]),
+            (5, [{"lot": "L1", "qty": 9}], 0, "Unit.within_cap", ["qty"]),
+            (0, [{"lot": "L1", "qty": 1}], 0, "Unit.item_holds_any", [])]:
+        # a check is the core's alone, which the runner does not serve
+        _, checked = raw(tee.core, "POST", "/v1/check", admit(cap, units))
+        for at, said in (("/v1/request", tee.post("/v1/request", admit(cap, units))),
+                         ("/v1/check", checked["verdict"])):
+            assert (said["kind"], said["entry"]) == ("call_refused", entry), said
+            called = said["verdict"]
+            assert (called["kind"], called["clause"], called["inputs"]) == (
+                "unsatisfied", clause, inputs), (at, said)
+    assert tee.found[before:] == [], tee.found[before:]
+
+
 def test_entries_are_declared_offered_and_published_alike(tee):
     """A list a create's `each` takes (ADR-0290) is served alike by both
     backends: `declaration` describes it by its entries' fields, its limit,

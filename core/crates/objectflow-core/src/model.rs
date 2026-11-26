@@ -2011,17 +2011,12 @@ fn expand_rest(
                 let Some(y) = k.transition(transition) else {
                     continue;
                 };
-                let given: BTreeSet<&String> = inputs.iter().map(|(n, _)| n).collect();
                 let names: BTreeSet<&String> = y
                     .required_inputs
                     .iter()
                     .chain(&y.optional_inputs)
                     .chain(y.inputs.iter().map(|(n, _)| n))
-                    .filter(|j| {
-                        !given.contains(j)
-                            && !(k.observation_on.is_some()
-                                && (j.as_str() == "subject" || j.as_str() == "corrects"))
-                    })
+                    .filter(|j| entry_holds(k, inputs, j))
                     .collect();
                 let mut fields = Vec::new();
                 let mut served = serde_json::Map::new();
@@ -2127,6 +2122,14 @@ fn expand_rest(
             _ => {}
         }
     }
+}
+
+/// Whether an entry holds the input `j` of the type `k` a `create`'s
+/// `each` makes: one the step does not name in `step_inputs`, and never an
+/// observation kind's `subject` or `corrects` (ADR-0290 decision 2).
+pub(crate) fn entry_holds(k: &Type, step_inputs: &[(String, Expr)], j: &str) -> bool {
+    !step_inputs.iter().any(|(n, _)| n == j)
+        && !(k.observation_on.is_some() && (j == "subject" || j == "corrects"))
 }
 
 /// The input of `k`'s transition `y` named `j`, as an input of the act

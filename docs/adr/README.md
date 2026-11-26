@@ -294,4 +294,5 @@
 | [0291](0291-an-entrys-faults-its-lists-default-and-its-redaction-on-the-wire.md) | An entry's faults, its list's default and its redaction on the wire | Decided under the author's direction; built |
 | [0292](0292-an-object-follows-a-transition-of-the-object-it-refers-to.md) | An object follows a transition of the object it refers to | Decided by the author; built |
 | [0293](0293-a-follows-refused-arithmetic-its-missing-limit-and-a-machines-reference.md) | A follow's refused arithmetic, its missing limit and a machine's reference | Decided under the author's direction; built |
+| [0294](0294-a-creation-refused-for-an-entry-names-the-fields-its-rule-reads.md) | A creation refused for an entry names the fields its rule reads | Decided under the author's direction; built |
 | [0183](0183-production-readiness-the-authors-four-decisions-and-the-services-hardening.md) | Production readiness: the author's four decisions, and the service's hardening | Decisions 1–4 decided by the author; 5–10 built under them; SIGTERM's dependency put to the author |
