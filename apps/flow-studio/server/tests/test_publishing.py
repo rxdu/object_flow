@@ -4891,6 +4891,33 @@ def test_a_type_moved_to_another_module_under_its_name_is_the_same_type(tee):
     alike(tee)
 
 
+def test_a_type_moved_to_another_module_under_a_new_name_is_not_gone(tee):
+    """A type another module moves under a new name, the move declared in
+    that module's migration, the one place that names the target: the dry
+    run gives no `check:migration` notice that the type is gone from the
+    module it left, and the approval moves its objects, which keep their ids
+    and take the target's transitions (ADR-0229, issue #117). Both backends
+    alike."""
+    head = "categories: [live, closed]\n"
+    assert tee.post("/sandbox/load", {"files": [
+        {"name": "intake.yaml",
+         "text": "module: intake\n" + head + PRIORITY + "types:\n" + TICKET + NOTE}]})["loaded"]
+    tee.post("/sandbox/reset", {})
+    ticket = made(tee, "Ticket", "raise", title="Leak", priority="HIGH")
+    tee.found.clear()
+    intake = "module: intake\n" + head + "types:\n" + NOTE
+    case = TICKET.replace("  Ticket:\n    description: A ticket.\n", "  Case:\n    description: A case.\n")
+    assert case != TICKET
+    triage = ("module: triage\n" + head + PRIORITY + "types:\n" + case
+              + "migration:\n  description: A ticket is a case.\n  moved_types:\n    Ticket: [ { to: Case } ]\n")
+    c, codes = dry_run(tee, {"intake": intake, "triage": triage})
+    assert "check:migration" not in codes, codes
+    approved(tee, c)
+    assert tee.post("/v1/get", {"id": ticket})["type"] == "Case"
+    took(tee, ticket, "shut")
+    alike(tee)
+
+
 FORMAT_SHELF = """module: shelf
 categories: [live]
 enumerations:

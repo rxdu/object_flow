@@ -1,0 +1,32 @@
+module: triage
+categories: [live, closed]
+enumerations:
+  Priority: [LOW, HIGH, URGENT]
+types:
+  Board:
+    description: A board.
+    tracking: record
+    attributes:
+      text: { type: string }
+    states:
+      KEPT: { description: Kept., category: live }
+      BINNED: { description: Binned., category: closed, final: true }
+    transitions:
+      pin: { kind: initial, to: KEPT, required_inputs: [text] }
+      bin: { kind: external, from: KEPT, to: BINNED }
+  Case:
+    description: A case.
+    tracking: record
+    attributes:
+      title: { type: string }
+      priority: { type: Priority }
+    states:
+      OPEN: { description: Open., category: live }
+      SHUT: { description: Shut., category: closed, final: true }
+    transitions:
+      raise: { kind: initial, to: OPEN, required_inputs: [title, priority] }
+      shut: { kind: external, from: OPEN, to: SHUT }
+migration:
+  description: A ticket is a case.
+  moved_types:
+    Ticket: [ { to: Case } ]

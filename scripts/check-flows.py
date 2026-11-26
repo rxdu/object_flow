@@ -2650,7 +2650,8 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
     `prev` is a store's installed version, `installed`, a mapping naming a
     state, a member or an attribute it lacks is left to the publish, which
     notices it (ADR-0230 decision 2), a move's state map's included (ADR-0252). `moved` is every type a module of the
-    version moves (`moved_types`), this module's own where it is not given;
+    version moves (`moved_types`), this module's own where it is not given, one gone from this module that is not gone
+    from the version (issue #117);
     `enum_renames` maps each enumeration a module of the version renames to its
     new name, this module's own where it is not given, and `enums_before` holds
     every enumeration of the version before with its members (ADR-0247
@@ -2764,9 +2765,10 @@ def migration_pair_errors(prev, doc, library, before=None, installed=False, move
                                   f"{o}.{fld} is added to an observation kind and is required; an observation is born final, so nothing could fill it"))
     # every type a module of the version moves, which a reference follows
     every_moved = moved
-    # a type the version removes: moved, retired, or noticed (ADR-0229)
+    # a type the version removes: moved, retired, or noticed (ADR-0229); one another module declares, or moves under
+    # a new name, is not removed from the version (issue #117)
     moved, retired = m.get("moved_types") or {}, m.get("retired_types") or {}
-    for tn in sorted(set(old) - set(new) - machines - declared):
+    for tn in sorted(set(old) - set(new) - machines - declared - every_moved):
         if tn not in moved and tn not in retired and not old[tn].get("abstract"):
             notes.append((("types",), "migration", f"{tn} is gone from this module: unless another module declares it, a publish over "
                                                    "its objects not in a final state needs moved_types or retired_types for it (ADR-0229)"))
@@ -12681,6 +12683,10 @@ def moved_module_plants():
     triage = "module: triage\n" + head + priority + "types:\n" + board + ticket
     renamed_state = p(p(triage, "      SHUT: { description: Shut.,", "      CLOSED: { description: Closed.,"),
                       "to: SHUT }", "to: CLOSED }")
+    # the ticket renamed as it moves, the move declared in the module that declares its target, the one place a
+    # migration may name it (issue #117)
+    renamed = (p(triage, "  Ticket:\n    description: A ticket.\n", "  Case:\n    description: A case.\n")
+               + "migration:\n  description: A ticket is a case.\n  moved_types:\n    Ticket: [ { to: Case } ]\n")
     gone = ("Ticket is gone from this module: unless another module declares it, a publish over its objects not in a "
             "final state needs moved_types or retired_types for it (ADR-0229)")
     cases = [
@@ -12706,6 +12712,10 @@ def moved_module_plants():
          {"intake.yaml": intake_v1},
          ["Priority.URGENT is gone: a publish needs a mapping for it if live objects hold it, and is refused if an "
           "observation does"]),
+        ("under a new name, the move declared where it lands (issue #117)",
+         [("intake.yaml", intake), ("triage.yaml", renamed)], {"intake.yaml": intake_v1, "triage.yaml": triage_v1}, []),
+        ("under a new name, the module it left checked alone", [("intake.yaml", intake)],
+         {"intake.yaml": intake_v1, "triage.yaml": triage_v1}, [gone]),
     ]
     ok = True
     for name, files, previous, want in cases:

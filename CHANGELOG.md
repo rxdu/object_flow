@@ -2,6 +2,12 @@
 
 What each release of ObjectFlow's engine changed, for whoever runs it or builds on it. Releases follow semantic versioning (ADR-0180 decision 6), and from 1.0.0 the wire `/v1`, flow format 1 and the store's upgrade are held to ADR-0180's promise; a change that may refuse what an earlier release accepted is listed under its own heading. Each release is tagged `v<version>`, its service built from the tag with a SHA-256 checksum (`.github/workflows/release.yml`), from 0.3.0 on; 0.1.0 and 0.2.0 were never tagged.
 
+## Unreleased
+
+### Fixed
+
+- A type moved to another module under a new name, the move declared in the `moved_types` of the module that declares its target, was noted `migration`, gone from the module it left, though the version moves it. It is now noted only where no module checked declares it or moves it (issue #117, D707).
+
 ## 0.33.0, 2026-11-26
 
 A release before 1.0.0, as 0.32.2 was (ADR-0214), and a minor, since a refusal of an entry's creation now names the entry's fields its rule reads, where 0.32.2 named none (issue #115, ADR-0294; ADR-0180 decision 6). It also brings a dry run back below 0.30.0's time, which 0.32.0 had made grow with the library for every request (issue #116, D706). It refuses nothing 0.32.2 accepted. It changes neither the store's own tables nor its built-ins, so its step from 0.32.2 records the release alone.

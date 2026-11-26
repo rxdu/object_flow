@@ -30175,6 +30175,70 @@
   "could_violate": {}
  },
  {
+  "label": "moved_module_plants: under a new name, the move declared where it lands (issue #117)",
+  "files": [
+   [
+    "intake.yaml",
+    "b1ff4a32c250f036"
+   ],
+   [
+    "triage.yaml",
+    "35e45d82951c6b55"
+   ]
+  ],
+  "previous": {
+   "intake.yaml": "d2875ec0ec0eeb53",
+   "triage.yaml": "94742b9baf767109"
+  },
+  "findings": [],
+  "analysed": {
+   "Board": [
+    0,
+    0
+   ],
+   "Case": [
+    0,
+    0
+   ],
+   "Note": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
+  "label": "moved_module_plants: under a new name, the module it left checked alone",
+  "files": [
+   [
+    "intake.yaml",
+    "b1ff4a32c250f036"
+   ]
+  ],
+  "previous": {
+   "intake.yaml": "d2875ec0ec0eeb53",
+   "triage.yaml": "94742b9baf767109"
+  },
+  "findings": [
+   [
+    "intake.yaml",
+    3,
+    "notice",
+    "migration",
+    "Ticket is gone from this module: unless another module declares it, a publish over its objects not in a final state needs moved_types or retired_types for it (ADR-0229)"
+   ]
+  ],
+  "analysed": {
+   "Note": [
+    0,
+    0
+   ]
+  },
+  "forms": {},
+  "could_violate": {}
+ },
+ {
   "label": "renamed_enumeration_plants: an enumeration renamed",
   "files": [
    [

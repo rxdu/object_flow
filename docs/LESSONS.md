@@ -39,6 +39,7 @@ Operational lessons from working on this project. See [`adr/`](adr/) for design 
 - **Pattern:** Twice in one repair, a fix was applied to fenced declaration blocks and declared complete. The first time, five case studies were "re-expressed in the new grammar" and their mapping tables, guard tables, prose and "what held without change" sections kept the superseded notation and the superseded rules. The second time, a null-test fix corrected four lines in fenced blocks and left nine in tables and prose plus four in the ADRs, while its own ADR claimed a mechanical sweep had found no other violation.
 - **Correction:** When a change invalidates a form of words, grep for the words across every file and every context, not for the construct in the shape you happen to be editing. A claim that a sweep was exhaustive must state what it swept; "every declaration block" is not "every occurrence".
 - **Context:** Repairing a design record; applies to any rename or semantic change across prose and code alike.
+- **Recurred 2026-11-26**, in a checker. D705 stopped the `gone` notice for a type another module declares under its own name, and left the same notice for a type another module moves under a new name, though the check already held every module's moves a few lines above (D707, issue #117). When a fix exempts one form of a construct from a check, list every form that makes the same case true, here every way a type can stay in the version, and test each.
 
 ### The sections most likely to go stale are the ones that summarise
 

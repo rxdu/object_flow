@@ -958,8 +958,9 @@ fn history_pair_errors(old: &Obj, new: &Obj, m: &Value) -> Found {
 /// version, `installed`, a mapping naming a state, a member or an attribute
 /// it lacks is left to the publish, which notices it (ADR-0230 decision 2),
 /// a move's state map's included (ADR-0252).
-/// `moved` is every type a module of the version moves ([`moved_types`]);
-/// `enum_renames` maps each enumeration a module of the version renames to
+/// `moved` is every type a module of the version moves ([`moved_types`]),
+/// one gone from this module that is not gone from the version (issue
+/// #117); `enum_renames` maps each enumeration a module of the version renames to
 /// its new name ([`renamed_enumerations`]), and `enums_before` holds every
 /// enumeration of the version before with its members (ADR-0247 decision 1),
 /// one this module now declares read there when this module's previous text
@@ -1247,7 +1248,9 @@ pub fn migration_pair_errors(
     }
     // every type a module of the version moves, which a reference follows
     let every_moved = moved;
-    // a type the version removes: moved, retired, or noticed (ADR-0229)
+    // a type the version removes: moved, retired, or noticed (ADR-0229); one
+    // another module declares, or moves under a new name, is not removed from
+    // the version (issue #117)
     let moved = obj(&m, "moved_types").clone();
     let retired = obj(&m, "retired_types").clone();
     let mut gone: Vec<&String> = old
@@ -1259,6 +1262,7 @@ pub fn migration_pair_errors(
         if !moved.contains_key(tn)
             && !retired.contains_key(tn)
             && !declared.contains(tn)
+            && !every_moved.contains(tn)
             && !flag(&old[tn], "abstract")
         {
             notes.push(finding(
