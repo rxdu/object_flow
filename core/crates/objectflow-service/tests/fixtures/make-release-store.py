@@ -60,8 +60,9 @@ them, those under release-0.31.0/ by the service published as v0.31.0, built at 
 SHA-256, from the modules as 0.31.0 shipped them, those under release-0.32.0/ by the service published as v0.32.0,
 built at 83c993e and checked against its SHA-256, from the modules as 0.32.0 shipped them, those under
 release-0.32.1/ by the service published as v0.32.1, built at 23ad6e2 and checked against its SHA-256, from the modules
-as 0.32.1 shipped them, and those under release-0.32.2/ by the service published as v0.32.2, built at 96eb1f4 and
-checked against its SHA-256, from the modules as 0.32.2 shipped them.
+as 0.32.1 shipped them, those under release-0.32.2/ by the service published as v0.32.2, built at 96eb1f4 and
+checked against its SHA-256, from the modules as 0.32.2 shipped them, and those under release-0.33.0/ by the service
+published as v0.33.0, built at 59ba260 and checked against its SHA-256, from the modules as 0.33.0 shipped them.
 """
 import json
 import pathlib
