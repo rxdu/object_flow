@@ -3,6 +3,10 @@
 # (TODO.md, F. The release gate), in this order on an idle machine:
 #   build          the release build, stamped with the commit
 #   gates          Gates P and I on both backends (scripts/release/gates)
+#   dry-run        a dry run's CPU, by the build and by the release before's
+#                  published service, on the samples and a generated module of
+#                  15 types with composite parts (scripts/profile/dry-run.py,
+#                  D706); recorded, not judged
 #   upgrade        the stores the release before's published service makes,
 #                  upgraded on PostgreSQL by the build (upgrade-check.py)
 #   repair         a store the published 0.12.0 made, taken through each step
@@ -30,7 +34,7 @@ PY=$ROOT/scripts/.venv/bin/python
 VERSION=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' "$ROOT/core/Cargo.toml")
 PREVIOUS=$(git -C "$ROOT" describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null | sed 's/^v//')
 WORK=${TMPDIR:-/tmp}/objectflow-release-$VERSION
-STAGES=build,gates,upgrade,repair,release-tests,timing,check-all
+STAGES=build,gates,dry-run,upgrade,repair,release-tests,timing,check-all
 GATES_ARGS=()
 while [ $# -gt 0 ]; do
   case $1 in
@@ -75,6 +79,15 @@ if wants gates; then
   rc=$?
   grep -E "attempt|^== |^   (the|no) " "$WORK/gates.log" | grep -v "^== done"
   said gates $rc
+fi
+if wants dry-run; then
+  stage dry-run
+  prev=$("$ROOT/scripts/release/published" "$PREVIOUS" "$WORK/pub-$PREVIOUS" 2> "$WORK/pub-$PREVIOUS.log") &&
+    (for b in "$BIN" "$prev"; do "$PY" "$ROOT/scripts/profile/dry-run.py" "$b" --runs 2 --parts 15 || exit 1; done) \
+      > "$WORK/dry-run.log" 2>&1
+  rc=$?
+  grep -E "load average|^run " "$WORK/dry-run.log" | sed 's/^/   /'
+  said dry-run $rc
 fi
 if wants upgrade; then
   stage upgrade
