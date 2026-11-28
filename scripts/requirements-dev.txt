@@ -9,7 +9,7 @@
 # words of its own in the findings, so it waits for a change of its own. Its
 # dependencies are taken as Dependabot proposes them within its ranges, every
 # check's output the same (2026-10-18).
-PyYAML==6.0.3
+PyYAML==6.0.4
 jsonschema==3.2.0
 attrs==26.1.0
 pyrsistent==0.20.0
